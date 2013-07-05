@@ -48,12 +48,23 @@
 #ifdef USE_LIBXML
 #include <libxml/chvalid.h>
 #include <libxml/parser.h>
+#include <libxml/parserInternals.h>
 #include <libxml/tree.h>
 #include <libxml/uri.h>
 #include <libxml/xmlerror.h>
+#include <libxml/xmlversion.h>
 #include <libxml/xmlwriter.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
+
+/*
+ * We used to check for xmlStructuredErrorContext via a configure test; but
+ * that doesn't work on Windows, so instead use this grottier method of
+ * testing the library version number.
+ */
+#if LIBXML_VERSION >= 20704
+#define HAVE_XMLSTRUCTUREDERRORCONTEXT 1
+#endif
 #endif   /* USE_LIBXML */
 
 #include "catalog/namespace.h"
@@ -99,8 +110,12 @@ struct PgXmlErrorContext
 	/* previous libxml error handling state (saved by pg_xml_init) */
 	xmlStructuredErrorFunc saved_errfunc;
 	void	   *saved_errcxt;
+	/* previous libxml entity handler (saved by pg_xml_init) */
+	xmlExternalEntityLoader saved_entityfunc;
 };
 
+static xmlParserInputPtr xmlPgEntityLoader(const char *URL, const char *ID,
+				  xmlParserCtxtPtr ctxt);
 static void xml_errorHandler(void *data, xmlErrorPtr error);
 static void xml_ereport_by_code(int level, int sqlcode,
 					const char *msg, int errcode);
@@ -965,7 +980,7 @@ pg_xml_init(PgXmlStrictness strictness)
 	 *
 	 * The only known situation in which this test fails is if we compile with
 	 * headers from a libxml2 that doesn't track the structured error context
-	 * separately (<= 2.7.3), but at runtime use a version that does, or vice
+	 * separately (< 2.7.4), but at runtime use a version that does, or vice
 	 * versa.  The libxml2 authors did not treat that change as constituting
 	 * an ABI break, so the LIBXML_TEST_VERSION test in pg_xml_init_library
 	 * fails to protect us from this.
@@ -984,6 +999,13 @@ pg_xml_init(PgXmlStrictness strictness)
 				 errhint("This probably indicates that the version of libxml2"
 						 " being used is not compatible with the libxml2"
 						 " header files that PostgreSQL was built with.")));
+
+	/*
+	 * Also, install an entity loader to prevent unwanted fetches of external
+	 * files and URLs.
+	 */
+	errcxt->saved_entityfunc = xmlGetExternalEntityLoader();
+	xmlSetExternalEntityLoader(xmlPgEntityLoader);
 
 	return errcxt;
 }
@@ -1027,8 +1049,9 @@ pg_xml_done(PgXmlErrorContext *errcxt, bool isError)
 	if (cur_errcxt != (void *) errcxt)
 		elog(WARNING, "libxml error handling state is out of sync with xml.c");
 
-	/* Restore the saved handler */
+	/* Restore the saved handlers */
 	xmlSetStructuredErrorFunc(errcxt->saved_errcxt, errcxt->saved_errfunc);
+	xmlSetExternalEntityLoader(errcxt->saved_entityfunc);
 
 	/*
 	 * Mark the struct as invalid, just in case somebody somehow manages to
@@ -1473,6 +1496,25 @@ xml_pstrdup(const char *string)
 
 
 /*
+ * xmlPgEntityLoader --- entity loader callback function
+ *
+ * Silently prevent any external entity URL from being loaded.  We don't want
+ * to throw an error, so instead make the entity appear to expand to an empty
+ * string.
+ *
+ * We would prefer to allow loading entities that exist in the system's
+ * global XML catalog; but the available libxml2 APIs make that a complex
+ * and fragile task.  For now, just shut down all external access.
+ */
+static xmlParserInputPtr
+xmlPgEntityLoader(const char *URL, const char *ID,
+				  xmlParserCtxtPtr ctxt)
+{
+	return xmlNewStringInputStream(ctxt, (const xmlChar *) "");
+}
+
+
+/*
  * xml_ereport --- report an XML-related error
  *
  * The "msg" is the SQL-level message; some can be adopted from the SQL/XML
@@ -1566,7 +1608,14 @@ xml_errorHandler(void *data, xmlErrorPtr error)
 		case XML_FROM_NONE:
 		case XML_FROM_MEMORY:
 		case XML_FROM_IO:
-			/* Accept error regardless of the parsing purpose */
+			/*
+			 * Suppress warnings about undeclared entities.  We need to do
+			 * this to avoid problems due to not loading DTD definitions.
+			 */
+			if (error->code == XML_WAR_UNDECLARED_ENTITY)
+				return;
+
+			/* Otherwise, accept error regardless of the parsing purpose */
 			break;
 
 		default:

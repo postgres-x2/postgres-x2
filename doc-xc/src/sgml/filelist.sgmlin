@@ -32,6 +32,7 @@
 <!ENTITY mvcc       SYSTEM "mvcc.sgml">
 <!ENTITY perform    SYSTEM "perform.sgml">
 <!ENTITY queries    SYSTEM "queries.sgml">
+<!ENTITY rangetypes SYSTEM "rangetypes.sgml">
 <!ENTITY rowtypes   SYSTEM "rowtypes.sgml">
 <!ENTITY syntax     SYSTEM "syntax.sgml">
 <!ENTITY textsearch SYSTEM "textsearch.sgml">
@@ -92,6 +93,7 @@
 <!ENTITY catalogs   SYSTEM "catalogs.sgml">
 <!ENTITY geqo       SYSTEM "geqo.sgml">
 <!ENTITY gist       SYSTEM "gist.sgml">
+<!ENTITY spgist     SYSTEM "spgist.sgml">
 <!ENTITY gin        SYSTEM "gin.sgml">
 <!ENTITY planstats    SYSTEM "planstats.sgml">
 <!ENTITY indexam    SYSTEM "indexam.sgml">
@@ -138,6 +140,7 @@
 <!ENTITY pgstatstatements SYSTEM "pgstatstatements.sgml">
 <!ENTITY pgstattuple     SYSTEM "pgstattuple.sgml">
 <!ENTITY pgtestfsync     SYSTEM "pgtestfsync.sgml">
+<!ENTITY pgtesttiming    SYSTEM "pgtesttiming.sgml">
 <!ENTITY pgtrgm          SYSTEM "pgtrgm.sgml">
 <!ENTITY pgupgrade       SYSTEM "pgupgrade.sgml">
 <!## XC>
@@ -151,6 +154,7 @@
 <!ENTITY sepgsql         SYSTEM "sepgsql.sgml">
 <!ENTITY sslinfo         SYSTEM "sslinfo.sgml">
 <!ENTITY tablefunc       SYSTEM "tablefunc.sgml">
+<!ENTITY tcn             SYSTEM "tcn.sgml">
 <!ENTITY test-parser     SYSTEM "test-parser.sgml">
 <!ENTITY tsearch2        SYSTEM "tsearch2.sgml">
 <!ENTITY unaccent      SYSTEM "unaccent.sgml">
@@ -170,8 +174,10 @@
 <!ENTITY release    SYSTEM "release.sgml">
 <!## XC>
 <!ENTITY release-xc-1.0 SYSTEM "release-xc-1.0.sgml">
+<!ENTITY release-xc-1.1 SYSTEM "release-xc-1.1.sgml">
 <!## end>
 <!## PG>
+<!ENTITY release-9.2    SYSTEM "release-9.2.sgml">
 <!ENTITY release-9.1    SYSTEM "release-9.1.sgml">
 <!ENTITY release-9.0    SYSTEM "release-9.0.sgml">
 <!ENTITY release-8.4    SYSTEM "release-8.4.sgml">

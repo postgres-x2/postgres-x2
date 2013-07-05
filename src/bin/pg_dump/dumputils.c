@@ -890,6 +890,9 @@ do { \
 	}
 	else if (strcmp(type, "TABLESPACE") == 0)
 		CONVERT_PRIV('C', "CREATE");
+	else if (strcmp(type, "TYPE") == 0 ||
+			 strcmp(type, "TYPES") == 0)
+		CONVERT_PRIV('U', "USAGE");
 	else if (strcmp(type, "FOREIGN DATA WRAPPER") == 0)
 		CONVERT_PRIV('U', "USAGE");
 	else if (strcmp(type, "FOREIGN SERVER") == 0)
@@ -1323,7 +1326,7 @@ void
 on_exit_nicely(on_exit_nicely_callback function, void *arg)
 {
 	if (on_exit_nicely_index >= MAX_ON_EXIT_NICELY)
-		exit_horribly(NULL, "out of on_exit_nicely slots");
+		exit_horribly(NULL, "out of on_exit_nicely slots\n");
 	on_exit_nicely_list[on_exit_nicely_index].function = function;
 	on_exit_nicely_list[on_exit_nicely_index].arg = arg;
 	on_exit_nicely_index++;

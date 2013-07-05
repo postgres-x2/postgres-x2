@@ -758,8 +758,7 @@ DefineDomain(CreateDomainStmt *stmt)
 
 	aclresult = pg_type_aclcheck(basetypeoid, GetUserId(), ACL_USAGE);
 	if (aclresult != ACLCHECK_OK)
-		aclcheck_error(aclresult, ACL_KIND_TYPE,
-					   format_type_be(basetypeoid));
+		aclcheck_error_type(aclresult, basetypeoid);
 
 	/*
 	 * Identify the collation if any
@@ -922,8 +921,14 @@ DefineDomain(CreateDomainStmt *stmt)
 
 				/*
 				 * Check constraints are handled after domain creation, as
-				 * they require the Oid of the domain
+				 * they require the Oid of the domain; at this point we can
+				 * only check that they're not marked NO INHERIT, because
+				 * that would be bogus.
 				 */
+				if (constr->is_no_inherit)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+							 errmsg("CHECK constraints for domains cannot be marked NO INHERIT")));
 				break;
 
 				/*
@@ -1208,8 +1213,7 @@ checkEnumOwner(HeapTuple tup)
 
 	/* Permission check: must own type */
 	if (!pg_type_ownercheck(HeapTupleGetOid(tup), GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-					   format_type_be(HeapTupleGetOid(tup)));
+		aclcheck_error_type(ACLCHECK_NOT_OWNER, HeapTupleGetOid(tup));
 }
 
 
@@ -2809,8 +2813,7 @@ checkDomainOwner(HeapTuple tup)
 
 	/* Permission check: must own type */
 	if (!pg_type_ownercheck(HeapTupleGetOid(tup), GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-					   format_type_be(HeapTupleGetOid(tup)));
+		aclcheck_error_type(ACLCHECK_NOT_OWNER, HeapTupleGetOid(tup));
 }
 
 /*
@@ -2958,7 +2961,7 @@ domainAddConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 						  ccsrc,	/* Source form of check constraint */
 						  true, /* is local */
 						  0,	/* inhcount */
-						  false);		/* is only */
+						  false);		/* connoinherit */
 
 	/*
 	 * Return the compiled constraint expression so the calling routine can
@@ -3116,8 +3119,7 @@ RenameType(RenameStmt *stmt)
 
 	/* check permissions on type */
 	if (!pg_type_ownercheck(typeOid, GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-					   format_type_be(typeOid));
+		aclcheck_error_type(ACLCHECK_NOT_OWNER, typeOid);
 
 	/* ALTER DOMAIN used on a non-domain? */
 	if (stmt->renameType == OBJECT_DOMAIN && typTup->typtype != TYPTYPE_DOMAIN)
@@ -3238,8 +3240,7 @@ AlterTypeOwner(List *names, Oid newOwnerId, ObjectType objecttype)
 		{
 			/* Otherwise, must be owner of the existing object */
 			if (!pg_type_ownercheck(HeapTupleGetOid(tup), GetUserId()))
-				aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-							   format_type_be(HeapTupleGetOid(tup)));
+				aclcheck_error_type(ACLCHECK_NOT_OWNER, HeapTupleGetOid(tup));
 
 			/* Must be able to become new owner */
 			check_is_member_of_role(GetUserId(), newOwnerId);
@@ -3342,6 +3343,7 @@ AlterTypeNamespace(List *names, const char *newschema, ObjectType objecttype)
 	TypeName   *typename;
 	Oid			typeOid;
 	Oid			nspOid;
+	ObjectAddresses	*objsMoved;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
 	typename = makeTypeNameFromNameList(names);
@@ -3357,18 +3359,19 @@ AlterTypeNamespace(List *names, const char *newschema, ObjectType objecttype)
 	/* get schema OID and check its permissions */
 	nspOid = LookupCreationNamespace(newschema);
 
-	AlterTypeNamespace_oid(typeOid, nspOid);
+	objsMoved = new_object_addresses();
+	AlterTypeNamespace_oid(typeOid, nspOid, objsMoved);
+	free_object_addresses(objsMoved);
 }
 
 Oid
-AlterTypeNamespace_oid(Oid typeOid, Oid nspOid)
+AlterTypeNamespace_oid(Oid typeOid, Oid nspOid, ObjectAddresses *objsMoved)
 {
 	Oid			elemOid;
 
 	/* check permissions on type */
 	if (!pg_type_ownercheck(typeOid, GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-					   format_type_be(typeOid));
+		aclcheck_error_type(ACLCHECK_NOT_OWNER, typeOid);
 
 	/* don't allow direct alteration of array types */
 	elemOid = get_element_type(typeOid);
@@ -3381,7 +3384,7 @@ AlterTypeNamespace_oid(Oid typeOid, Oid nspOid)
 						 format_type_be(elemOid))));
 
 	/* and do the work */
-	return AlterTypeNamespaceInternal(typeOid, nspOid, false, true);
+	return AlterTypeNamespaceInternal(typeOid, nspOid, false, true, objsMoved);
 }
 
 /*
@@ -3402,7 +3405,8 @@ AlterTypeNamespace_oid(Oid typeOid, Oid nspOid)
 Oid
 AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 						   bool isImplicitArray,
-						   bool errorOnTableType)
+						   bool errorOnTableType,
+						   ObjectAddresses *objsMoved)
 {
 	Relation	rel;
 	HeapTuple	tup;
@@ -3410,6 +3414,17 @@ AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 	Oid			oldNspOid;
 	Oid			arrayOid;
 	bool		isCompositeType;
+	ObjectAddress thisobj;
+
+	/*
+	 * Make sure we haven't moved this object previously.
+	 */
+	thisobj.classId = TypeRelationId;
+	thisobj.objectId = typeOid;
+	thisobj.objectSubId = 0;
+
+	if (object_address_present(&thisobj, objsMoved))
+		return InvalidOid;
 
 	rel = heap_open(TypeRelationId, RowExclusiveLock);
 
@@ -3470,7 +3485,7 @@ AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 
 		AlterRelationNamespaceInternal(classRel, typform->typrelid,
 									   oldNspOid, nspOid,
-									   false);
+									   false, objsMoved);
 
 		heap_close(classRel, RowExclusiveLock);
 
@@ -3479,13 +3494,14 @@ AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 		 * currently support this, but probably will someday).
 		 */
 		AlterConstraintNamespaces(typform->typrelid, oldNspOid,
-								  nspOid, false);
+								  nspOid, false, objsMoved);
 	}
 	else
 	{
 		/* If it's a domain, it might have constraints */
 		if (typform->typtype == TYPTYPE_DOMAIN)
-			AlterConstraintNamespaces(typeOid, oldNspOid, nspOid, true);
+			AlterConstraintNamespaces(typeOid, oldNspOid, nspOid, true,
+									  objsMoved);
 	}
 
 	/*
@@ -3503,9 +3519,11 @@ AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 
 	heap_close(rel, RowExclusiveLock);
 
+	add_exact_object_address(&thisobj, objsMoved);
+
 	/* Recursively alter the associated array type, if any */
 	if (OidIsValid(arrayOid))
-		AlterTypeNamespaceInternal(arrayOid, nspOid, true, true);
+		AlterTypeNamespaceInternal(arrayOid, nspOid, true, true, objsMoved);
 
 	return oldNspOid;
 }

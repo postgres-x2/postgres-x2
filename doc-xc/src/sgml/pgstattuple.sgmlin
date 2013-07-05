@@ -7,8 +7,6 @@
   <primary>pgstattuple</primary>
  </indexterm>
 
-&common;
-
  <para>
   The <filename>pgstattuple</filename> module provides various functions to
   obtain tuple-level statistics.
@@ -19,13 +17,9 @@
  <para>
   Functions of this module returns information about connecting
   Coordinators locally.  To get information of a Datanode, you can
-  connect to the Datanode using psql directly.  In this case,
-  statements will be handled by local transaction control without GTM,
-  you will have warnings and the visibility could be somewhat
-  inconsistent.
+  connect to the Datanode using psql directly.
  </para>
 <!## end>
-
 
  <sect2>
   <title>Functions</title>
@@ -37,7 +31,6 @@
     </term>
 
     <listitem>
-&common;
      <para>
       <function>pgstattuple</function> returns a relation's physical length,
       percentage of <quote>dead</> tuples, and other info. This may help users

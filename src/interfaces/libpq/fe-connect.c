@@ -1300,7 +1300,7 @@ static int
 connectDBStart(PGconn *conn)
 {
 	int			portnum;
-	char		portstr[128];
+	char		portstr[MAXPGPATH];
 	struct addrinfo *addrs = NULL;
 	struct addrinfo hint;
 	const char *node;
@@ -1362,6 +1362,15 @@ connectDBStart(PGconn *conn)
 		node = NULL;
 		hint.ai_family = AF_UNIX;
 		UNIXSOCK_PATH(portstr, portnum, conn->pgunixsocket);
+		if (strlen(portstr) >= UNIXSOCK_PATH_BUFLEN)
+		{
+			appendPQExpBuffer(&conn->errorMessage,
+							  libpq_gettext("Unix-domain socket path \"%s\" is too long (maximum %d bytes)\n"),
+											portstr,
+											(int) (UNIXSOCK_PATH_BUFLEN - 1));
+			conn->options_valid = false;
+			goto connect_errReturn;
+		}
 #else
 		/* Without Unix sockets, default to localhost instead */
 		node = DefaultHost;
@@ -2709,8 +2718,7 @@ makeEmptyPGconn(void)
 	/* Zero all pointers and booleans */
 	MemSet(conn, 0, sizeof(PGconn));
 
-	/* install default row processor and notice hooks */
-	PQsetRowProcessor(conn, NULL, NULL);
+	/* install default notice hooks */
 	conn->noticeHooks.noticeRec = defaultNoticeReceiver;
 	conn->noticeHooks.noticeProc = defaultNoticeProcessor;
 
@@ -4651,14 +4659,14 @@ conninfo_uri_parse_options(PQconninfoOption *options, const char *uri,
 		if (!*p)
 		{
 			printfPQExpBuffer(errorMessage,
-							  libpq_gettext("end of string reached when looking for matching ']' in IPv6 host address in URI: %s\n"),
+							  libpq_gettext("end of string reached when looking for matching \"]\" in IPv6 host address in URI: \"%s\"\n"),
 							  uri);
 			goto cleanup;
 		}
 		if (p == host)
 		{
 			printfPQExpBuffer(errorMessage,
-			libpq_gettext("IPv6 host address may not be empty in URI: %s\n"),
+							  libpq_gettext("IPv6 host address may not be empty in URI: \"%s\"\n"),
 							  uri);
 			goto cleanup;
 		}
@@ -4673,7 +4681,7 @@ conninfo_uri_parse_options(PQconninfoOption *options, const char *uri,
 		if (*p && *p != ':' && *p != '/' && *p != '?')
 		{
 			printfPQExpBuffer(errorMessage,
-							  libpq_gettext("unexpected '%c' at position %d in URI (expecting ':' or '/'): %s\n"),
+							  libpq_gettext("unexpected character \"%c\" at position %d in URI (expected \":\" or \"/\"): \"%s\"\n"),
 							  *p, (int) (p - buf + 1), uri);
 			goto cleanup;
 		}
@@ -4787,7 +4795,7 @@ conninfo_uri_parse_params(char *params,
 				if (value != NULL)
 				{
 					printfPQExpBuffer(errorMessage,
-									  libpq_gettext("extra key/value separator '=' in URI query parameter: %s\n"),
+									  libpq_gettext("extra key/value separator \"=\" in URI query parameter: \"%s\"\n"),
 									  params);
 					return false;
 				}
@@ -4807,7 +4815,7 @@ conninfo_uri_parse_params(char *params,
 				if (value == NULL)
 				{
 					printfPQExpBuffer(errorMessage,
-									  libpq_gettext("missing key/value separator '=' in URI query parameter: %s\n"),
+									  libpq_gettext("missing key/value separator \"=\" in URI query parameter: \"%s\"\n"),
 									  params);
 					return false;
 				}
@@ -4878,8 +4886,13 @@ conninfo_uri_parse_params(char *params,
 
 			printfPQExpBuffer(errorMessage,
 							  libpq_gettext(
-									 "invalid URI query parameter \"%s\"\n"),
+									"invalid URI query parameter: \"%s\"\n"),
 							  keyword);
+			if (malloced)
+			{
+				free(keyword);
+				free(value);
+			}
 			return false;
 		}
 		if (malloced)
@@ -4943,7 +4956,7 @@ conninfo_uri_decode(const char *str, PQExpBuffer errorMessage)
 			if (!(get_hexdigit(*q++, &hi) && get_hexdigit(*q++, &lo)))
 			{
 				printfPQExpBuffer(errorMessage,
-						libpq_gettext("invalid percent-encoded token: %s\n"),
+					libpq_gettext("invalid percent-encoded token: \"%s\"\n"),
 								  str);
 				free(buf);
 				return NULL;
@@ -4953,7 +4966,7 @@ conninfo_uri_decode(const char *str, PQExpBuffer errorMessage)
 			if (c == 0)
 			{
 				printfPQExpBuffer(errorMessage,
-								  libpq_gettext("forbidden value %%00 in percent-encoded value: %s\n"),
+								  libpq_gettext("forbidden value %%00 in percent-encoded value: \"%s\"\n"),
 								  str);
 				free(buf);
 				return NULL;
@@ -5594,8 +5607,8 @@ static void
 dot_pg_pass_warning(PGconn *conn)
 {
 	/* If it was 'invalid authorization', add .pgpass mention */
-	if (conn->dot_pgpass_used && conn->password_needed && conn->result &&
 	/* only works with >= 9.0 servers */
+	if (conn->dot_pgpass_used && conn->password_needed && conn->result &&
 		strcmp(PQresultErrorField(conn->result, PG_DIAG_SQLSTATE),
 			   ERRCODE_INVALID_PASSWORD) == 0)
 	{

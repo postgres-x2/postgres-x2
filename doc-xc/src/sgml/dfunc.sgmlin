@@ -3,8 +3,6 @@
 <sect2 id="dfunc">
  <title>Compiling and Linking Dynamically-loaded Functions</title>
 
-&common;
-
  <para>
   Before you are able to use your
 <!## PG>
@@ -71,29 +69,7 @@
   source code are not necessarily ideal.
 -->
 
-<!## PG>
   <variablelist>
-<!## end>
-
-<!## PG>
-   <varlistentry>
-    <term><systemitem class="osname">BSD/OS</></term>
-    <indexterm><primary>BSD/OS</><secondary>shared library</></>
-    <listitem>
-     <para>
-      The compiler flag to create <acronym>PIC</acronym> is
-      <option>-fpic</option>.  The linker flag to create shared
-      libraries is <option>-shared</option>.
-<programlisting>
-gcc -fpic -c foo.c
-ld -shared -o foo.so foo.o
-</programlisting>
-      This is applicable as of version 4.0 of
-      <systemitem class="osname">BSD/OS</>.
-     </para>
-    </listitem>
-   </varlistentry>
-<!## end>
 <!## PG>
    <varlistentry>
     <term><systemitem class="osname">FreeBSD</></term>
@@ -112,8 +88,7 @@ gcc -shared -o foo.so foo.o
      </para>
     </listitem>
    </varlistentry>
-<!## end>
-<!## PG>
+
    <varlistentry>
     <term><systemitem class="osname">HP-UX</></term>
     <indexterm><primary>HP-UX</><secondary>shared library</></>
@@ -140,9 +115,7 @@ ld -b -o foo.sl foo.o
      </para>
     </listitem>
    </varlistentry>
-<!## end>
 
-<!## PG>
    <varlistentry>
     <term><systemitem class="osname">IRIX</></term>
     <indexterm><primary>IRIX</><secondary>shared library</></>
@@ -158,6 +131,7 @@ ld -shared -o foo.so foo.o
      </para>
     </listitem>
    </varlistentry>
+<!## end>
 
    <varlistentry>
     <term><systemitem class="osname">Linux</></term>
@@ -177,12 +151,11 @@ cc -shared -o foo.so foo.o
      </para>
     </listitem>
    </varlistentry>
-<!## end>
 
 <!## PG>
    <varlistentry>
-    <term><systemitem class="osname">MacOS X</></term>
-    <indexterm><primary>MacOS X</><secondary>shared library</></>
+    <term><systemitem class="osname">Mac OS X</></term>
+    <indexterm><primary>Mac OS X</><secondary>shared library</></>
     <listitem>
      <para>
       Here is an example.  It assumes the developer tools are installed.
@@ -211,9 +184,7 @@ gcc -shared -o foo.so foo.o
      </para>
     </listitem>
    </varlistentry>
-<!## end>
 
-<!## PG>
    <varlistentry>
     <term><systemitem class="osname">OpenBSD</></term>
     <indexterm><primary>OpenBSD</><secondary>shared library</></>
@@ -253,9 +224,7 @@ gcc -G -o foo.so foo.o
      </para>
     </listitem>
    </varlistentry>
-<!## end>
 
-<!## PG>
    <varlistentry>
     <term><systemitem class="osname">Tru64 UNIX</></term>
     <indexterm><primary>Tru64 UNIX</><secondary>shared library</></>
@@ -300,9 +269,7 @@ gcc -shared -o foo.so foo.o
    </varlistentry>
 <!## end>
 
-<!## PG>
   </variablelist>
-<!## end>
 
  <tip>
   <para>

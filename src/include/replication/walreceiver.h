@@ -17,7 +17,6 @@
 #include "storage/spin.h"
 #include "pgtime.h"
 
-extern bool am_walreceiver;
 extern int	wal_receiver_status_interval;
 extern bool hot_standby_feedback;
 
@@ -83,6 +82,12 @@ typedef struct
 	 */
 	TimestampTz lastMsgSendTime;
 	TimestampTz lastMsgReceiptTime;
+
+	/*
+	 * Latest reported end of WAL on the sender
+	 */
+	XLogRecPtr	latestWalEnd;
+	TimestampTz latestWalEndTime;
 
 	/*
 	 * connection string; is used for walreceiver to connect with the primary.

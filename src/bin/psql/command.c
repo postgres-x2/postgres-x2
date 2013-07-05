@@ -1039,6 +1039,17 @@ exec_command(const char *cmd,
 		char	   *fname = psql_scan_slash_option(scan_state,
 												   OT_NORMAL, NULL, true);
 
+#if defined(WIN32) && !defined(__CYGWIN__)
+
+		/*
+		 * XXX This does not work for all terminal environments or for output
+		 * containing non-ASCII characters; see comments in simple_prompt().
+		 */
+#define DEVTTY	"con"
+#else
+#define DEVTTY	"/dev/tty"
+#endif
+
 		expand_tilde(&fname);
 		/* This scrolls off the screen when using /dev/tty */
 		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
@@ -2055,10 +2066,10 @@ process_file(char *filename, bool single_txn, bool use_relative_path)
 		 * relative pathname, then prepend all but the last pathname component
 		 * of the current script to this pathname.
 		 */
-		if (use_relative_path && pset.inputfile && !is_absolute_path(filename)
-			&& !has_drive_prefix(filename))
+		if (use_relative_path && pset.inputfile &&
+			!is_absolute_path(filename) && !has_drive_prefix(filename))
 		{
-			snprintf(relpath, MAXPGPATH, "%s", pset.inputfile);
+			strlcpy(relpath, pset.inputfile, sizeof(relpath));
 			get_parent_directory(relpath);
 			join_path_components(relpath, relpath, filename);
 			canonicalize_path(relpath);

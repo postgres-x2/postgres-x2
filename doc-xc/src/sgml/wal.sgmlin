@@ -3,8 +3,6 @@
 <chapter id="wal">
  <title>Reliability and the Write-Ahead Log</title>
 
-&common;
-
  <para>
   This chapter explains how the Write-Ahead Log is used to obtain
   efficient, reliable operation.
@@ -12,16 +10,18 @@
 
  <sect1 id="wal-reliability">
   <title>Reliability</title>
-&common;
 
+<!## XC>
+  <para>
+   <productname>Postgres-XC</productname> uses write-ahead log
+   <productname>PostgreSQL</productname> as is.
+   In this chapter, you should read <productname>PostgreSQL</productname> as
+   <productname>Postgres-XC</productname>.
+  </para>
+<!## end>
   <para>
    Reliability is an important property of any serious database
-<!## PG>
    system, and <productname>PostgreSQL</> does everything possible to
-<!## end>
-<!## XC>
-   system, and <productname>Postgres-XC</> does everything possible to
-<!## end>
    guarantee reliable operation. One aspect of reliable operation is
    that all data recorded by a committed transaction should be stored
    in a nonvolatile area that is safe from power loss, operating
@@ -42,12 +42,7 @@
    First, there is the operating system's buffer cache, which caches
    frequently requested disk blocks and combines disk writes. Fortunately,
    all operating systems give applications a way to force writes from
-<!## PG>
    the buffer cache to disk, and <productname>PostgreSQL</> uses those
-<!## end>
-<!## XC>
-   the buffer cache to disk, and <productname>Postgres-XC</> uses those
-<!## end>
    features.  (See the <xref linkend="guc-wal-sync-method"> parameter
    to adjust how this is done.)
   </para>
@@ -86,7 +81,7 @@
       <para>
         On <productname>Linux</>, IDE drives can be queried using
         <command>hdparm -I</command>; write caching is enabled if there is
-        a <literal>*</> next to <literal>Write cache</>.  <command>hdparm -W</>
+        a <literal>*</> next to <literal>Write cache</>.  <command>hdparm -W 0</>
         can be used to turn off write caching.  SCSI drives can be queried
         using <ulink url="http://sg.danny.cz/sg/sdparm.html"><application>sdparm</></ulink>.
         Use <command>sdparm --get=WCE</command> to check
@@ -100,7 +95,9 @@
         On <productname>FreeBSD</>, IDE drives can be queried using
         <command>atacontrol</command> and write caching turned off using
         <literal>hw.ata.wc=0</> in <filename>/boot/loader.conf</>;
-        SCSI drives use <command>sdparm</command>.
+        SCSI drives can be queried using <command>camcontrol identify</command>,
+        and the write cache both queried and changed using
+        <command>sdparm</command> when available.
       </para>
     </listitem>
 
@@ -137,12 +134,7 @@
    offer a drive cache flush command (<command>FLUSH CACHE EXT</>),
    while SCSI drives have long supported a similar command
    <command>SYNCHRONIZE CACHE</>.  These commands are not directly
-<!## PG>
    accessible to <productname>PostgreSQL</>, but some file systems
-<!## end>
-<!## XC>
-   accessible to <productname>Postgres-XC</>, but some file systems
-<!## end>
    (e.g., <acronym>ZFS</>, <acronym>ext4</>) can use them to flush
    data to the platters on write-back-enabled drives.  Unfortunately, such
    file systems behave suboptimally when combined with battery-backup unit
@@ -179,25 +171,13 @@
    commonly 512 bytes each.  Every physical read or write operation
    processes a whole sector.
    When a write request arrives at the drive, it might be for some multiple
-<!## PG>
    of 512 bytes (<productname>PostgreSQL</> typically writes 8192 bytes, or
-<!## end>
-<!## XC>
-   of 512 bytes (<productname>Postgres-XC</> typically writes 8192 bytes, or
-<!## end>
    16 sectors, at a time), and the process of writing could fail due
    to power loss at any time, meaning some of the 512-byte sectors were
    written while others were not.  To guard against such failures,
-<!## PG>
    <productname>PostgreSQL</> periodically writes full page images to
    permanent WAL storage <emphasis>before</> modifying the actual page on
    disk. By doing this, during crash recovery <productname>PostgreSQL</> can
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</> periodically writes full page images to
-   permanent WAL storage <emphasis>before</> modifying the actual page on
-   disk. By doing this, during crash recovery <productname>Postgres-XC</> can
-<!## end>
    restore partially-written pages from WAL.  If you have file-system software
    that prevents partial page writes (e.g., ZFS),  you can turn off
    this page imaging by turning off the <xref
@@ -218,7 +198,6 @@
     <primary>transaction log</primary>
     <see>WAL</see>
    </indexterm>
-&common;
 
    <para>
     <firstterm>Write-Ahead Logging</firstterm> (<acronym>WAL</acronym>)
@@ -289,7 +268,6 @@
    <indexterm>
     <primary>asynchronous commit</primary>
    </indexterm>
-&common;
 
   <para>
    <firstterm>Asynchronous commit</> is an option that allows transactions
@@ -387,18 +365,10 @@
    <xref linkend="guc-fsync"> = off.
    <varname>fsync</varname> is a server-wide
    setting that will alter the behavior of all transactions.  It disables
-<!## PG>
    all logic within <productname>PostgreSQL</> that attempts to synchronize
    writes to different portions of the database, and therefore a system
    crash (that is, a hardware or operating system crash, not a failure of
    <productname>PostgreSQL</> itself) could result in arbitrarily bad
-<!## end>
-<!## XC>
-   all logic within <productname>Postgres-XC</> that attempts to synchronize
-   writes to different portions of the database, and therefore a system
-   crash (that is, a hardware or operating system crash, not a failure of
-   <productname>Postgres-XC</> itself) could result in arbitrarily bad
-<!## end>
    corruption of the database state.  In many scenarios, asynchronous
    commit provides most of the performance improvement that could be
    obtained by turning off <varname>fsync</varname>, but without the risk
@@ -416,14 +386,13 @@
    committing at about the same time.  Setting <varname>commit_delay</varname>
    can only help when there are many concurrently committing transactions,
    and it is difficult to tune it to a value that actually helps rather
-   than hurt throughput.
+   than hurts throughput.
   </para>
 
  </sect1>
 
  <sect1 id="wal-configuration">
   <title><acronym>WAL</acronym> Configuration</title>
-&common;
 
   <para>
    There are several <acronym>WAL</>-related configuration parameters that
@@ -458,13 +427,18 @@
   </para>
 
   <para>
-   The server's background writer process automatically performs
+   The server's checkpointer process automatically performs
    a checkpoint every so often.  A checkpoint is created every <xref
    linkend="guc-checkpoint-segments"> log segments, or every <xref
    linkend="guc-checkpoint-timeout"> seconds, whichever comes first.
    The default settings are 3 segments and 300 seconds (5 minutes), respectively.
-   It is also possible to force a checkpoint by using the SQL command
-   <command>CHECKPOINT</command>.
+   In cases where no WAL has been written since the previous checkpoint, new 
+   checkpoints will be skipped even if checkpoint_timeout has passed.  
+   If WAL archiving is being used and you want to put a lower limit on
+   how often files are archived in order to bound potential data
+   loss, you should adjust archive_timeout parameter rather than the checkpoint
+   parameters.  It is also possible to force a checkpoint by using the SQL
+   command <command>CHECKPOINT</command>.
   </para>
 
   <para>
@@ -511,12 +485,7 @@
    have been consumed since checkpoint start, or the given fraction of
    <varname>checkpoint_timeout</varname> seconds have elapsed,
    whichever is sooner.  With the default value of 0.5,
-<!## PG>
    <productname>PostgreSQL</> can be expected to complete each checkpoint
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</> can be expected to complete each checkpoint
-<!## end>
    in about half the time before the next checkpoint starts.  On a system
    that's very close to maximum I/O throughput during normal operation,
    you might want to increase <varname>checkpoint_completion_target</varname>
@@ -584,9 +553,7 @@
    from having to do writes.  On such systems
    one should increase the number of <acronym>WAL</acronym> buffers by
    modifying the configuration parameter <xref
-   linkend="guc-wal-buffers">.  The default number of <acronym>WAL</acronym>
-   buffers is 8.  Increasing this value will
-   correspondingly increase shared memory usage.  When
+   linkend="guc-wal-buffers">.  When
    <xref linkend="guc-full-page-writes"> is set and the system is very busy,
    setting this value higher will help smooth response times during the
    period immediately following each checkpoint.
@@ -612,12 +579,7 @@
 
   <para>
    The <xref linkend="guc-wal-sync-method"> parameter determines how
-<!## PG>
    <productname>PostgreSQL</productname> will ask the kernel to force
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> will ask the kernel to force
-<!## end>
    <acronym>WAL</acronym> updates out to disk.
    All the options should be the same in terms of reliability, with
    the exception of <literal>fsync_writethrough</>, which can sometimes
@@ -631,12 +593,7 @@
 
   <para>
    Enabling the <xref linkend="guc-wal-debug"> configuration parameter
-<!## PG>
    (provided that <productname>PostgreSQL</productname> has been
-<!## end>
-<!## XC>
-   (provided that <productname>Postgres-XC</productname> has been
-<!## end>
    compiled with support for it) will result in each
    <function>LogInsert</function> and <function>LogFlush</function>
    <acronym>WAL</acronym> call being logged to the server log. This
@@ -646,7 +603,6 @@
 
  <sect1 id="wal-internals">
   <title>WAL Internals</title>
-&common;
 
   <para>
    <acronym>WAL</acronym> is automatically enabled; no action is
@@ -688,12 +644,7 @@
    when in fact they have only cached the data and not yet stored it
    on the disk.  A power failure in such a situation might lead to
    irrecoverable data corruption.  Administrators should try to ensure
-<!## PG>
    that disks holding <productname>PostgreSQL</productname>'s
-<!## end>
-<!## XC>
-   that disks holding <productname>Postgres-XC</productname>'s
-<!## end>
    <acronym>WAL</acronym> log files do not make such false reports.
    (See <xref linkend="wal-reliability">.)
   </para>
@@ -725,76 +676,4 @@
    seem to be a problem in practice.
   </para>
  </sect1>
-
-<!## XC>
-
- <sect1 id="barriers">
-  <title>Barrier</title>
-&xconly;
-  <para>
-   Its important to ensure that any global transaction in the cluster
-   must either be committed on all the nodes or none of the nodes. If
-   the global recovery is done in a way such that on one node the
-   <acronym>WAL</acronym> recovery stops after a commit record of some
-   global transaction is processed, but stops before the commit record for
-   the same transaction is processed on some other node, the cluster may
-   be left in an inconsistent state. Since the commit messages of global
-   transactions can arrive out-of-order on different nodes, its very hard
-   to find a common synchronization point. For example, for two global
-   transactions T1 and T2, the commit messages for these transactions
-   can arrive on nodes N1 and N2 such that N1 receives commit message
-   for T1 first and N2 receives commit message T2 first. In this case,
-   during <acronym>PITR</acronym>, irrespective of whether we stop at
-   T1 or T2, the cluster would lose its consistency since at least one
-   transaction will be marked as committed on one node and as aborted
-   on the other node.
-  </para>
-
-  <para>
-   During recovery, it can be hard and even impossible to find
-   cluster-wide consistent synchronization points. In fact, such
-   synchronization points may not exists at all. Postgres-XC provides
-   a mechanism to create such synchronization points, called barriers,
-   during normal operation. A barrier can be created by using a SQL
-   command <command>BARRIER</command>
-  </para>
-
-  <para>
-   User must connect to one of the Coordinators and issue the
-   <command>BARRIER</command> command, optionally followed by an
-   identifier. If user does not specify an identifier, an unique
-   identifier will be generated and returned to the caller.  Upon
-   receiving the <command>BARRIER</command> command, the Coordinator
-   temporarily pauses any new two-phase commits. It also communicates with
-   other Coordinators to ensure that there are no in-progress two-phase
-   commits in the cluster. At that point, a barrier <acronym>WAL</acronym>
-   record along with the user-given or system-generated BARRIER identifier
-   is writtent to the <acronym>WAL</acronym> stream of all Datanodes and
-   the Coordinators.
-  </para>
-
-  <para>
-   User can create as many barriers as she wants to. At the time of
-   point-in-time-recovery, same barrier id must be specified in the
-   <filename>recovery.conf</filename> files of all the Coordinators and
-   Datanodes. When every node in the cluster recovers to the same barrier
-   id, a cluster-wide consistent state is reached. Its important that
-   the recovery must be started from a backup taken before the barrier
-   was generated. If no matching barrier record is found, either because
-   the barrier was created before the base backup used for the recovery
-   or the said barrier was never created, the recovery is run to the end.
-  </para>
-  
-  <para>
-   Note that in the current release, Postgres-XC has no means to detect
-   if another barrier with the same name already exists. So the user
-   must be careful while choosing a barrier identifier and ensure
-   that an unique identifier is used for every barrier. Similarly, at
-   the time of recovery, user must specify the same barrier id in the
-   <filename>recovery.conf</filename> file on all the nodes. Otherwise,
-   the cluster would not recover to a global consistent image.
-  </para>
- </sect1>
-<!## end>
-
 </chapter>

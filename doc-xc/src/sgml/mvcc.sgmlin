@@ -7,6 +7,15 @@
    <primary>concurrency</primary>
   </indexterm>
 
+<!## XC>
+&xconly;
+ <para>
+  <productname>Postgres-XC</productname> inherits most of the high availability feature from
+  <productname>PostgreSQL</productname>.
+  In this chapter, please read PostgreSQL as Postgres-XC if not described explicitly.
+ </para>
+<!## end>
+
 <!## PG>
   <para>
    This chapter describes the behavior of the
@@ -39,6 +48,7 @@
   </para>
 <!## end>
 
+
   <sect1 id="mvcc-intro">
    <title>Introduction</title>
 
@@ -58,9 +68,13 @@
     <primary>SSI</primary>
    </indexterm>
 
-<!## PG>
    <para>
+<!## PG>
     <productname>PostgreSQL</productname> provides a rich set of tools
+<!## end>
+<!## XC>
+    <productname>Postgres-XC</productname> provides a rich set of tools
+<!## end>
     for developers to manage concurrent access to data.  Internally,
     data consistency is maintained by using a multiversion
     model (Multiversion Concurrency Control, <acronym>MVCC</acronym>).
@@ -76,26 +90,6 @@
     minimizes lock contention in order to allow for reasonable
     performance in multiuser environments.
    </para>
-<!## end>
-<!## XC>
-   <para>
-    <productname>Postgres-XC</productname> inherits a rich set of tools 
-    for developers to manage concurrent access to data from <productname>PostgreSQL</>.  Internally,
-    data consistency is maintained by using a multiversion 
-    model (Multiversion Concurrency Control, <acronym>MVCC</acronym>). 
-    This means that while querying a database each transaction sees
-    a snapshot of data (a <firstterm>database version</firstterm>)
-    as it was some
-    time ago, regardless of the current state of the underlying data.
-    This protects the transaction from viewing inconsistent data that
-    could be caused by (other) concurrent transaction updates on the same
-    data rows, providing <firstterm>transaction isolation</firstterm>
-    for each database session.  <acronym>MVCC</acronym>, by eschewing
-    explicit locking methodologies of traditional database systems,
-    minimizes lock contention in order to allow for reasonable 
-    performance in multiuser environments.
-   </para>
-<!## end>
 
    <para>
     The main advantage of using the <acronym>MVCC</acronym> model of
@@ -103,33 +97,39 @@
     <acronym>MVCC</acronym> locks acquired for querying (reading) data
     do not conflict with locks acquired for writing data, and so
     reading never blocks writing and writing never blocks reading.
+<!## PG>
     <productname>PostgreSQL</productname> maintains this guarantee
+<!## end>
+<!## XC>
+    <productname>Postgres-XC</productname> maintains this guarantee
+<!## end>
     even when providing the strictest level of transaction
     isolation through the use of an innovative <firstterm>Serializable
     Snapshot Isolation</firstterm> (<acronym>SSI</acronym>) level.
    </para>
 
    <para>
-<!## PG>
     Table- and row-level locking facilities are also available in
+<!## PG>
     <productname>PostgreSQL</productname> for applications which don't
+<!## end>
+<!## XC>
+    <productname>Postgres-XC</productname> for applications which don't
+<!## end>
     generally need full transaction isolation and prefer to explicitly
     manage particular points of conflict.  However, proper
     use of <acronym>MVCC</acronym> will generally provide better
     performance than locks.  In addition, application-defined advisory
     locks provide a mechanism for acquiring locks that are not tied
     to a single transaction.
-<!## end>
-<!## XC>
-    As in <productname>PostgreSQL</>, table- and row-level locking facilities are also available in
-    <productname>Postgres-XC</productname> for applications that cannot
-    adapt easily to <acronym>MVCC</acronym> behavior.  However, proper
-    use of <acronym>MVCC</acronym> will generally provide better
-    performance than locks.  In addition, application-defined advisory
-    locks provide a mechanism for acquiring locks that are not tied
-    to a single transaction.
-<!## end>
    </para>
+<!## XC>
+&xconly;
+  <para>
+   Please note that current Postgres-XC does not provide snapshot isolation.
+  </para>
+<!## end>
+
   </sect1>
 
   <sect1 id="transaction-iso">
@@ -139,7 +139,6 @@
     <primary>transaction isolation</primary>
    </indexterm>
 
-&common;
    <para>
     The <acronym>SQL</acronym> standard defines four levels of
     transaction isolation.  The most strict is Serializable,
@@ -156,7 +155,7 @@
    </para>
 
    <para>
-    The phenomena which are prohibited are various levels are:
+    The phenomena which are prohibited at various levels are:
 
     <variablelist>
      <varlistentry>
@@ -210,7 +209,7 @@
    </para>
 
     <table tocentry="1" id="mvcc-isolevel-table">
-     <title><acronym>SQL</acronym> Transaction Isolation Levels</title>
+     <title>Standard <acronym>SQL</acronym> Transaction Isolation Levels</title>
      <tgroup cols="4">
       <thead>
        <row>
@@ -293,12 +292,7 @@
     </table>
 
    <para>
-<!## PG>
     In <productname>PostgreSQL</productname>, you can request any of the
-<!## end>
-<!## XC>
-    In <productname>Postgres-XC</productname>, you can request any of the
-<!## end>
     four standard transaction isolation levels.  But internally, there are
     only three distinct isolation levels, which correspond to the levels Read
     Committed, Repeatable Read, and Serializable.  When you select the level Read
@@ -308,17 +302,22 @@
     isolation level might be stricter than what you select.  This is
     permitted by the SQL standard: the four isolation levels only
     define which phenomena must not happen, they do not define which
-<!## PG>
     phenomena must happen.  The reason that <productname>PostgreSQL</>
-<!## end>
-<!## XC>
-    phenomena must happen.  The reason that <productname>Postgres-XC</>
-<!## end>
     only provides three isolation levels is that this is the only
     sensible way to map the standard isolation levels to the multiversion
     concurrency control architecture.  The behavior of the available
     isolation levels is detailed in the following subsections.
    </para>
+
+<!## XC>
+&xconly;
+   <para>
+    Please note that at present <productname>Postgres-XC</productname> provide only
+    read committed isolation level.
+    Other isolation level will be provided in future releases.
+   </para>
+&common;
+<!## end>
 
    <para>
     To set the transaction isolation level of a transaction, use the
@@ -337,7 +336,6 @@
     <primary>read committed</primary>
    </indexterm>
 
-&common;
    <para>
     <firstterm>Read Committed</firstterm> is the default isolation
     level in <productname>PostgreSQL</productname>.  When a transaction
@@ -568,7 +566,6 @@ ERROR:  could not serialize access due to concurrent update
     <primary>serialization anomaly</primary>
    </indexterm>
 
-&common;
    <para>
     The <firstterm>Serializable</firstterm> isolation level provides the strictest transaction
     isolation.  This level emulates serial transaction execution,
@@ -592,7 +589,7 @@ ERROR:  could not serialize access due to concurrent update
     As an example,
     consider a table <structname>mytab</>, initially containing:
 <screen>
- class | value 
+ class | value
 -------+-------
      1 |    10
      1 |    20
@@ -614,7 +611,7 @@ SELECT SUM(value) FROM mytab WHERE class = 2;
     If either transaction were running at the Repeatable Read isolation level,
     both would be allowed to commit; but since there is no serial order of execution
     consistent with the result, using Serializable transactions will allow one
-    transaction to commit and and will roll the other back with this message:
+    transaction to commit and will roll the other back with this message:
 
 <screen>
 ERROR:  could not serialize access due to read/write dependencies among transactions
@@ -667,7 +664,6 @@ ERROR:  could not serialize access due to read/write dependencies among transact
     write transactions complete.
    </para>
 
-&common;
    <para>
     Consistent use of Serializable transactions can simplify development.
     The guarantee that any set of concurrent serializable transactions will
@@ -726,6 +722,26 @@ ERROR:  could not serialize access due to read/write dependencies among transact
        protections automatically provided by Serializable transactions.
       </para>
      </listitem>
+     <listitem>
+      <para>
+       When the system is forced to combine multiple page-level predicate
+       locks into a single relation-level predicate lock because the predicate
+       lock table is short of memory, an increase in the rate of serialization
+       failures may occur.  You can avoid this by increasing
+       <xref linkend="guc-max-pred-locks-per-transaction">.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       A sequential scan will always necessitate a relation-level predicate
+       lock.  This can result in an increased rate of serialization failures.
+       It may be helpful to encourage the use of index scans by reducing
+       <xref linkend="guc-random-page-cost"> and/or increasing
+       <xref linkend="guc-cpu-tuple-cost">.  Be sure to weigh any decrease
+       in transaction rollbacks and restarts against any overall change in
+       query execution time.
+      </para>
+     </listitem>
     </itemizedlist>
    </para>
 
@@ -752,7 +768,6 @@ ERROR:  could not serialize access due to read/write dependencies among transact
     <primary>lock</primary>
    </indexterm>
 
-&common;
    <para>
     <productname>PostgreSQL</productname> provides various lock modes
     to control concurrent access to data in tables.  These modes can
@@ -781,7 +796,6 @@ ERROR:  could not serialize access due to read/write dependencies among transact
     <primary>LOCK</primary>
    </indexterm>
 
-&common;
    <para>
     The list below shows the available lock modes and the contexts in
     which they are used automatically by
@@ -928,9 +942,8 @@ ERROR:  could not serialize access due to read/write dependencies among transact
         </para>
 
         <para>
-         Acquired by <command>CREATE TRIGGER</command>,
-         <command>CREATE RULE</command> (except for <literal>ON SELECT</>
-         rules) and some forms of <command>ALTER TABLE</command>.
+         This lock mode is not automatically acquired by any
+         <productname>PostgreSQL</productname> command.
         </para>
        </listitem>
       </varlistentry>
@@ -975,10 +988,10 @@ ERROR:  could not serialize access due to read/write dependencies among transact
         </para>
 
         <para>
-         Acquired by the <command>DROP TABLE</command>,
+         Acquired by the <command>ALTER TABLE</>, <command>DROP TABLE</>,
          <command>TRUNCATE</command>, <command>REINDEX</command>,
          <command>CLUSTER</command>, and <command>VACUUM FULL</command>
-         commands, and some forms of <command>ALTER TABLE</>.
+         commands.
          This is also the default lock mode for <command>LOCK TABLE</command>
          statements that do not specify a mode explicitly.
         </para>
@@ -1125,7 +1138,6 @@ ERROR:  could not serialize access due to read/write dependencies among transact
    <sect2 id="locking-rows">
     <title>Row-level Locks</title>
 
-&common;
     <para>
      In addition to table-level locks, there are row-level locks, which
      can be exclusive or shared locks.  An exclusive row-level lock on a
@@ -1179,7 +1191,6 @@ ERROR:  could not serialize access due to read/write dependencies among transact
      <primary>deadlock</primary>
     </indexterm>
 
-&common;
     <para>
      The use of explicit locking can increase the likelihood of
      <firstterm>deadlocks</>, wherein two (or more) transactions each
@@ -1275,70 +1286,65 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
     <title>Advisory Locks</title>
 
     <indexterm zone="advisory-locks">
+     <primary>advisory lock</primary>
+    </indexterm>
+
+    <indexterm zone="advisory-locks">
      <primary>lock</primary>
      <secondary>advisory</secondary>
     </indexterm>
 
-&pgnotice;
     <para>
-<!## PG>
      <productname>PostgreSQL</productname> provides a means for
      creating locks that have application-defined meanings.  These are
      called <firstterm>advisory locks</>, because the system does not
      enforce their use &mdash; it is up to the application to use them
      correctly.  Advisory locks can be useful for locking strategies
-     that are an awkward fit for the MVCC model.</para>
-
-    <para>
-     There are two different types of advisory locks in
-     <productname>PostgreSQL</productname>: session level and transaction level.
-     Once acquired, a session level advisory lock is held until explicitly
-     released or the session ends.  Unlike standard locks, session level
-     advisory locks do not honor transaction semantics: a lock acquired during
-     a transaction that is later rolled back will still be held following the
-     rollback, and likewise an unlock is effective even if the calling
-     transaction fails later.  The same session level lock can be acquired
-     multiple times by its owning process: for each lock request there must be
-     a corresponding unlock request before the lock is actually released.  (If a
-     session already holds a given lock, additional requests will always succeed,
-     even if other sessions are awaiting the lock.)  Transaction level locks on
-     the other hand behave more like regular locks; they are automatically
-     released at the end of the transaction, and can not be explicitly unlocked.
-     Session and transaction level locks share the same lock space, which means
-     that a transaction level lock will prevent another session from obtaining
-     a session level lock on that same resource and vice versa.
-     Like all locks in <productname>PostgreSQL</productname>, a complete list of
-     advisory locks currently held by any session can be found in the
-     <link linkend="view-pg-locks"><structname>pg_locks</structname></link>
-     system view.
-<!## end>
-<!## XC>
-     As in <productname>PostgreSQL</productname>, <productname>Postgres-XC</>  provides a means for
-     creating locks that have application-defined meanings.  These are
-     called <firstterm>advisory locks</>, because the system does not
-     enforce their use &mdash; it is up to the application to use them
-     correctly.  Advisory locks can be useful for locking strategies
-     that are an awkward fit for the MVCC model.  Once acquired, an
-     advisory lock is held until explicitly released or the session ends.
-     Unlike standard locks, advisory locks do not
-     honor transaction semantics: a lock acquired during a
-     transaction that is later rolled back will still be held following the
-     rollback, and likewise an unlock is effective even if the calling
-     transaction fails later.  The same lock can be acquired multiple times by
-     its owning process: for each lock request there must be a corresponding
-     unlock request before the lock is actually released.  (If a session
-     already holds a given lock, additional requests will always succeed, even
-     if other sessions are awaiting the lock.)  Like all locks in
-     <productname>PostgreSQL</productname>, a complete list of advisory
-     locks currently held by any session can be found in the
-     <link linkend="view-pg-locks"><structname>pg_locks</structname></link>
-     system view.
-<!## end>
+     that are an awkward fit for the MVCC model.
+     For example, a common use of advisory locks is to emulate pessimistic
+     locking strategies typical of so called <quote>flat file</> data
+     management systems.
+     While a flag stored in a table could be used for the same purpose,
+     advisory locks are faster, avoid table bloat, and are automatically
+     cleaned up by the server at the end of the session.
     </para>
 
     <para>
-     Advisory locks are allocated out of a shared memory pool whose size
-     is defined by the configuration variables
+     There are two ways to acquire an advisory lock in
+     <productname>PostgreSQL</productname>: at session level or at
+     transaction level.
+     Once acquired at session level, an advisory lock is held until
+     explicitly released or the session ends.  Unlike standard lock requests,
+     session-level advisory lock requests do not honor transaction semantics:
+     a lock acquired during a transaction that is later rolled back will still
+     be held following the rollback, and likewise an unlock is effective even
+     if the calling transaction fails later.  A lock can be acquired multiple
+     times by its owning process; for each completed lock request there must
+     be a corresponding unlock request before the lock is actually released.
+     Transaction-level lock requests, on the other hand, behave more like
+     regular lock requests: they are automatically released at the end of the
+     transaction, and there is no explicit unlock operation.  This behavior
+     is often more convenient than the session-level behavior for short-term
+     usage of an advisory lock.
+     Session-level and transaction-level lock requests for the same advisory
+     lock identifier will block each other in the expected way.
+     If a session already holds a given advisory lock, additional requests by
+     it will always succeed, even if other sessions are awaiting the lock; this
+     statement is true regardless of whether the existing lock hold and new
+     request are at session level or transaction level.
+    </para>
+
+    <para>
+     Like all locks in
+     <productname>PostgreSQL</productname>, a complete list of advisory locks
+     currently held by any session can be found in the <link
+     linkend="view-pg-locks"><structname>pg_locks</structname></link> system
+     view.
+    </para>
+
+    <para>
+     Both advisory locks and regular locks are stored in a shared memory
+     pool whose size is defined by the configuration variables
      <xref linkend="guc-max-locks-per-transaction"> and
      <xref linkend="guc-max-connections">.
      Care must be taken not to exhaust this
@@ -1357,15 +1363,9 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
      using <type>EXECUTE DIRECT</> statement.
     </para>
 <!## end>
-
+&common;
     <para>
-     A common use of advisory locks is to emulate pessimistic locking
-     strategies typical of so called <quote>flat file</> data management
-     systems.
-     While a flag stored in a table could be used for the same purpose,
-     advisory locks are faster, avoid MVCC bloat, and can be automatically
-     cleaned up by the server at the end of the session.
-     In certain cases using this advisory locking method, especially in queries
+     In certain cases using advisory locking methods, especially in queries
      involving explicit ordering and <literal>LIMIT</> clauses, care must be
      taken to control the locks acquired because of the order in which SQL
      expressions are evaluated.  For example:
@@ -1397,12 +1397,7 @@ SELECT pg_advisory_lock(q.id) FROM
 
   <sect1 id="applevel-consistency">
    <title>Data Consistency Checks at the Application Level</title>
-<!-- WIP: 23rd June, K.Suzuki -->
-<!-- NOTICE:
-  Need to check how locks associated with SELECT FOR UPDATE and SELECT FOR SHARE propagates for replicated tables.
--->
 
-&pgnotice;
    <para>
     It is very difficult to enforce business rules regarding data integrity
     using Read Committed transactions because the view of the data is
@@ -1556,7 +1551,6 @@ SELECT pg_advisory_lock(q.id) FROM
     <secondary>locks</secondary>
    </indexterm>
 
-&common;
    <para>
     Though <productname>PostgreSQL</productname>
     provides nonblocking read/write access to table
@@ -1568,7 +1562,7 @@ SELECT pg_advisory_lock(q.id) FROM
     <variablelist>
      <varlistentry>
       <term>
-       B-tree and <acronym>GiST</acronym> indexes
+       B-tree, <acronym>GiST</acronym> and <acronym>SP-GiST</acronym> indexes
       </term>
       <listitem>
        <para>
@@ -1618,11 +1612,10 @@ SELECT pg_advisory_lock(q.id) FROM
     applications; since they also have more features than hash
     indexes, they are the recommended index type for concurrent
     applications that need to index scalar data. When dealing with
-    non-scalar data, B-trees are not useful, and GiST or GIN indexes should
-    be used instead.
+    non-scalar data, B-trees are not useful, and GiST, SP-GiST or GIN
+    indexes should be used instead.
    </para>
   </sect1>
-
 <!## XC>
   <sect1 id="global-transaction-management">
    <title><productname>Postgres-XC</productname>'s Global Transaction Management</title>

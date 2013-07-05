@@ -388,15 +388,15 @@ SetUserIdAndContext(Oid userid, bool sec_def_context)
 
 
 /*
- * Check if the authenticated user is a replication role
+ * Check whether specified role has explicit REPLICATION privilege
  */
 bool
-is_authenticated_user_replication_role(void)
+has_rolreplication(Oid roleid)
 {
 	bool		result = false;
 	HeapTuple	utup;
 
-	utup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(AuthenticatedUserId));
+	utup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(roleid));
 	if (HeapTupleIsValid(utup))
 	{
 		result = ((Form_pg_authid) GETSTRUCT(utup))->rolreplication;
@@ -881,9 +881,9 @@ CreateLockFile(const char *filename, bool amPostmaster,
 
 	/*
 	 * Successfully created the file, now fill it.	See comment in miscadmin.h
-	 * about the contents.	Note that we write the same info into both datadir
-	 * and socket lockfiles; although more stuff may get added to the datadir
-	 * lockfile later.
+	 * about the contents.  Note that we write the same first five lines into
+	 * both datadir and socket lockfiles; although more stuff may get added to
+	 * the datadir lockfile later.
 	 */
 	snprintf(buffer, sizeof(buffer), "%d\n%s\n%ld\n%d\n%s\n",
 			 amPostmaster ? (int) my_pid : -((int) my_pid),
@@ -896,6 +896,13 @@ CreateLockFile(const char *filename, bool amPostmaster,
 			 ""
 #endif
 		);
+
+	/*
+	 * In a standalone backend, the next line (LOCK_FILE_LINE_LISTEN_ADDR)
+	 * will never receive data, so fill it in as empty now.
+	 */
+	if (isDDLock && !amPostmaster)
+		strlcat(buffer, "\n", sizeof(buffer));
 
 	errno = 0;
 	if (write(fd, buffer, strlen(buffer)) != strlen(buffer))
@@ -1051,7 +1058,8 @@ AddToDataDirLockFile(int target_line, const char *str)
 	{
 		if ((ptr = strchr(ptr, '\n')) == NULL)
 		{
-			elog(LOG, "bogus data in \"%s\"", DIRECTORY_LOCK_FILE);
+			elog(LOG, "incomplete data in \"%s\": found only %d newlines while trying to add line %d",
+				 DIRECTORY_LOCK_FILE, lineno - 1, target_line);
 			close(fd);
 			return;
 		}

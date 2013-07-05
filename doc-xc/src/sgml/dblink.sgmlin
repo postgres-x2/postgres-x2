@@ -21,8 +21,8 @@
   corresponding <productname>PostgreSQL</> reference manual.
  </para>
 <!## end>
-
 &pgonly;
+
  <para>
   <filename>dblink</> is a module which supports connections to
   other <productname>PostgreSQL</> databases from within a database
@@ -49,6 +49,7 @@ dblink_connect(text connname, text connstr) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -64,6 +65,7 @@ dblink_connect(text connname, text connstr) returns text
  </para>
 <!## end>
 &pgonly;
+
    <para>
     <function>dblink_connect()</> establishes a connection to a remote
     <productname>PostgreSQL</> database.  The server and database to
@@ -91,7 +93,23 @@ dblink_connect(text connname, text connstr) returns text
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
@@ -106,8 +124,7 @@ dblink_connect(text connname, text connstr) returns text
     <varlistentry>
      <term><parameter>connstr</parameter></term>
      <listitem>
-      <para>
-       <application>libpq</>-style connection info string, for example
+      <para><application>libpq</>-style connection info string, for example
        <literal>hostaddr=127.0.0.1 port=5432 dbname=mydb user=postgres
        password=mypasswd</>.
        For details see <function>PQconnectdb</> in
@@ -120,7 +137,23 @@ dblink_connect(text connname, text connstr) returns text
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <para>
     Returns status, which is always <literal>OK</> (since any error
     causes the function to throw an error instead of returning).
@@ -129,7 +162,23 @@ dblink_connect(text connname, text connstr) returns text
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <para>
     Only superusers may use <function>dblink_connect</> to create
     non-password-authenticated connections.  If non-superusers need this
@@ -144,8 +193,24 @@ dblink_connect(text connname, text connstr) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
 <screen>
 SELECT dblink_connect('dbname=postgres');
  dblink_connect
@@ -229,6 +294,7 @@ dblink_connect_u(text connname, text connstr) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -244,6 +310,7 @@ dblink_connect_u(text connname, text connstr) returns text
  </para>
 <!## end>
 &pgonly;
+
    <para>
     <function>dblink_connect_u()</> is identical to
     <function>dblink_connect()</>, except that it will allow non-superusers
@@ -296,6 +363,7 @@ dblink_disconnect(text connname) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -311,6 +379,7 @@ dblink_disconnect(text connname) returns text
  </para>
 <!## end>
 &pgonly;
+
    <para>
     <function>dblink_disconnect()</> closes a connection previously opened
     by <function>dblink_connect()</>.  The form with no arguments closes
@@ -320,7 +389,23 @@ dblink_disconnect(text connname) returns text
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
@@ -335,7 +420,23 @@ dblink_disconnect(text connname) returns text
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <para>
     Returns status, which is always <literal>OK</> (since any error
     causes the function to throw an error instead of returning).
@@ -343,7 +444,22 @@ dblink_disconnect(text connname) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -383,6 +499,7 @@ dblink(text sql [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -415,6 +532,21 @@ dblink(text sql [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -464,6 +596,21 @@ dblink(text sql [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -501,15 +648,22 @@ SELECT *
 
   <refsect1>
    <title>Notes</title>
-&pgonly;
 
-   <para>
-    <function>dblink</> fetches the entire remote query result before
-    returning any of it to the local system.  If the query is expected
-    to return a large number of rows, it's better to open it as a cursor
-    with <function>dblink_open</> and then fetch a manageable number
-    of rows at a time.
-   </para>
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
 
    <para>
     A convenient way to use <function>dblink</> with predetermined
@@ -524,12 +678,26 @@ CREATE VIEW myremote_pg_proc AS
     AS t1(proname name, prosrc text);
 
 SELECT * FROM myremote_pg_proc WHERE proname LIKE 'bytea%';
-</programlisting>
-   </para>
+</programlisting></para>
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -625,6 +793,7 @@ dblink_exec(text sql [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -657,6 +826,21 @@ dblink_exec(text sql [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -707,6 +891,21 @@ dblink_exec(text sql [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -715,7 +914,22 @@ dblink_exec(text sql [, bool fail_on_error]) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -775,6 +989,7 @@ dblink_open(text connname, text cursorname, text sql [, bool fail_on_error]) ret
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -800,6 +1015,21 @@ dblink_open(text connname, text cursorname, text sql [, bool fail_on_error]) ret
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -848,6 +1078,21 @@ dblink_open(text connname, text cursorname, text sql [, bool fail_on_error]) ret
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -857,6 +1102,21 @@ dblink_open(text connname, text cursorname, text sql [, bool fail_on_error]) ret
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -875,7 +1135,22 @@ dblink_open(text connname, text cursorname, text sql [, bool fail_on_error]) ret
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -914,6 +1189,7 @@ dblink_fetch(text connname, text cursorname, int howmany [, bool fail_on_error])
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -938,12 +1214,27 @@ dblink_fetch(text connname, text cursorname, int howmany [, bool fail_on_error])
 
   <refsect1>
    <title>Arguments</title>
-&pgonly;
 
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
      <listitem>
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
+
       <para>
        Name of the connection to use; omit this parameter to use the
        unnamed connection.
@@ -987,6 +1278,21 @@ dblink_fetch(text connname, text cursorname, int howmany [, bool fail_on_error])
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -998,6 +1304,21 @@ dblink_fetch(text connname, text cursorname, int howmany [, bool fail_on_error])
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1011,7 +1332,22 @@ dblink_fetch(text connname, text cursorname, int howmany [, bool fail_on_error])
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -1082,6 +1418,7 @@ dblink_close(text connname, text cursorname [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1106,6 +1443,21 @@ dblink_close(text connname, text cursorname [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -1144,6 +1496,21 @@ dblink_close(text connname, text cursorname [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1153,6 +1520,21 @@ dblink_close(text connname, text cursorname [, bool fail_on_error]) returns text
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1163,7 +1545,22 @@ dblink_close(text connname, text cursorname [, bool fail_on_error]) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -1207,6 +1604,7 @@ dblink_get_connections() returns text[]
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1231,13 +1629,43 @@ dblink_get_connections() returns text[]
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>Returns a text array of connection names, or NULL if none.</para>
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <programlisting>
@@ -1265,6 +1693,7 @@ dblink_error_message(text connname) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1289,6 +1718,21 @@ dblink_error_message(text connname) returns text
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -1305,6 +1749,21 @@ dblink_error_message(text connname) returns text
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1314,7 +1773,22 @@ dblink_error_message(text connname) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <programlisting>
@@ -1342,6 +1816,7 @@ dblink_send_query(text connname, text sql) returns int
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1376,6 +1851,21 @@ dblink_send_query(text connname, text sql) returns int
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -1403,14 +1893,44 @@ dblink_send_query(text connname, text sql) returns int
   <refsect1>
    <title>Return Value</title>
 
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
    <para>
     Returns 1 if the query was successfully dispatched, 0 otherwise.
    </para>
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <programlisting>
@@ -1438,6 +1958,7 @@ dblink_is_busy(text connname) returns int
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1462,6 +1983,22 @@ dblink_is_busy(text connname) returns int
   <refsect1>
    <title>Arguments</title>
 
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
+
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
@@ -1476,6 +2013,21 @@ dblink_is_busy(text connname) returns int
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1486,7 +2038,22 @@ dblink_is_busy(text connname) returns int
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <programlisting>
@@ -1531,6 +2098,7 @@ dblink_get_notify(text connname) returns setof (notify_name text, be_pid int, ex
  </para>
 <!## end>
 &pgonly;
+
    <para>
     <function>dblink_get_notify</> retrieves notifications on either
     the unnamed connection, or on a named connection if specified.
@@ -1543,6 +2111,21 @@ dblink_get_notify(text connname) returns setof (notify_name text, be_pid int, ex
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -1559,12 +2142,42 @@ dblink_get_notify(text connname) returns setof (notify_name text, be_pid int, ex
 
   <refsect1>
    <title>Return Value</title>
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
+
     <para>Returns <type>setof (notify_name text, be_pid int, extra text)</type>, or an empty set if none.</para>
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -1610,6 +2223,7 @@ dblink_get_result(text connname [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1637,6 +2251,22 @@ dblink_get_result(text connname [, bool fail_on_error]) returns setof record
   <refsect1>
    <title>Arguments</title>
 
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
+
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
@@ -1663,6 +2293,21 @@ dblink_get_result(text connname [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1683,6 +2328,21 @@ dblink_get_result(text connname [, bool fail_on_error]) returns setof record
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1692,10 +2352,37 @@ dblink_get_result(text connname [, bool fail_on_error]) returns setof record
     sent, and one additional time to obtain an empty set result,
     before the connection can be used again.
    </para>
+
+   <para>
+    When using <function>dblink_send_query</> and
+    <function>dblink_get_result</>, <application>dblink</> fetches the entire
+    remote query result before returning any of it to the local query
+    processor.  If the query returns a large number of rows, this can result
+    in transient memory bloat in the local session.  It may be better to open
+    such a query as a cursor with <function>dblink_open</> and then fetch a
+    manageable number of rows at a time.  Alternatively, use plain
+    <function>dblink()</>, which avoids memory bloat by spooling large result
+    sets to disk.
+   </para>
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -1776,6 +2463,7 @@ dblink_cancel_query(text connname) returns text
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1806,6 +2494,22 @@ dblink_cancel_query(text connname) returns text
   <refsect1>
    <title>Arguments</title>
 
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
+
    <variablelist>
     <varlistentry>
      <term><parameter>conname</parameter></term>
@@ -1821,6 +2525,22 @@ dblink_cancel_query(text connname) returns text
   <refsect1>
    <title>Return Value</title>
 
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
+
    <para>
     Returns <literal>OK</> if the cancel request has been sent, or
     the text of an error message on failure.
@@ -1828,7 +2548,22 @@ dblink_cancel_query(text connname) returns text
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <programlisting>
@@ -1858,6 +2593,7 @@ dblink_get_pkey(text relname) returns setof dblink_pkey_results
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1883,6 +2619,21 @@ dblink_get_pkey(text relname) returns setof dblink_pkey_results
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -1903,6 +2654,21 @@ dblink_get_pkey(text relname) returns setof dblink_pkey_results
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -1920,7 +2686,22 @@ CREATE TYPE dblink_pkey_results AS (position int, colname text);
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -1969,6 +2750,7 @@ dblink_build_sql_insert(text relname,
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -1998,6 +2780,21 @@ dblink_build_sql_insert(text relname,
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -2059,6 +2856,21 @@ dblink_build_sql_insert(text relname,
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>Returns the requested SQL statement as text.</para>
@@ -2066,6 +2878,21 @@ dblink_build_sql_insert(text relname,
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>
@@ -2080,7 +2907,22 @@ dblink_build_sql_insert(text relname,
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -2117,6 +2959,7 @@ dblink_build_sql_delete(text relname,
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -2143,6 +2986,21 @@ dblink_build_sql_delete(text relname,
 
   <refsect1>
    <title>Arguments</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <variablelist>
@@ -2192,6 +3050,21 @@ dblink_build_sql_delete(text relname,
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>Returns the requested SQL statement as text.</para>
@@ -2199,6 +3072,22 @@ dblink_build_sql_delete(text relname,
 
   <refsect1>
    <title>Notes</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
+&pgonly;
 
    <para>
     As of <productname>PostgreSQL</> 9.0, the attribute numbers in
@@ -2212,7 +3101,22 @@ dblink_build_sql_delete(text relname,
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>
@@ -2250,6 +3154,7 @@ dblink_build_sql_update(text relname,
 
   <refsect1>
    <title>Description</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -2282,6 +3187,7 @@ dblink_build_sql_update(text relname,
 
   <refsect1>
    <title>Arguments</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -2296,7 +3202,6 @@ dblink_build_sql_update(text relname,
   corresponding <productname>PostgreSQL</> reference manual.
  </para>
 <!## end>
-
 &pgonly;
 
    <variablelist>
@@ -2358,6 +3263,21 @@ dblink_build_sql_update(text relname,
 
   <refsect1>
    <title>Return Value</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
    <para>Returns the requested SQL statement as text.</para>
@@ -2365,6 +3285,7 @@ dblink_build_sql_update(text relname,
 
   <refsect1>
    <title>Notes</title>
+
 <!## XC>
 &xconly;
  <para>
@@ -2393,7 +3314,22 @@ dblink_build_sql_update(text relname,
   </refsect1>
 
   <refsect1>
-   <title>Example</title>
+   <title>Examples</title>
+
+<!## XC>
+&xconly;
+ <para>
+  <filename>dblink</> module has not been tested
+  with <productname>Postges-XC</> yet.  Although there're no reason
+  that <filename>dblink</> does not run
+  in <productname>Postgres-XC</>, the development team leaves the test
+  and the use of this module entirely to users.
+ </para>
+ <para>
+  This section is identical to the
+  corresponding <productname>PostgreSQL</> reference manual.
+ </para>
+<!## end>
 &pgonly;
 
 <screen>

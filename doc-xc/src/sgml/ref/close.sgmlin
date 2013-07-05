@@ -34,7 +34,6 @@ CLOSE { <replaceable class="PARAMETER">name</replaceable> | ALL }
   <title>Description</title>
 
 &pgnotice;
-
   <para>
    <command>CLOSE</command> frees the resources associated with an open cursor.
    After the cursor is closed, no subsequent operations
@@ -109,8 +108,7 @@ CLOSE { <replaceable class="PARAMETER">name</replaceable> | ALL }
    Close the cursor <literal>liahona</literal>:
 <programlisting>
 CLOSE liahona;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

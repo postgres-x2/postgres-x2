@@ -296,6 +296,9 @@ pg_malloc(size_t size)
 {
 	void	   *result;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
 	result = malloc(size);
 	if (!result)
 	{
@@ -416,6 +419,7 @@ readfile(const char *path)
 	int			maxlength = 1,
 				linelen = 0;
 	int			nlines = 0;
+	int			n;
 	char	  **result;
 	char	   *buffer;
 	int			c;
@@ -453,13 +457,13 @@ readfile(const char *path)
 
 	/* now reprocess the file and store the lines */
 	rewind(infile);
-	nlines = 0;
-	while (fgets(buffer, maxlength + 1, infile) != NULL)
-		result[nlines++] = xstrdup(buffer);
+	n = 0;
+	while (fgets(buffer, maxlength + 1, infile) != NULL && n < nlines)
+		result[n++] = xstrdup(buffer);
 
 	fclose(infile);
 	free(buffer);
-	result[nlines] = NULL;
+	result[n] = NULL;
 
 	return result;
 }
@@ -719,14 +723,22 @@ find_matching_ts_config(const char *lc_type)
 
 	/*
 	 * Convert lc_ctype to a language name by stripping everything after an
-	 * underscore.	Just for paranoia, we also stop at '.' or '@'.
+	 * underscore (usual case) or a hyphen (Windows "locale name"; see
+	 * comments at IsoLocaleName()).
+	 *
+	 * XXX Should ' ' be a stop character?  This would select "norwegian" for
+	 * the Windows locale "Norwegian (Nynorsk)_Norway.1252".  If we do so, we
+	 * should also accept the "nn" and "nb" Unix locales.
+	 *
+	 * Just for paranoia, we also stop at '.' or '@'.
 	 */
 	if (lc_type == NULL)
 		langname = xstrdup("");
 	else
 	{
 		ptr = langname = xstrdup(lc_type);
-		while (*ptr && *ptr != '_' && *ptr != '.' && *ptr != '@')
+		while (*ptr &&
+			   *ptr != '_' && *ptr != '-' && *ptr != '.' && *ptr != '@')
 			ptr++;
 		*ptr = '\0';
 	}
@@ -2614,8 +2626,8 @@ usage(const char *progname)
 	printf(_("  -n, --noclean             do not clean up after errors\n"));
 	printf(_("  -s, --show                show internal settings\n"));
 	printf(_("\nOther options:\n"));
-	printf(_("  -?, --help                show this help, then exit\n"));
 	printf(_("  -V, --version             output version information, then exit\n"));
+	printf(_("  -?, --help                show this help, then exit\n"));
 	printf(_("\nIf the data directory is not specified, the environment variable PGDATA\n"
 			 "is used.\n"));
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
@@ -2654,13 +2666,19 @@ check_authmethod_valid(const char *authmethod, const char **valid_methods, const
 }
 
 static void
-check_need_password(const char *authmethod)
+check_need_password(const char *authmethodlocal, const char *authmethodhost)
 {
-	if ((strcmp(authmethod, "md5") == 0 ||
-		 strcmp(authmethod, "password") == 0) &&
+	if ((strcmp(authmethodlocal, "md5") == 0 ||
+		 strcmp(authmethodlocal, "password") == 0) &&
+		(strcmp(authmethodhost, "md5") == 0 ||
+		 strcmp(authmethodhost, "password") == 0) &&
 		!(pwprompt || pwfilename))
 	{
-		fprintf(stderr, _("%s: must specify a password for the superuser to enable %s authentication\n"), progname, authmethod);
+		fprintf(stderr, _("%s: must specify a password for the superuser to enable %s authentication\n"), progname,
+				(strcmp(authmethodlocal, "md5") == 0 ||
+				 strcmp(authmethodlocal, "password") == 0)
+				? authmethodlocal
+				: authmethodhost);
 		exit(1);
 	}
 }
@@ -2862,7 +2880,7 @@ main(int argc, char *argv[])
 	if (optind < argc)
 	{
 		fprintf(stderr, _("%s: too many command-line arguments (first is \"%s\")\n"),
-				progname, argv[optind + 1]);
+				progname, argv[optind]);
 		fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
 				progname);
 		exit(1);
@@ -2890,8 +2908,7 @@ main(int argc, char *argv[])
 	check_authmethod_valid(authmethodlocal, auth_methods_local, "local");
 	check_authmethod_valid(authmethodhost, auth_methods_host, "host");
 
-	check_need_password(authmethodlocal);
-	check_need_password(authmethodhost);
+	check_need_password(authmethodlocal, authmethodhost);
 
 	if (strlen(pg_data) == 0)
 	{
@@ -3418,7 +3435,7 @@ main(int argc, char *argv[])
 		fprintf(stderr, "%s", authwarning);
 
 	/* Get directory specification used to start this executable */
-	strcpy(bin_dir, argv[0]);
+	strlcpy(bin_dir, argv[0], sizeof(bin_dir));
 	get_parent_directory(bin_dir);
 
 

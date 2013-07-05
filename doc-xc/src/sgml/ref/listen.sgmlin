@@ -31,12 +31,12 @@ LISTEN <replaceable class="PARAMETER">channel</replaceable>
 <!## XC>
 &xconly;
   <para>
-   <command>LISTEN</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
+   <command>LISTEN</> statement runs only locally at each Coordinator or
+   Datanode.
+   It can receives <command>Notify</> statement isssued only locally.
   </para>
 <!## end>
 
-<!## PG>
   <para>
    <command>LISTEN</command> registers the current session as a
    listener on the notification channel named <replaceable
@@ -122,8 +122,7 @@ LISTEN <replaceable class="PARAMETER">channel</replaceable>
 LISTEN virtual;
 NOTIFY virtual;
 Asynchronous notification "virtual" received from server process with PID 8448.
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -133,7 +132,6 @@ Asynchronous notification "virtual" received from server process with PID 8448.
    There is no <command>LISTEN</command> statement in the SQL
    standard.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

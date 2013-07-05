@@ -49,7 +49,6 @@ ALTER ROLE <replaceable class="PARAMETER">name</replaceable> [ IN DATABASE <repl
   <title>Description</title>
 
 &common;
-
   <para>
    <command>ALTER ROLE</command> changes the attributes of a
 <!## PG>
@@ -296,8 +295,7 @@ ALTER ROLE worker_bee SET maintenance_work_mem = 100000;
 
 <programlisting>
 ALTER ROLE fred IN DATABASE devel SET client_min_messages = DEBUG;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

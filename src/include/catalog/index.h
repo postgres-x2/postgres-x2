@@ -27,6 +27,15 @@ typedef void (*IndexBuildCallback) (Relation index,
 												bool tupleIsAlive,
 												void *state);
 
+/* Action code for index_set_state_flags */
+typedef enum
+{
+	INDEX_CREATE_SET_READY,
+	INDEX_CREATE_SET_VALID,
+	INDEX_DROP_CLEAR_VALID,
+	INDEX_DROP_SET_DEAD
+} IndexStateFlagsAction;
+
 
 extern void index_check_primary_key(Relation heapRel,
 						IndexInfo *indexInfo,
@@ -61,6 +70,7 @@ extern void index_constraint_create(Relation heapRelation,
 						bool initdeferred,
 						bool mark_as_primary,
 						bool update_pgindex,
+						bool remove_old_dependencies,
 						bool allow_system_table_mods);
 
 extern void index_drop(Oid indexId, bool concurrent);
@@ -87,6 +97,8 @@ extern double IndexBuildHeapScan(Relation heapRelation,
 				   void *callback_state);
 
 extern void validate_index(Oid heapId, Oid indexId, Snapshot snapshot);
+
+extern void index_set_state_flags(Oid indexId, IndexStateFlagsAction action);
 
 extern void reindex_index(Oid indexId, bool skip_constraint_checks);
 

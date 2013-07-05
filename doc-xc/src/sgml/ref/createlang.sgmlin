@@ -16,7 +16,7 @@ PostgreSQL documentation
   <refpurpose>install a <productname>PostgreSQL</productname> procedural language</refpurpose>
 <!## end>
 <!## XC>
-  <refpurpose>install a <productname>Postgres-XC</productname> procedural language</refpurpose>
+  <refpurpose>install a <productname>Postgrex-XC</productname> procedural language</refpurpose>
 <!## end>
  </refnamediv>
 
@@ -29,14 +29,14 @@ PostgreSQL documentation
    <command>createlang</command>
    <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
    <arg choice="plain"><replaceable>langname</replaceable></arg>
-   <arg><replaceable>dbname</replaceable></arg>
+   <arg choice="opt"><replaceable>dbname</replaceable></arg>
   </cmdsynopsis>
 
   <cmdsynopsis>
    <command>createlang</command>
    <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
-   <group choice="plain"><arg>--list</arg><arg>-l</arg></group>
-   <arg choice="plain"><replaceable>dbname</replaceable></arg>
+   <group choice="plain"><arg choice="plain"><option>--list</option></arg><arg choice="plain"><option>-l</option></arg></group>
+   <arg choice="opt"><replaceable>dbname</replaceable></arg>
   </cmdsynopsis>
  </refsynopsisdiv>
 
@@ -85,7 +85,8 @@ PostgreSQL documentation
       <term><replaceable class="parameter">langname</replaceable></term>
       <listitem>
        <para>
-        Specifies the name of the procedural language to be installed.
+        Specifies the name of the procedural language to be
+        installed.  (This name is lower-cased.)
        </para>
       </listitem>
      </varlistentry>
@@ -246,12 +247,7 @@ PostgreSQL documentation
   </variablelist>
 
   <para>
-<!## PG>
    This utility, like most other <productname>PostgreSQL</> utilities,
-<!## end>
-<!## XC>
-   This utility, like most other <productname>Postgres-XC</> utilities,
-<!## end>
    also uses the environment variables supported by <application>libpq</>
    (see <xref linkend="libpq-envars">).
   </para>

@@ -39,7 +39,6 @@ ALTER OPERATOR FAMILY <replaceable>name</replaceable> USING <replaceable class="
   <title>Description</title>
 
 &common;
-
   <para>
    <command>ALTER OPERATOR FAMILY</command> changes the definition of
    an operator family.  You can add operators and support functions
@@ -147,11 +146,12 @@ ALTER OPERATOR FAMILY <replaceable>name</replaceable> USING <replaceable class="
      <para>
       In an <literal>ADD FUNCTION</> clause, the operand data type(s) the
       function is intended to support, if different from
-      the input data type(s) of the function.  For B-tree and hash indexes
-      it is not necessary to specify <replaceable
+      the input data type(s) of the function.  For B-tree comparison functions
+      and hash functions it is not necessary to specify <replaceable
       class="parameter">op_type</replaceable> since the function's input
-      data type(s) are always the correct ones to use.  For GIN and GiST
-      indexes it is necessary to specify the input data type the function
+      data type(s) are always the correct ones to use.  For B-tree sort
+      support functions and all functions in GiST, SP-GiST and GIN operator
+      classes, it is necessary to specify the operand data type(s) the function
       is to be used with.
      </para>
 
@@ -251,8 +251,8 @@ ALTER OPERATOR FAMILY <replaceable>name</replaceable> USING <replaceable class="
    type(s).  The name of the operator or function occupying the slot is not
    mentioned.  Also, for <literal>DROP FUNCTION</> the type(s) to specify
    are the input data type(s) the function is intended to support; for
-   GIN and GiST indexes this might have nothing to do with the actual input
-   argument types of the function.
+   GiST, SP-GiST and GIN indexes this might have nothing to do with the actual
+   input argument types of the function.
   </para>
 
   <para>
@@ -269,6 +269,7 @@ ALTER OPERATOR FAMILY <replaceable>name</replaceable> USING <replaceable class="
    the optimizer from recognizing that the query matches an index.
   </para>
 
+<!## PG>
   <para>
    Before <productname>PostgreSQL</productname> 8.4, the <literal>OPERATOR</>
    clause could include a <literal>RECHECK</> option.  This is no longer
@@ -276,6 +277,8 @@ ALTER OPERATOR FAMILY <replaceable>name</replaceable> USING <replaceable class="
    determined on-the-fly at run time.  This allows efficient handling of
    cases where an operator might or might not be lossy.
   </para>
+<!## end>
+
  </refsect1>
 
  <refsect1>

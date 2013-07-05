@@ -21,11 +21,11 @@
    That functionality covers XML syntax checking and XPath queries,
    which is what this module does, and more, but the API is
    not at all compatible.  It is planned that this module will be
-   removed in PostgreSQL 8.4 in favor of the newer standard API, so
+   removed in a future version of PostgreSQL in favor of the newer standard API, so
    you are encouraged to try converting your applications.  If you
    find that some of the functionality of this module is not
    available in an adequate form with the newer API, please explain
-   your issue to pgsql-hackers@postgresql.org so that the deficiency
+   your issue to <email>pgsql-hackers@postgresql.org</email> so that the deficiency
    can be addressed.
   </para>
  </sect2>
@@ -434,14 +434,6 @@ xslt_process(text document, text stylesheet, text paramlist) returns text
     <literal>a=1,b=2</>. Note that the
     parameter parsing is very simple-minded: parameter values cannot
     contain commas!
-   </para>
-
-   <para>
-    Also note that if either the document or stylesheet values do not
-    begin with a &lt; then they will be treated as URLs and libxslt will
-    fetch them. It follows that you can use <function>xslt_process</> as a
-    means to fetch the contents of URLs &mdash; you should be aware of the
-    security implications of this.
    </para>
 
    <para>

@@ -89,8 +89,8 @@ static void walwriter_sigusr1_handler(SIGNAL_ARGS);
 /*
  * Main entry point for walwriter process
  *
- * This is invoked from BootstrapMain, which has already created the basic
- * execution environment, but not enabled signals yet.
+ * This is invoked from AuxiliaryProcessMain, which has already created the
+ * basic execution environment, but not enabled signals yet.
  */
 void
 WalWriterMain(void)
@@ -187,6 +187,7 @@ WalWriterMain(void)
 							 false, true);
 		/* we needn't bother with the other ResourceOwnerRelease phases */
 		AtEOXact_Buffers(false);
+		AtEOXact_SMgr();
 		AtEOXact_Files();
 		AtEOXact_HashTables(false);
 

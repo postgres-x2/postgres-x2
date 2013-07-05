@@ -573,6 +573,15 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 		/* statement_timestamp must be set for timeouts to work correctly */
 		SetCurrentStatementStartTimestamp();
 		StartTransactionCommand();
+
+		/*
+		 * transaction_isolation will have been set to the default by the
+		 * above.  If the default is "serializable", and we are in hot
+		 * standby, we will fail if we don't change it to something lower.
+		 * Fortunately, "read committed" is plenty good enough.
+		 */
+		XactIsoLevel = XACT_READ_COMMITTED;
+
 		(void) GetTransactionSnapshot();
 	}
 
@@ -658,7 +667,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	{
 		Assert(!bootstrap);
 
-		if (!superuser() && !is_authenticated_user_replication_role())
+		if (!superuser() && !has_rolreplication(GetUserId()))
 			ereport(FATAL,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("must be superuser or replication role to start walsender")));
@@ -901,7 +910,7 @@ process_startup_options(Port *port, bool am_superuser)
 
 		Assert(ac < maxac);
 
-		(void) process_postgres_switches(ac, av, gucctx);
+		(void) process_postgres_switches(ac, av, gucctx, NULL);
 	}
 
 	/*

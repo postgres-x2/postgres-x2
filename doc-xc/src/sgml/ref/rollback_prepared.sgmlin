@@ -28,11 +28,6 @@ ROLLBACK PREPARED <replaceable class="PARAMETER">transaction_id</replaceable>
  <refsect1>
   <title>Description</title>
 
-&common;
-<!-- NOTICE:
-     Make sure if this propagates to involved nodes -> Michael 
--->
-
   <para>
    <command>ROLLBACK PREPARED</command> rolls back a transaction that is in
    prepared state.
@@ -97,9 +92,20 @@ ROLLBACK PREPARED <replaceable class="PARAMETER">transaction_id</replaceable>
 
 <programlisting>
 ROLLBACK PREPARED 'foobar';
-</programlisting>
-  </para>
+</programlisting></para>
 
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+
+  <para>
+   <command>ROLLBACK PREPARED</command> is a
+   <productname>PostgreSQL</productname> extension.  It is intended for use by
+   external transaction management systems, some of which are covered by
+   standards (such as X/Open XA), but the SQL side of those systems is not
+   standardized.
+  </para>
  </refsect1>
 
  <refsect1>

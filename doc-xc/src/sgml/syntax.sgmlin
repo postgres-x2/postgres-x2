@@ -18,14 +18,13 @@
   We also advise users who are already familiar with SQL to read this
   chapter carefully because it contains several rules and concepts that
   are implemented inconsistently among SQL databases or that are
-  <!## PG>
+<!## PG>
   specific to <productname>PostgreSQL</productname>.
-  <!## end>
-  <!## XC>
+<!## end>
+<!## XC>
   specific to <productname>Postgres-XC</productname>.
-  <!## end>
+<!## end>
  </para>
-
 
  <sect1 id="sql-syntax-lexical">
   <title>Lexical Structure</title>
@@ -34,7 +33,6 @@
    <primary>token</primary>
   </indexterm>
 
-&common;
   <para>
    SQL input consists of a sequence of
    <firstterm>commands</firstterm>.  A command is composed of a
@@ -102,7 +100,7 @@ INSERT INTO MY_TABLE VALUES (3, 'hi there');
     <primary>key word</primary>
     <secondary>syntax of</secondary>
    </indexterm>
-&common;
+
    <para>
     Tokens such as <token>SELECT</token>, <token>UPDATE</token>, or
     <token>VALUES</token> in the example above are examples of
@@ -292,7 +290,7 @@ U&amp;"d!0061t!+000061" UESCAPE '!'
    <indexterm zone="sql-syntax-constants">
     <primary>constant</primary>
    </indexterm>
-&common;
+
    <para>
     There are three kinds of <firstterm>implicitly-typed
 <!## PG>
@@ -315,7 +313,7 @@ U&amp;"d!0061t!+000061" UESCAPE '!'
      <primary>character string</primary>
      <secondary>constant</secondary>
     </indexterm>
-&common;
+
     <para>
      <indexterm>
       <primary>quotation marks</primary>
@@ -368,7 +366,7 @@ SELECT 'foo'      'bar';
      <indexterm zone="sql-syntax-strings-escape">
       <primary>backslash escapes</primary>
      </indexterm>
-&common;
+
     <para>
 <!## PG>
      <productname>PostgreSQL</productname> also accepts <quote>escape</>
@@ -486,12 +484,14 @@ SELECT 'foo'      'bar';
      <xref linkend="guc-standard-conforming-strings"> is <literal>off</>,
 <!## PG>
      then <productname>PostgreSQL</productname> recognizes backslash escapes
+     in both regular and escape string constants.  However, as of
+     <productname>PostgreSQL</> 9.1, the default is <literal>on</>, meaning
 <!## end>
 <!## XC>
      then <productname>Postgres-XC</productname> recognizes backslash escapes
-<!## end>
      in both regular and escape string constants.  However, as of
-     <productname>PostgreSQL</> 9.1, the default is <literal>on</>, meaning
+     <productname>Postgres-XC</> 1.0, the default is <literal>on</>, meaning
+<!## end>
      that backslash escapes are recognized only in escape string constants.
      This behavior is more standards-compliant, but might break applications
      which rely on the historical behavior, where backslash escapes
@@ -521,7 +521,7 @@ SELECT 'foo'      'bar';
      <primary>Unicode escape</primary>
      <secondary>in string constants</secondary>
     </indexterm>
-&common;
+
     <para>
 <!## PG>
      <productname>PostgreSQL</productname> also supports another type
@@ -601,7 +601,7 @@ U&amp;'d!0061t!+000061' UESCAPE '!'
      <indexterm>
       <primary>dollar quoting</primary>
      </indexterm>
-&common;
+
     <para>
      While the standard syntax for specifying string constants is usually
      convenient, it can be difficult to understand when the desired string
@@ -692,7 +692,6 @@ $function$
      <primary>bit string</primary>
      <secondary>constant</secondary>
     </indexterm>
-&common;
 
     <para>
      Bit-string constants look like regular string constants with a
@@ -717,14 +716,13 @@ $function$
     </para>
    </sect3>
 
-   <sect3>
+   <sect3 id="sql-syntax-constants-numeric">
     <title>Numeric Constants</title>
 
     <indexterm>
      <primary>number</primary>
      <secondary>constant</secondary>
     </indexterm>
-&common;
 
     <para>
      Numeric constants are accepted in these general forms:
@@ -780,10 +778,18 @@ $function$
      For example, you can force a numeric value to be treated as type
      <type>real</> (<type>float4</>) by writing:
 
+<!## PG>
 <programlisting>
 REAL '1.23'  -- string style
 1.23::REAL   -- PostgreSQL (historical) style
 </programlisting>
+<!## end>
+<!## XC>
+<programlisting>
+REAL '1.23'  -- string style
+1.23::REAL   -- Postgres-XC (historical) style
+</programlisting>
+<!## end>
 
      These are actually just special cases of the general casting
      notations discussed next.
@@ -797,7 +803,6 @@ REAL '1.23'  -- string style
      <primary>data type</primary>
      <secondary>constant</secondary>
     </indexterm>
-&common;
 
     <para>
      A constant of an <emphasis>arbitrary</emphasis> type can be
@@ -854,12 +859,7 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
      for a few data types, but <productname>Postgres-XC</productname> allows it
 <!## end>
      for all types.  The syntax with
-<!## PG>
      <literal>::</literal> is historical <productname>PostgreSQL</productname>
-<!## end>
-<!## XC>
-     <literal>::</literal> is historical <productname>Postgres-XC</productname>
-<!## end>
      usage, as is the function-call syntax.
     </para>
    </sect3>
@@ -872,7 +872,6 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
     <primary>operator</primary>
     <secondary>syntax</secondary>
    </indexterm>
-&common;
 
    <para>
     An operator name is a sequence of up to <symbol>NAMEDATALEN</symbol>-1
@@ -928,9 +927,8 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="sql-syntax-special-chars">
    <title>Special Characters</title>
-&common;
 
   <para>
    Some characters that are not alphanumeric have a special meaning
@@ -1019,7 +1017,6 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
     <primary>comment</primary>
     <secondary sortas="SQL">in SQL</secondary>
    </indexterm>
-&common;
 
    <para>
     A comment is a sequence of characters beginning with
@@ -1056,7 +1053,6 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
     <primary>operator</primary>
     <secondary>precedence</secondary>
    </indexterm>
-&common;
 
    <para>
     <xref linkend="sql-precedence-table"> shows the precedence and
@@ -1270,7 +1266,6 @@ SELECT 3 OPERATOR(pg_catalog.+) 4;
    <primary>scalar</primary>
    <see>expression</see>
   </indexterm>
-&common;
 
   <para>
    Value expressions are used in a variety of contexts, such
@@ -1400,13 +1395,12 @@ SELECT 3 OPERATOR(pg_catalog.+) 4;
    the remaining options.
   </para>
 
-  <sect2>
+  <sect2 id="sql-expressions-column-refs">
    <title>Column References</title>
 
    <indexterm>
     <primary>column reference</primary>
    </indexterm>
-&common;
 
    <para>
     A column can be referenced in the form:
@@ -1424,7 +1418,7 @@ SELECT 3 OPERATOR(pg_catalog.+) 4;
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="sql-expressions-parameters-positional">
    <title>Positional Parameters</title>
 
    <indexterm>
@@ -1435,7 +1429,6 @@ SELECT 3 OPERATOR(pg_catalog.+) 4;
    <indexterm>
     <primary>$</primary>
    </indexterm>
-&common;
 
    <para>
     A positional parameter reference is used to indicate a value
@@ -1465,13 +1458,12 @@ CREATE FUNCTION dept(text) RETURNS dept
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="sql-expressions-subscripts">
    <title>Subscripts</title>
 
    <indexterm>
     <primary>subscript</primary>
    </indexterm>
-&common;
 
    <para>
     If an expression yields a value of an array type, then a specific
@@ -1515,7 +1507,6 @@ $1[10:42]
    <indexterm>
     <primary>field selection</primary>
    </indexterm>
-&common;
 
    <para>
     If an expression yields a value of a composite type (row type), then a
@@ -1562,14 +1553,13 @@ $1.somecolumn
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="sql-expressions-operator-calls">
    <title>Operator Invocations</title>
 
    <indexterm>
     <primary>operator</primary>
     <secondary>invocation</secondary>
    </indexterm>
-&common;
 
    <para>
     There are three possible syntaxes for an operator invocation:
@@ -1592,14 +1582,13 @@ $1.somecolumn
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="sql-expressions-function-calls">
    <title>Function Calls</title>
 
    <indexterm>
     <primary>function</primary>
     <secondary>invocation</secondary>
    </indexterm>
-&common;
 
    <para>
     The syntax for a function call is the name of a function
@@ -1635,7 +1624,12 @@ sqrt(2)
      field selection can be written in functional style.  That is, the
      notations <literal>col(table)</> and <literal>table.col</> are
      interchangeable.  This behavior is not SQL-standard but is provided
+<!## PG>
      in <productname>PostgreSQL</> because it allows use of functions to
+<!## end>
+<!## XC>
+     in <productname>Postgres-XC</> because it allows use of functions to
+<!## end>
      emulate <quote>computed fields</>.  For more information see
      <xref linkend="xfunc-sql-composite-functions">.
     </para>
@@ -1649,7 +1643,6 @@ sqrt(2)
     <primary>aggregate function</primary>
     <secondary>invocation</secondary>
    </indexterm>
-&common;
 
    <para>
     An <firstterm>aggregate expression</firstterm> represents the
@@ -1748,12 +1741,7 @@ SELECT string_agg(a ORDER BY a, ',') FROM table;  -- incorrect
    <note>
     <para>
      The ability to specify both <literal>DISTINCT</> and <literal>ORDER BY</>
-<!## PG>
      in an aggregate function is a <productname>PostgreSQL</> extension.
-<!## end>
-<!## XC>
-     in an aggregate function is a <productname>Postgres-XC</> extension.
-<!## end>
     </para>
    </note>
 
@@ -1908,7 +1896,7 @@ UNBOUNDED FOLLOWING
     The syntaxes using <literal>*</> are used for calling parameter-less
     aggregate functions as window functions, for example
     <literal>count(*) OVER (PARTITION BY x ORDER BY y)</>.
-    <literal>*</> is customarily not used for non-aggregate window functions.
+    The asterisk (<literal>*</>) is customarily not used for non-aggregate window functions.
     Aggregate window functions, unlike normal aggregate functions, do not
     allow <literal>DISTINCT</> or <literal>ORDER BY</> to be used within the
     function argument list.
@@ -1942,7 +1930,6 @@ UNBOUNDED FOLLOWING
    <indexterm>
     <primary>::</primary>
    </indexterm>
-&common;
 
    <para>
     A type cast specifies a conversion from one data type to another.
@@ -1958,12 +1945,7 @@ CAST ( <replaceable>expression</replaceable> AS <replaceable>type</replaceable> 
 <replaceable>expression</replaceable>::<replaceable>type</replaceable>
 </synopsis>
     The <literal>CAST</> syntax conforms to SQL; the syntax with
-<!## PG>
     <literal>::</literal> is historical <productname>PostgreSQL</productname>
-<!## end>
-<!## XC>
-    <literal>::</literal> is historical <productname>Postgres-XC</productname>
-<!## end>
     usage.
    </para>
 
@@ -2088,7 +2070,6 @@ SELECT * FROM tbl WHERE (a &gt; 'foo') COLLATE "C";
    <indexterm>
     <primary>subquery</primary>
    </indexterm>
-&common;
 
    <para>
     A scalar subquery is an ordinary
@@ -2126,7 +2107,6 @@ SELECT name, (SELECT max(pop) FROM cities WHERE cities.state = states.name)
    <indexterm>
     <primary>ARRAY</primary>
    </indexterm>
-&common;
 
    <para>
     An array constructor is an expression that builds an
@@ -2224,9 +2204,9 @@ SELECT ARRAY[]::integer[];
    bracketed) subquery. For example:
 <programlisting>
 SELECT ARRAY(SELECT oid FROM pg_proc WHERE proname LIKE 'bytea%');
-                          ?column?
--------------------------------------------------------------
- {2011,1954,1948,1952,1951,1244,1950,2005,1949,1953,2006,31}
+                                 array
+-----------------------------------------------------------------------
+ {2011,1954,1948,1952,1951,1244,1950,2005,1949,1953,2006,31,2412,2413}
 (1 row)
 </programlisting>
    The subquery must return a single column. The resulting
@@ -2259,7 +2239,6 @@ SELECT ARRAY(SELECT oid FROM pg_proc WHERE proname LIKE 'bytea%');
    <indexterm>
     <primary>ROW</primary>
    </indexterm>
-&common;
 
    <para>
     A row constructor is an expression that builds a row value (also
@@ -2288,6 +2267,7 @@ SELECT ROW(t.f1, t.f2, 42) FROM t;
 </programlisting>
    </para>
 
+<!## PG>
    <note>
     <para>
      Before <productname>PostgreSQL</productname> 8.2, the
@@ -2299,6 +2279,7 @@ SELECT ROW(t.f1, t.f2, 42) FROM t;
      <literal>ROW(t, 42)</>.
     </para>
    </note>
+<!## end>
 
    <para>
     By default, the value created by a <literal>ROW</> expression is of
@@ -2365,7 +2346,6 @@ SELECT ROW(table.*) IS NULL FROM table;  -- detect all-null rows
     <primary>expression</primary>
     <secondary>order of evaluation</secondary>
    </indexterm>
-&common;
 
    <para>
     The order of evaluation of subexpressions is not defined.  In
@@ -2427,7 +2407,6 @@ SELECT ... WHERE CASE WHEN x &gt; 0 THEN y/x &gt; 1.5 ELSE false END;
     <primary>notation</primary>
     <secondary>functions</secondary>
    </indexterm>
-&common;
 
    <para>
 <!## PG>
@@ -2500,7 +2479,6 @@ LANGUAGE SQL IMMUTABLE STRICT;
      <primary>function</primary>
      <secondary>positional notation</secondary>
     </indexterm>
-&common;
 
     <para>
      Positional notation is the traditional mechanism for passing arguments
@@ -2541,7 +2519,6 @@ SELECT concat_lower_or_upper('Hello', 'World');
      <primary>function</primary>
      <secondary>named notation</secondary>
     </indexterm>
-&common;
 
     <para>
      In named notation, each argument's name is specified using
@@ -2581,7 +2558,6 @@ SELECT concat_lower_or_upper(a := 'Hello', uppercase := true, b := 'World');
     <primary>function</primary>
     <secondary>mixed notation</secondary>
    </indexterm>
-&common;
 
    <para>
     The mixed notation combines positional and named notation. However, as

@@ -33,6 +33,7 @@ BEGIN [ WORK | TRANSACTION ] [ <replaceable class="parameter">transaction_mode</
 
  <refsect1>
   <title>Description</title>
+
 &common;
   <para>
    <command>BEGIN</command> initiates a transaction block, that is,
@@ -127,8 +128,7 @@ BEGIN [ WORK | TRANSACTION ] [ <replaceable class="parameter">transaction_mode</
 
 <programlisting>
 BEGIN;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -149,7 +149,12 @@ BEGIN;
   <para>
    The <literal>DEFERRABLE</literal>
    <replaceable class="parameter">transaction_mode</replaceable>
+<!## PG>
    is a <productname>PostgreSQL</productname> language extension.
+<!## end>
+<!## XC>
+   is a <productname>Postgres-XC</productname> language extension.
+<!## end>
   </para>
 
   <para>

@@ -55,6 +55,7 @@ extern bool contain_window_function(Node *clause);
 extern WindowFuncLists *find_window_functions(Node *clause, Index maxWinRef);
 
 extern double expression_returns_set_rows(Node *clause);
+extern double tlist_returns_set_rows(List *tlist);
 
 extern bool contain_subplans(Node *clause);
 
@@ -77,8 +78,6 @@ extern void CommuteOpExpr(OpExpr *clause);
 extern void CommuteRowCompareExpr(RowCompareExpr *clause);
 
 extern Node *strip_implicit_coercions(Node *node);
-
-extern void set_coercionform_dontcare(Node *node);
 
 extern Node *eval_const_expressions(PlannerInfo *root, Node *node);
 

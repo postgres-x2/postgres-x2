@@ -33,16 +33,14 @@ DECLARE <replaceable class="parameter">name</replaceable> [ BINARY ] [ INSENSITI
 <!## end>
 <!## XC>
 <synopsis>
-DECLARE <replaceable class="parameter">name</replaceable> [ BINARY ] [ NO SCROLL ]
-    CURSOR [ WITHOUT HOLD ] FOR <replaceable class="parameter">query</replaceable>
+DECLARE <replaceable class="parameter">name</replaceable> [ BINARY ] [ INSENSITIVE ] [ [ NO ] SCROLL ]
+    CURSOR [ { WITHOUT } HOLD ] FOR <replaceable class="parameter">query</replaceable>
 </synopsis>
 <!## end>
  </refsynopsisdiv>
 
  <refsect1>
   <title>Description</title>
-
-&common;
 
   <para>
    <command>DECLARE</command> allows a user to create cursors, which
@@ -110,8 +108,7 @@ DECLARE <replaceable class="parameter">name</replaceable> [ BINARY ] [ NO SCROLL
     <term><literal>SCROLL</literal></term>
     <term><literal>NO SCROLL</literal></term>
     <listitem>
-     <para>
-      <literal>SCROLL</literal> specifies that the cursor can be used
+     <para><literal>SCROLL</literal> specifies that the cursor can be used
       to retrieve rows in a nonsequential fashion (e.g.,
       backward). Depending upon the complexity of the query's
       execution plan, specifying <literal>SCROLL</literal> might impose
@@ -136,8 +133,7 @@ DECLARE <replaceable class="parameter">name</replaceable> [ BINARY ] [ NO SCROLL
     <term><literal>WITH HOLD</literal></term>
     <term><literal>WITHOUT HOLD</literal></term>
     <listitem>
-     <para>
-      <literal>WITH HOLD</literal> specifies that the cursor can
+     <para><literal>WITH HOLD</literal> specifies that the cursor can
       continue to be used after the transaction that created it
       successfully commits.  <literal>WITHOUT HOLD</literal> specifies
       that the cursor cannot be used outside of the transaction that

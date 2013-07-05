@@ -5,7 +5,6 @@
 
  <indexterm zone="backup"><primary>backup</></>
 
-&common;
  <para>
   As with everything that contains valuable data, <productname>PostgreSQL</>
   databases should be backed up regularly. While the procedure is
@@ -28,7 +27,6 @@
  <sect1 id="backup-dump">
   <title><acronym>SQL</> Dump</title>
 
-&common;
   <para>
    The idea behind this dump method is to generate a text file with SQL
    commands that, when fed back to the server, will recreate the
@@ -115,11 +113,9 @@ pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable cl
   </important>
 <!## end>
 
-
   <sect2 id="backup-dump-restore">
    <title>Restoring the Dump</title>
 
-&common;
    <para>
     The text files created by <application>pg_dump</> are intended to
     be read in by the <application>psql</application> program. The
@@ -205,7 +201,6 @@ pg_dump -h <replaceable>host1</> <replaceable>dbname</> | psql -h <replaceable>h
   <sect2 id="backup-dump-all">
    <title>Using <application>pg_dumpall</></title>
 
-&common;
    <para>
     <application>pg_dump</> dumps only a single database at a time,
     and it does not dump information about roles or tablespaces
@@ -243,7 +238,6 @@ psql -f <replaceable class="parameter">infile</replaceable> postgres
   <sect2 id="backup-dump-large">
    <title>Handling Large Databases</title>
 
-&common;
    <para>
     Some operating systems have maximum file size limits that cause
     problems when creating large <application>pg_dump</> output files.
@@ -342,7 +336,6 @@ pg_restore -d <replaceable class="parameter">dbname</replaceable> <replaceable c
   </para>
 <!## end>
 
-&common;
   <para>
    An alternative backup strategy is to directly copy the files that
    <productname>PostgreSQL</> uses to store the data in the database;
@@ -623,10 +616,10 @@ tar -cf backup.tar /usr/local/pgsql/data
     (The path name is relative to the current working directory,
     i.e., the cluster's data directory.)
     Use <literal>%%</> if you need to embed an actual <literal>%</>
-    characterin the command.  The simplest useful command is something
+    character in the command.  The simplest useful command is something
     like:
 <programlisting>
-archive_command = 'cp -i %p /mnt/server/archivedir/%f &lt;/dev/null'  # Unix
+archive_command = 'test ! -f /mnt/server/archivedir/%f &amp;&amp; cp %p /mnt/server/archivedir/%f'  # Unix
 archive_command = 'copy "%p" "C:\\server\\archivedir\\%f"'  # Windows
 </programlisting>
     which will copy archivable WAL segments to the directory
@@ -635,7 +628,7 @@ archive_command = 'copy "%p" "C:\\server\\archivedir\\%f"'  # Windows
     <literal>%p</> and <literal>%f</> parameters have been replaced,
     the actual command executed might look like this:
 <programlisting>
-cp -i pg_xlog/00000001000000A900000065 /mnt/server/archivedir/00000001000000A900000065 &lt;/dev/null
+test ! -f /mnt/server/archivedir/00000001000000A900000065 &amp;&amp; cp pg_xlog/00000001000000A900000065 /mnt/server/archivedir/00000001000000A900000065
 </programlisting>
     A similar command will be generated for each new file to be archived.
    </para>
@@ -664,18 +657,19 @@ cp -i pg_xlog/00000001000000A900000065 /mnt/server/archivedir/00000001000000A900
     preserve the integrity of your archive in case of administrator error
     (such as sending the output of two different servers to the same archive
     directory).
+   </para>
+
+   <para>
     It is advisable to test your proposed archive command to ensure that it
     indeed does not overwrite an existing file, <emphasis>and that it returns
-    nonzero status in this case</>.  On many Unix platforms, <command>cp
-    -i</> causes copy to prompt before overwriting a file, and
-    <literal>&lt; /dev/null</> causes the prompt (and overwriting) to
-    fail.  If your platform does not support this behavior, you should
-    add a command to test for the existence of the archive file.  For
-    example, something like:
-<programlisting>
-archive_command = 'test ! -f /mnt/server/archivedir/%f &amp;&amp; cp %p /mnt/server/archivedir/%f'
-</programlisting>
-    works correctly on most Unix variants.
+    nonzero status in this case</>.
+    The example command above for Unix ensures this by including a separate
+    <command>test</> step.  On some Unix platforms, <command>cp</> has
+    switches such as <option>-i</> that can be used to do the same thing
+    less verbosely, but you should not rely on these without verifying that
+    the right exit status is returned.  (In particular, GNU <command>cp</>
+    will return status zero when <option>-i</> is used and the target file
+    already exists, which is <emphasis>not</> the desired behavior.)
    </para>
 
    <para>
@@ -783,7 +777,72 @@ archive_command = 'test ! -f /mnt/server/archivedir/%f &amp;&amp; cp %p /mnt/ser
 <!## end>
 
    <para>
-    The procedure for making a base backup is relatively simple:
+    The easiest way to perform a base backup is to use the
+    <xref linkend="app-pgbasebackup"> tool. It can create
+    a base backup either as regular files or as a tar archive. If more
+    flexibility than <xref linkend="app-pgbasebackup"> can provide is
+    required, you can also make a base backup using the low level API
+    (see <xref linkend="backup-lowlevel-base-backup">).
+   </para>
+
+   <para>
+    It is not necessary to be concerned about the amount of time it takes
+    to make a base backup. However, if you normally run the
+    server with <varname>full_page_writes</> disabled, you might notice a drop
+    in performance while the backup runs since <varname>full_page_writes</> is
+    effectively forced on during backup mode.
+   </para>
+
+   <para>
+    To make use of the backup, you will need to keep all the WAL
+    segment files generated during and after the file system backup.
+    To aid you in doing this, the base backup process
+    creates a <firstterm>backup history file</> that is immediately
+    stored into the WAL archive area. This file is named after the first
+    WAL segment file that you need for the file system backup.
+    For example, if the starting WAL file is
+    <literal>0000000100001234000055CD</> the backup history file will be
+    named something like
+    <literal>0000000100001234000055CD.007C9330.backup</>. (The second
+    part of the file name stands for an exact position within the WAL
+    file, and can ordinarily be ignored.) Once you have safely archived
+    the file system backup and the WAL segment files used during the
+    backup (as specified in the backup history file), all archived WAL
+    segments with names numerically less are no longer needed to recover
+    the file system backup and can be deleted. However, you should
+    consider keeping several backup sets to be absolutely certain that
+    you can recover your data.
+   </para>
+
+   <para>
+    The backup history file is just a small text file. It contains the
+    label string you gave to <xref linkend="app-pgbasebackup">, as well as
+    the starting and ending times and WAL segments of the backup.
+    If you used the label to identify the associated dump file,
+    then the archived history file is enough to tell you which dump file to
+    restore.
+   </para>
+
+   <para>
+    Since you have to keep around all the archived WAL files back to your
+    last base backup, the interval between base backups should usually be
+    chosen based on how much storage you want to expend on archived WAL
+    files.  You should also consider how long you are prepared to spend
+    recovering, if recovery should be necessary &mdash; the system will have to
+    replay all those WAL segments, and that could take awhile if it has
+    been a long time since the last base backup.
+   </para>
+  </sect2>
+
+  <sect2 id="backup-lowlevel-base-backup">
+   <title>Making a Base Backup Using the Low Level API</title>
+   <para>
+    The procedure for making a base backup using the low level
+    APIs contains a few more steps than
+    the <xref linkend="app-pgbasebackup"> method, but is relatively
+    simple. It is very important that these steps are executed in
+    sequence, and that the success of a step is verified before
+    proceeding to the next step.
   <orderedlist>
    <listitem>
     <para>
@@ -873,17 +932,6 @@ SELECT pg_stop_backup();
    </para>
 
    <para>
-    You can also use the <xref linkend="app-pgbasebackup"> tool to take
-    the backup, instead of manually copying the files. This tool will do
-    the equivalent of <function>pg_start_backup()</>, copy and
-    <function>pg_stop_backup()</> steps automatically, and transfers the
-    backup over a regular <productname>PostgreSQL</productname> connection
-    using the replication protocol, instead of requiring file system level
-    access. <command>pg_basebackup</command> does not interfere with file system level backups
-    taken using <function>pg_start_backup()</>/<function>pg_stop_backup()</>.
-   </para>
-
-   <para>
     Some file system backup tools emit warnings or errors
     if the files they are trying to copy change while the copy proceeds.
     When taking a base backup of an active database, this situation is normal
@@ -896,20 +944,9 @@ SELECT pg_stop_backup();
     a fatal error if a file was truncated while <application>tar</> was
     copying it.  Fortunately, GNU <application>tar</> versions 1.16 and
     later exit with 1 if a file was changed during the backup,
-    and 2 for other errors.
-   </para>
-
-   <para>
-    It is not necessary to be concerned about the amount of time elapsed
-    between <function>pg_start_backup</> and the start of the actual backup,
-    nor between the end of the backup and <function>pg_stop_backup</>; a
-    few minutes' delay won't hurt anything.  (However, if you normally run the
-    server with <varname>full_page_writes</> disabled, you might notice a drop
-    in performance between <function>pg_start_backup</> and
-    <function>pg_stop_backup</>, since <varname>full_page_writes</> is
-    effectively forced on during backup mode.)  You must ensure that these
-    steps are carried out in sequence, without any possible
-    overlap, or you will invalidate the backup.
+    and 2 for other errors.  With GNU <application>tar</> version 1.23 and
+    later, you can use the warning options <literal>--warning=no-file-changed
+    --warning=no-file-removed</literal> to hide the related warning messages.
    </para>
 
    <para>
@@ -928,47 +965,11 @@ SELECT pg_stop_backup();
     of mistakes when restoring.  This is easy to arrange if
     <filename>pg_xlog/</> is a symbolic link pointing to someplace outside
     the cluster directory, which is a common setup anyway for performance
-    reasons.
-   </para>
-
-   <para>
-    To make use of the backup, you will need to keep all the WAL
-    segment files generated during and after the file system backup.
-    To aid you in doing this, the <function>pg_stop_backup</> function
-    creates a <firstterm>backup history file</> that is immediately
-    stored into the WAL archive area. This file is named after the first
-    WAL segment file that you need for the file system backup.
-    For example, if the starting WAL file is
-    <literal>0000000100001234000055CD</> the backup history file will be
-    named something like
-    <literal>0000000100001234000055CD.007C9330.backup</>. (The second
-    part of the file name stands for an exact position within the WAL
-    file, and can ordinarily be ignored.) Once you have safely archived
-    the file system backup and the WAL segment files used during the
-    backup (as specified in the backup history file), all archived WAL
-    segments with names numerically less are no longer needed to recover
-    the file system backup and can be deleted. However, you should
-    consider keeping several backup sets to be absolutely certain that
-    you can recover your data.
-   </para>
-
-   <para>
-    The backup history file is just a small text file. It contains the
-    label string you gave to <function>pg_start_backup</>, as well as
-    the starting and ending times and WAL segments of the backup.
-    If you used the label to identify the associated dump file,
-    then the archived history file is enough to tell you which dump file to
-    restore.
-   </para>
-
-   <para>
-    Since you have to keep around all the archived WAL files back to your
-    last base backup, the interval between base backups should usually be
-    chosen based on how much storage you want to expend on archived WAL
-    files.  You should also consider how long you are prepared to spend
-    recovering, if recovery should be necessary &mdash; the system will have to
-    replay all those WAL segments, and that could take awhile if it has
-    been a long time since the last base backup.
+    reasons.  You might also want to exclude <filename>postmaster.pid</>
+    and <filename>postmaster.opts</>, which record information
+    about the running <application>postmaster</>, not about the
+    <application>postmaster</> which will eventually use this backup.
+    (These files can confuse <application>pg_ctl</>.)
    </para>
 
    <para>
@@ -1134,9 +1135,7 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
     WAL segments that cannot be found in the archive will be sought in
     <filename>pg_xlog/</>; this allows use of recent un-archived segments.
     However, segments that are available from the archive will be used in
-    preference to files in <filename>pg_xlog/</>.  The system will not
-    overwrite the existing contents of <filename>pg_xlog/</> when retrieving
-    archived files.
+    preference to files in <filename>pg_xlog/</>.
    </para>
 
    <para>
@@ -1265,13 +1264,11 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
     target timeline ID in <filename>recovery.conf</>.  You cannot recover into
     timelines that branched off earlier than the base backup.
    </para>
-
   </sect2>
 
   <sect2 id="backup-tips">
    <title>Tips and Examples</title>
 
-&pgnotice;
    <para>
     Some tips for configuring continuous archiving are given here.
    </para>
@@ -1279,7 +1276,6 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
     <sect3 id="backup-standalone">
      <title>Standalone Hot Backups</title>
 
-&pgnotice;
      <para>
       It is possible to use <productname>PostgreSQL</>'s backup facilities to
       produce standalone hot backups. These are backups that cannot be used
@@ -1290,12 +1286,23 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
      </para>
 
      <para>
-      To prepare for standalone hot backups, set <varname>wal_level</> to
+      As with base backups, the easiest way to produce a standalone
+      hot backup is to use the <xref linkend="app-pgbasebackup">
+      tool. If you include the <literal>-X</> parameter when calling
+      it, all the transaction log required to use the backup will be
+      included in the backup automatically, and no special action is
+      required to restore the backup.
+     </para>
+
+     <para>
+      If more flexibility in copying the backup files is needed, a lower
+      level process can be used for standalone hot backups as well.
+      To prepare for low level standalone hot backups, set <varname>wal_level</> to
       <literal>archive</> (or <literal>hot_standby</>), <varname>archive_mode</> to
       <literal>on</>, and set up an <varname>archive_command</> that performs
       archiving only when a <emphasis>switch file</> exists.  For example:
 <programlisting>
-archive_command = 'test ! -f /var/lib/pgsql/backup_in_progress || cp -i %p /var/lib/pgsql/archive/%f &lt; /dev/null'
+archive_command = 'test ! -f /var/lib/pgsql/backup_in_progress || (test ! -f /var/lib/pgsql/archive/%f &amp;&amp; cp %p /var/lib/pgsql/archive/%f)'
 </programlisting>
       This command will perform archiving when
       <filename>/var/lib/pgsql/backup_in_progress</> exists, and otherwise
@@ -1322,20 +1329,20 @@ tar -rf /var/lib/pgsql/backup.tar /var/lib/pgsql/archive/
       Please remember to add error handling to your backup scripts.
      </para>
 
+    </sect3>
+
+    <sect3 id="compressed-archive-logs">
+     <title>Compressed Archive Logs</title>
+
      <para>
-      If archive storage size is a concern, use <application>pg_compresslog</>,
-      <ulink url="http://pglesslog.projects.postgresql.org"></ulink>, to
-      remove unnecessary <xref linkend="guc-full-page-writes"> and trailing
-      space from the WAL files.  You can then use
-      <application>gzip</application> to further compress the output of
-      <application>pg_compresslog</>:
+      If archive storage size is a concern, you can use
+      <application>gzip</application> to compress the archive files:
 <programlisting>
-archive_command = 'pg_compresslog %p - | gzip &gt; /var/lib/pgsql/archive/%f'
+archive_command = 'gzip &lt; %p &gt; /var/lib/pgsql/archive/%f'
 </programlisting>
-      You will then need to use <application>gunzip</> and
-      <application>pg_decompresslog</> during recovery:
+      You will then need to use <application>gunzip</> during recovery:
 <programlisting>
-restore_command = 'gunzip &lt; /mnt/server/archivedir/%f | pg_decompresslog - %p'
+restore_command = 'gunzip &lt; /mnt/server/archivedir/%f &gt; %p'
 </programlisting>
      </para>
     </sect3>
@@ -1343,22 +1350,18 @@ restore_command = 'gunzip &lt; /mnt/server/archivedir/%f | pg_decompresslog - %p
     <sect3 id="backup-scripts">
      <title><varname>archive_command</varname> Scripts</title>
 
-&pgnotice;
      <para>
       Many people choose to use scripts to define their
       <varname>archive_command</varname>, so that their
       <filename>postgresql.conf</> entry looks very simple:
 <programlisting>
-archive_command = 'local_backup_script.sh'
+archive_command = 'local_backup_script.sh "%p" "%f"'
 </programlisting>
       Using a separate script file is advisable any time you want to use
       more than a single command in the archiving process.
       This allows all complexity to be managed within the script, which
       can be written in a popular scripting language such as
       <application>bash</> or <application>perl</>.
-      Any messages written to <literal>stderr</> from the script will appear
-      in the database server log, allowing complex configurations to be
-      diagnosed easily if they fail.
      </para>
 
      <para>
@@ -1387,9 +1390,18 @@ archive_command = 'local_backup_script.sh'
        </listitem>
       </itemizedlist>
      </para>
+
+     <tip>
+      <para>
+       When using an <varname>archive_command</varname> script, it's desirable
+       to enable <xref linkend="guc-logging-collector">.
+       Any messages written to <systemitem>stderr</> from the script will then
+       appear in the database server log, allowing complex configurations to
+       be diagnosed easily if they fail.
+      </para>
+     </tip>
     </sect3>
   </sect2>
-
 
   <sect2 id="continuous-archiving-caveats">
    <title>Caveats</title>

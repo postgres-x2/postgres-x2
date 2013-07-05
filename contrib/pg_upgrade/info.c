@@ -40,14 +40,11 @@ gen_db_file_maps(DbInfo *old_db, DbInfo *new_db,
 	int			relnum;
 	int			num_maps = 0;
 
-	if (old_db->rel_arr.nrels != new_db->rel_arr.nrels)
-		pg_log(PG_FATAL, "old and new databases \"%s\" have a different number of relations\n",
-			   old_db->db_name);
-
 	maps = (FileNameMap *) pg_malloc(sizeof(FileNameMap) *
 									 old_db->rel_arr.nrels);
 
-	for (relnum = 0; relnum < old_db->rel_arr.nrels; relnum++)
+	for (relnum = 0; relnum < Min(old_db->rel_arr.nrels, new_db->rel_arr.nrels);
+		 relnum++)
 	{
 		RelInfo    *old_rel = &old_db->rel_arr.rels[relnum];
 		RelInfo    *new_rel = &new_db->rel_arr.rels[relnum];
@@ -77,6 +74,11 @@ gen_db_file_maps(DbInfo *old_db, DbInfo *new_db,
 								old_rel, new_rel, maps + num_maps);
 		num_maps++;
 	}
+
+	/* Do this check after the loop so hopefully we will produce a clearer error above */
+	if (old_db->rel_arr.nrels != new_db->rel_arr.nrels)
+		pg_log(PG_FATAL, "old and new databases \"%s\" have a different number of relations\n",
+			   old_db->db_name);
 
 	*nmaps = num_maps;
 	return maps;
@@ -269,33 +271,64 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 	 */
 
 	snprintf(query, sizeof(query),
-			 "SELECT c.oid, n.nspname, c.relname, "
-			 "	c.relfilenode, c.reltablespace, %s "
+			 "CREATE TEMPORARY TABLE info_rels (reloid) AS SELECT c.oid "
 			 "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n "
 			 "	   ON c.relnamespace = n.oid "
-			 "  LEFT OUTER JOIN pg_catalog.pg_tablespace t "
-			 "	   ON c.reltablespace = t.oid "
-			 "WHERE relkind IN ('r','t', 'i'%s) AND "
+			 "LEFT OUTER JOIN pg_catalog.pg_index i "
+			 "	   ON c.oid = i.indexrelid "
+			 "WHERE relkind IN ('r', 'i'%s) AND "
+			/* pg_dump only dumps valid indexes;  testing indisready is
+			 * necessary in 9.2, and harmless in earlier/later versions. */
+			 " i.indisvalid IS DISTINCT FROM false AND "
+			 " i.indisready IS DISTINCT FROM false AND "
 	/* exclude possible orphaned temp tables */
 			 "  ((n.nspname !~ '^pg_temp_' AND "
 			 "    n.nspname !~ '^pg_toast_temp_' AND "
-			 "    n.nspname NOT IN ('pg_catalog', 'information_schema', 'binary_upgrade') AND "
+	/* skip pg_toast because toast index have relkind == 'i', not 't' */
+			 "    n.nspname NOT IN ('pg_catalog', 'information_schema', "
+			 "						'binary_upgrade', 'pg_toast') AND "
 			 "	  c.oid >= %u) "
 			 "  OR (n.nspname = 'pg_catalog' AND "
-	"    relname IN ('pg_largeobject', 'pg_largeobject_loid_pn_index'%s) )) "
-	/* we preserve pg_class.oid so we sort by it to match old/new */
-			 "ORDER BY 1;",
-	/* 9.2 removed the spclocation column */
-			 (GET_MAJOR_VERSION(cluster->major_version) <= 901) ?
-			 "t.spclocation" : "pg_catalog.pg_tablespace_location(t.oid) AS spclocation",
+	"    relname IN ('pg_largeobject', 'pg_largeobject_loid_pn_index'%s) ));",
 	/* see the comment at the top of old_8_3_create_sequence_script() */
 			 (GET_MAJOR_VERSION(old_cluster.major_version) <= 803) ?
 			 "" : ", 'S'",
-	/* this oid allows us to skip system toast tables */
 			 FirstNormalObjectId,
 	/* does pg_largeobject_metadata need to be migrated? */
 			 (GET_MAJOR_VERSION(old_cluster.major_version) <= 804) ?
 	"" : ", 'pg_largeobject_metadata', 'pg_largeobject_metadata_oid_index'");
+
+	PQclear(executeQueryOrDie(conn, "%s", query));
+
+	/*
+	 *	Get TOAST tables and indexes;  we have to gather the TOAST tables in
+	 *	later steps because we can't schema-qualify TOAST tables.
+	 */
+	PQclear(executeQueryOrDie(conn,
+							  "INSERT INTO info_rels "
+							  "SELECT reltoastrelid "
+							  "FROM info_rels i JOIN pg_catalog.pg_class c "
+							  "		ON i.reloid = c.oid"));
+	PQclear(executeQueryOrDie(conn,
+							  "INSERT INTO info_rels "
+							  "SELECT reltoastidxid "
+							  "FROM info_rels i JOIN pg_catalog.pg_class c "
+							  "		ON i.reloid = c.oid"));
+
+	snprintf(query, sizeof(query),
+			 "SELECT c.oid, n.nspname, c.relname, "
+			 "	c.relfilenode, c.reltablespace, %s "
+			 "FROM info_rels i JOIN pg_catalog.pg_class c "
+			 "		ON i.reloid = c.oid "
+			 "  JOIN pg_catalog.pg_namespace n "
+			 "	   ON c.relnamespace = n.oid "
+			 "  LEFT OUTER JOIN pg_catalog.pg_tablespace t "
+			 "	   ON c.reltablespace = t.oid "
+	/* we preserve pg_class.oid so we sort by it to match old/new */
+			 "ORDER BY 1;",
+	/* 9.2 removed the spclocation column */
+		   (GET_MAJOR_VERSION(cluster->major_version) <= 901) ?
+		   "t.spclocation" : "pg_catalog.pg_tablespace_location(t.oid) AS spclocation");
 
 	res = executeQueryOrDie(conn, "%s", query);
 

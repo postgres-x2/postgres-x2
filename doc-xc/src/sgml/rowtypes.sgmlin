@@ -12,7 +12,6 @@
  </indexterm>
 
 &pgnotice;
-
  <para>
   A <firstterm>composite type</> represents the structure of a row or record;
   it is essentially just a list of field names and their data types.
@@ -245,7 +244,7 @@ INSERT INTO mytab (complex_col.r, complex_col.i) VALUES(1.1, 2.2);
  </para>
  </sect2>
 
- <sect2>
+ <sect2 id="rowtypes-io-syntax">
   <title>Composite Type Input and Output Syntax</title>
 
   <para>

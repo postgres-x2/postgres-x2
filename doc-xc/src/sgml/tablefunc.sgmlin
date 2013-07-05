@@ -7,8 +7,6 @@
   <primary>tablefunc</primary>
  </indexterm>
 
-&pgonly;
-
  <para>
   The <filename>tablefunc</> module includes various functions that return
   tables (that is, multiple rows).  These functions are useful both in their
@@ -19,7 +17,6 @@
  <sect2>
   <title>Functions Provided</title>
 
-&pgnotice;
   <para>
    <xref linkend="tablefunc-functions"> shows the functions provided
    by the <filename>tablefunc</filename> module.
@@ -106,7 +103,6 @@
 normal_rand(int numvals, float8 mean, float8 stddev) returns setof float8
 </synopsis>
 
-&pgnotice;
     <para>
      <function>normal_rand</> produces a set of normally distributed random
      values (Gaussian distribution).
@@ -151,7 +147,6 @@ crosstab(text sql)
 crosstab(text sql, int N)
 </synopsis>
 
-&pgnotice;
    <para>
     The <function>crosstab</> function is used to produce <quote>pivot</>
     displays, wherein data is listed across the page rather than down.
@@ -298,7 +293,6 @@ AS ct(row_name text, category_1 text, category_2 text, category_3 text);
 crosstab<replaceable>N</>(text sql)
 </synopsis>
 
-&pgnotice;
     <para>
      The <function>crosstab<replaceable>N</></> functions are examples of how
      to set up custom wrappers for the general <function>crosstab</> function,
@@ -406,7 +400,6 @@ CREATE OR REPLACE FUNCTION crosstab_float8_5_cols(
 crosstab(text source_sql, text category_sql)
 </synopsis>
 
-&pgnotice;
    <para>
     The main limitation of the single-parameter form of <function>crosstab</>
     is that it treats all values in a group alike, inserting each value into
@@ -615,7 +608,6 @@ connectby(text relname, text keyid_fld, text parent_keyid_fld
           [, text branch_delim ])
 </synopsis>
 
-&pgnotice;
    <para>
     The <function>connectby</> function produces a display of hierarchical
     data that is stored in a table.  The table must have a key field that

@@ -7,11 +7,10 @@
   <primary>pg_trgm</primary>
  </indexterm>
 
-&common;
-
  <para>
   The <filename>pg_trgm</filename> module provides functions and operators
-  for determining the similarity of text based on trigram matching, as
+  for determining the similarity of <acronym>ASCII</>
+  alphanumeric text based on trigram matching, as
   well as index operator classes that support fast searching for similar
   strings.
  </para>
@@ -19,7 +18,6 @@
  <sect2>
   <title>Trigram (or Trigraph) Concepts</title>
 
-&common;
   <para>
    A trigram is a group of three consecutive characters taken
    from a string.  We can measure the similarity of two strings by
@@ -142,7 +140,6 @@
  <sect2>
   <title>Index Support</title>
 
-&common;
   <para>
    The <filename>pg_trgm</filename> module provides GiST and GIN index
    operator classes that allow you to create an index over a text column for
@@ -217,7 +214,6 @@ SELECT * FROM test_trgm WHERE t LIKE '%foo%bar';
  <sect2>
   <title>Text Search Integration</title>
 
-&common;
   <para>
    Trigram matching is a very useful tool when used in conjunction
    with a full text index.  In particular it can help to recognize

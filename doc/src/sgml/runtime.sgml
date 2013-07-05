@@ -286,10 +286,10 @@ pg_ctl start -l logfile
    <filename>rc.d</> directories. Whatever you do, the server must be
    run by the <productname>PostgreSQL</productname> user account
    <emphasis>and not by root</emphasis> or any other user. Therefore you
-   probably should form your commands using <literal>su -c '...'
-   postgres</literal>.  For example:
+   probably should form your commands using
+   <literal>su postgres -c '...'</literal>.  For example:
 <programlisting>
-su -c 'pg_ctl start -D /usr/local/pgsql/data -l serverlog' postgres
+su postgres -c 'pg_ctl start -D /usr/local/pgsql/data -l serverlog'
 </programlisting>
   </para>
 
@@ -315,7 +315,7 @@ su -c 'pg_ctl start -D /usr/local/pgsql/data -l serverlog' postgres
       <indexterm><primary>OpenBSD</><secondary>start script</secondary></>
 <programlisting>
 if [ -x /usr/local/pgsql/bin/pg_ctl -a -x /usr/local/pgsql/bin/postgres ]; then
-    su - -c '/usr/local/pgsql/bin/pg_ctl start -l /var/postgresql/log -s' postgres
+    su -l postgres -c '/usr/local/pgsql/bin/pg_ctl start -s -l /var/postgresql/log -D /usr/local/pgsql/data'
     echo -n ' postgresql'
 fi
 </programlisting>
@@ -1269,8 +1269,9 @@ default:\
     optimal for <productname>PostgreSQL</productname>. Because of the
     way that the kernel implements memory overcommit, the kernel might
     terminate the <productname>PostgreSQL</productname> postmaster (the
-    master server process) if the memory demands of
-    another process cause the system to run out of virtual memory.
+    master server process) if the memory demands of either
+    <productname>PostgreSQL</productname> or another process cause the
+    system to run out of virtual memory.
    </para>
 
    <para>
@@ -1295,6 +1296,19 @@ Out of Memory: Killed process 12345 (postgres).
     operating system can help avoid the problem, because the
     out-of-memory (OOM) killer is invoked only when physical memory and
     swap space are exhausted.
+   </para>
+
+   <para>
+    If <productname>PostgreSQL</productname> itself is the cause of the
+    system running out of memory, you can avoid the problem by changing
+    your configuration.  In some cases, it may help to lower memory-related
+    configuration parameters, particularly
+    <link linkend="guc-shared-buffers"><varname>shared_buffers</></link>
+    and <link linkend="guc-work-mem"><varname>work_mem</></link>.  In
+    other cases, the problem may be caused by allowing too many connections
+    to the database server itself.  In many cases, it may be better to reduce
+    <link linkend="guc-max-connections"><varname>max_connections</></link>
+    and instead make use of external connection-pooling software.
    </para>
 
    <para>

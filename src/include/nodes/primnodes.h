@@ -326,6 +326,12 @@ typedef enum CoercionContext
 
 /*
  * CoercionForm - information showing how to display a function-call node
+ *
+ * NB: equal() ignores CoercionForm fields, therefore this *must* not carry
+ * any semantically significant information.  We need that behavior so that
+ * the planner will consider equivalent implicit and explicit casts to be
+ * equivalent.  In cases where those actually behave differently, the coercion
+ * function's arguments will be different.
  */
 typedef enum CoercionForm
 {
@@ -962,7 +968,8 @@ typedef struct MinMaxExpr
  *
  * Note: result type/typmod/collation are not stored, but can be deduced
  * from the XmlExprOp.	The type/typmod fields are just used for display
- * purposes, and are NOT the true result type of the node.
+ * purposes, and are NOT necessarily the true result type of the node.
+ * (We also use type == InvalidOid to mark a not-yet-parse-analyzed XmlExpr.)
  */
 typedef enum XmlExprOp
 {

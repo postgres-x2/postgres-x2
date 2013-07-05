@@ -78,12 +78,21 @@ pg_log(eLogType type, char *fmt,...)
 	va_end(args);
 
 	/* PG_VERBOSE is only output in verbose mode */
-	if (type != PG_VERBOSE || log_opts.verbose)
+	/* fopen() on log_opts.internal might have failed, so check it */
+	if ((type != PG_VERBOSE || log_opts.verbose) && log_opts.internal != NULL)
 	{
-		fwrite(message, strlen(message), 1, log_opts.internal);
-		/* if we are using OVERWRITE_MESSAGE, add newline */
+		/*
+		 * There's nothing much we can do about it if fwrite fails, but some
+		 * platforms declare fwrite with warn_unused_result.  Do a little
+		 * dance with casting to void to shut up the compiler in such cases.
+		 */
+		size_t		rc;
+
+		rc = fwrite(message, strlen(message), 1, log_opts.internal);
+		/* if we are using OVERWRITE_MESSAGE, add newline to log file */
 		if (strchr(message, '\r') != NULL)
-			fwrite("\n", 1, 1, log_opts.internal);
+			rc = fwrite("\n", 1, 1, log_opts.internal);
+		(void) rc;
 		fflush(log_opts.internal);
 	}
 
@@ -183,22 +192,39 @@ get_user_info(char **user_name)
 
 
 void *
-pg_malloc(int n)
+pg_malloc(size_t size)
 {
-	void	   *p = malloc(n);
+	void	   *p;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
+	p = malloc(size);
 	if (p == NULL)
 		pg_log(PG_FATAL, "%s: out of memory\n", os_info.progname);
+	return p;
+}
 
+void *
+pg_realloc(void *ptr, size_t size)
+{
+	void	   *p;
+
+	/* Avoid unportable behavior of realloc(NULL, 0) */
+	if (ptr == NULL && size == 0)
+		size = 1;
+	p = realloc(ptr, size);
+	if (p == NULL)
+		pg_log(PG_FATAL, "%s: out of memory\n", os_info.progname);
 	return p;
 }
 
 
 void
-pg_free(void *p)
+pg_free(void *ptr)
 {
-	if (p != NULL)
-		free(p);
+	if (ptr != NULL)
+		free(ptr);
 }
 
 

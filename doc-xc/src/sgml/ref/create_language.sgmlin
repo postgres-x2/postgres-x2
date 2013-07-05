@@ -31,7 +31,6 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
   <title>Description</title>
 
 &common;
-
   <para>
    <command>CREATE LANGUAGE</command> registers a new
 <!## PG>
@@ -46,7 +45,12 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
 
   <note>
    <para>
+<!## PG>
     As of <productname>PostgreSQL</productname> 9.1, most procedural
+<!## end>
+<!## XC>
+    As of <productname>Postgres-XC</productname> 1.0, most procedural
+<!## end>
     languages have been made into <quote>extensions</>, and should
     therefore be installed with <xref linkend="sql-createextension">
     not <command>CREATE LANGUAGE</command>.  Direct use of
@@ -73,7 +77,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
    language, and the <productname>PostgreSQL</productname> server consults
 <!## end>
 <!## XC>
-   language, and the <productname>Postgres-XC</productname> servers consult
+   language, and the <productname>Postgres-XC</productname> server consults
 <!## end>
    the <link linkend="catalog-pg-pltemplate"><structname>pg_pltemplate</structname></link>
    system catalog to determine the correct parameters.  In the second form,
@@ -97,7 +101,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
 <!## end>
 <!## XC>
    <productname>Postgres-XC</productname> superuser privilege to
-<!## end>
+<!## end>w
    register a new language.  However, the owner of a database can register
    a new language within that database if the language is listed in
    the <structname>pg_pltemplate</structname> catalog and is marked
@@ -135,8 +139,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
      <term><literal>TRUSTED</literal></term>
 
      <listitem>
-      <para>
-       <literal>TRUSTED</literal> specifies that the language does
+      <para><literal>TRUSTED</literal> specifies that the language does
        not grant access to data that the user would not otherwise
        have.  If this key word is omitted
        when registering the language, only users with the
@@ -166,9 +169,8 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
 
      <listitem>
       <para>
-       The name of the new procedural language.  The language name is
-       case insensitive. The name must be unique among the languages
-       in the database.
+       The name of the new procedural language.
+       The name must be unique among the languages in the database.
       </para>
 
       <para>
@@ -182,8 +184,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
      <term><literal>HANDLER</literal> <replaceable class="parameter">call_handler</replaceable></term>
 
      <listitem>
-      <para>
-       <replaceable class="parameter">call_handler</replaceable> is
+      <para><replaceable class="parameter">call_handler</replaceable> is
        the name of a previously registered function that will be
        called to execute the procedural language's functions.  The call
        handler for a procedural language must be written in a compiled
@@ -205,8 +206,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
      <term><literal>INLINE</literal> <replaceable class="parameter">inline_handler</replaceable></term>
 
      <listitem>
-      <para>
-       <replaceable class="parameter">inline_handler</replaceable> is the
+      <para><replaceable class="parameter">inline_handler</replaceable> is the
        name of a previously registered function that will be called
        to execute an anonymous code block
        (<xref linkend="sql-do"> command)
@@ -226,8 +226,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
      <term><literal>VALIDATOR</literal> <replaceable class="parameter">valfunction</replaceable></term>
 
      <listitem>
-      <para>
-       <replaceable class="parameter">valfunction</replaceable> is the
+      <para><replaceable class="parameter">valfunction</replaceable> is the
        name of a previously registered function that will be called
        when a new function in the language is created, to validate the
        new function.
@@ -305,6 +304,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
    the installation.)
   </para>
 
+<!## PG>
   <para>
    In <productname>PostgreSQL</productname> versions before 7.3, it was
    necessary to declare handler functions as returning the placeholder
@@ -314,6 +314,7 @@ CREATE [ OR REPLACE ] [ TRUSTED ] [ PROCEDURAL ] LANGUAGE <replaceable class="pa
    declared as returning <type>opaque</>, but it will issue a notice and
    change the function's declared return type to <type>language_handler</>.
   </para>
+<!## end>
  </refsect1>
 
  <refsect1 id="sql-createlanguage-examples">
@@ -336,8 +337,7 @@ CREATE FUNCTION plsample_call_handler() RETURNS language_handler
     LANGUAGE C;
 CREATE LANGUAGE plsample
     HANDLER plsample_call_handler;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1 id="sql-createlanguage-compat">

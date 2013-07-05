@@ -25,13 +25,13 @@ PostgreSQL documentation
 CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable> ( [
   { <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable>
-    | LIKE <replaceable>parent_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
+    | LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
     [, ... ]
 ] )
 [ INHERITS ( <replaceable>parent_table</replaceable> [, ... ] ) ]
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-[ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 
 CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable>
     OF <replaceable class="PARAMETER">type_name</replaceable> [ (
@@ -41,14 +41,14 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 ) ]
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-[ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 
 <phrase>where <replaceable class="PARAMETER">column_constraint</replaceable> is:</phrase>
 
 [ CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> ]
 { NOT NULL |
   NULL |
-  CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) |
+  CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) [ NO INHERIT ] |
   DEFAULT <replaceable>default_expr</replaceable> |
   UNIQUE <replaceable class="PARAMETER">index_parameters</replaceable> |
   PRIMARY KEY <replaceable class="PARAMETER">index_parameters</replaceable> |
@@ -59,7 +59,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 <phrase>and <replaceable class="PARAMETER">table_constraint</replaceable> is:</phrase>
 
 [ CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> ]
-{ CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) |
+{ CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) [ NO INHERIT ] |
   UNIQUE ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] ) <replaceable class="PARAMETER">index_parameters</replaceable> |
   PRIMARY KEY ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] ) <replaceable class="PARAMETER">index_parameters</replaceable> |
   EXCLUDE [ USING <replaceable class="parameter">index_method</replaceable> ] ( <replaceable class="parameter">exclude_element</replaceable> WITH <replaceable class="parameter">operator</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> [ WHERE ( <replaceable class="parameter">predicate</replaceable> ) ] |
@@ -74,37 +74,37 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 <phrase><replaceable class="PARAMETER">index_parameters</replaceable> in <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>, and <literal>EXCLUDE</literal> constraints are:</phrase>
 
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) ]
-[ USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 
 <phrase><replaceable class="PARAMETER">exclude_element</replaceable> in an <literal>EXCLUDE</literal> constraint is:</phrase>
 
-{ <replaceable class="parameter">column</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
+{ <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
 </synopsis>
 <!## end>
 <!## XC>
 <synopsis>
 CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable> ( [
-  { <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ DEFAULT <replaceable>default_expr</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
+  { <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable>
-    | LIKE <replaceable>parent_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
+    | LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
     [, ... ]
 ] )
 [ INHERITS ( <replaceable>parent_table</replaceable> [, ... ] ) ]
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-[ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
-CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
+CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable>
     OF <replaceable class="PARAMETER">type_name</replaceable> [ (
-  { <replaceable class="PARAMETER">column_name</replaceable> WITH OPTIONS [ DEFAULT <replaceable>default_expr</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
+  { <replaceable class="PARAMETER">column_name</replaceable> WITH OPTIONS [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable> }
     [, ... ]
 ) ]
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-[ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
@@ -113,7 +113,8 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 [ CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> ]
 { NOT NULL |
   NULL |
-  CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) |
+  CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) [ NO INHERIT ] |
+  DEFAULT <replaceable>default_expr</replaceable> |
   UNIQUE <replaceable class="PARAMETER">index_parameters</replaceable> |
   PRIMARY KEY <replaceable class="PARAMETER">index_parameters</replaceable> |
   REFERENCES <replaceable class="PARAMETER">reftable</replaceable> [ ( <replaceable class="PARAMETER">refcolumn</replaceable> ) ] [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ]
@@ -123,9 +124,10 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 <phrase>and <replaceable class="PARAMETER">table_constraint</replaceable> is:</phrase>
 
 [ CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> ]
-{ CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) |
+{ CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) [ NO INHERIT ] |
   UNIQUE ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] ) <replaceable class="PARAMETER">index_parameters</replaceable> |
   PRIMARY KEY ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] ) <replaceable class="PARAMETER">index_parameters</replaceable> |
+  EXCLUDE [ USING <replaceable class="parameter">index_method</replaceable> ] ( <replaceable class="parameter">exclude_element</replaceable> WITH <replaceable class="parameter">operator</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> [ WHERE ( <replaceable class="parameter">predicate</replaceable> ) ] |
   FOREIGN KEY ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] ) REFERENCES <replaceable class="PARAMETER">reftable</replaceable> [ ( <replaceable class="PARAMETER">refcolumn</replaceable> [, ... ] ) ]
     [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ] [ ON DELETE <replaceable class="parameter">action</replaceable> ] [ ON UPDATE <replaceable class="parameter">action</replaceable> ] }
 [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ]
@@ -134,11 +136,14 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 
 { INCLUDING | EXCLUDING } { DEFAULTS | CONSTRAINTS | INDEXES | STORAGE | COMMENTS | ALL }
 
-<phrase><replaceable class="PARAMETER">index_parameters</replaceable> in <literal>UNIQUE</literal> and <literal>PRIMARY KEY</literal> constraints are:</phrase>
+<phrase><replaceable class="PARAMETER">index_parameters</replaceable> in <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>, and <literal>EXCLUDE</literal> constraints are:</phrase>
 
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) ]
-[ USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+[ USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
 
+<phrase><replaceable class="PARAMETER">exclude_element</replaceable> in an <literal>EXCLUDE</literal> constraint is:</phrase>
+
+{ <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
 </synopsis>
 <!## end>
 
@@ -194,7 +199,12 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    a column constraint is only a notational convenience for use when the
    constraint only affects one column.
   </para>
-&xc-constraint;
+
+  <para>
+   To be able to create a table, you must have <literal>USAGE</literal>
+   privilege on all column types or the type in the <literal>OF</literal>
+   clause, respectively.
+  </para>
  </refsect1>
 
  <refsect1>
@@ -228,7 +238,13 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
      <para>
       Optionally, <literal>GLOBAL</literal> or <literal>LOCAL</literal>
       can be written before <literal>TEMPORARY</> or <literal>TEMP</>.
-      This makes no difference in <productname>PostgreSQL</>, but see
+<!## PG>
+      This presently makes no difference in <productname>PostgreSQL</>
+<!## end>
+<!## XC>
+      This presently makes no difference in <productname>Postgres-XC</>
+<!## end>
+      and is deprecated; see
       <xref linkend="sql-createtable-compatibility"
       endterm="sql-createtable-compatibility-title">.
      </para>
@@ -372,13 +388,13 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 &common;
 <!## end>
 
-     <para>
-      <literal>CHECK</> constraints are merged in essentially the same way as
+     <para><literal>CHECK</> constraints are merged in essentially the same way as
       columns: if multiple parent tables and/or the new table definition
       contain identically-named <literal>CHECK</> constraints, these
       constraints must all have the same check expression, or an error will be
       reported.  Constraints having the same name and expression will
-      be merged into one copy.  Notice that an unnamed <literal>CHECK</>
+      be merged into one copy.  A constraint marked <literal>NO INHERIT</> in a
+      parent will not be considered.  Notice that an unnamed <literal>CHECK</>
       constraint in the new table will never be merged, since a unique name
       will always be chosen for it.
      </para>
@@ -391,7 +407,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>LIKE <replaceable>parent_table</replaceable> [ <replaceable>like_option</replaceable> ... ]</literal></term>
+    <term><literal>LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ]</literal></term>
     <listitem>
      <para>
       The <literal>LIKE</literal> clause specifies a table from which
@@ -424,8 +440,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       table, unless the <literal>INCLUDING INDEXES</literal> clause is
       specified.
      </para>
-     <para>
-      <literal>STORAGE</> settings for the copied column definitions will only
+     <para><literal>STORAGE</> settings for the copied column definitions will only
       be copied if <literal>INCLUDING STORAGE</literal> is specified.  The
       default behavior is to exclude <literal>STORAGE</> settings, resulting
       in the copied columns in the new table having type-specific default
@@ -438,8 +453,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       is specified. The default behavior is to exclude comments, resulting in
       the copied columns and constraints in the new table having no comments.
      </para>
-     <para>
-      <literal>INCLUDING ALL</literal> is an abbreviated form of
+     <para><literal>INCLUDING ALL</literal> is an abbreviated form of
       <literal>INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING STORAGE INCLUDING COMMENTS</literal>.
      </para>
      <para>
@@ -448,6 +462,11 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       named columns and constraints.
       If the same name is specified explicitly or in another
       <literal>LIKE</literal> clause, an error is signalled.
+     </para>
+     <para>
+      The <literal>LIKE</literal> clause can also be used to copy columns from
+      views, foreign tables, or composite types.  Inapplicable options (e.g., <literal>INCLUDING
+      INDEXES</literal> from a view) are ignored.
      </para>
     </listitem>
    </varlistentry>
@@ -491,7 +510,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>CHECK ( <replaceable class="PARAMETER">expression</replaceable> )</literal></term>
+    <term><literal>CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) [ NO INHERIT ] </literal></term>
     <listitem>
      <para>
       The <literal>CHECK</> clause specifies an expression producing a
@@ -509,6 +528,11 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       Currently, <literal>CHECK</literal> expressions cannot contain
       subqueries nor refer to variables other than columns of the
       current row.
+     </para>
+
+     <para>
+      A constraint marked with <literal>NO INHERIT</> will not propagate to
+      child tables.
      </para>
     </listitem>
    </varlistentry>
@@ -592,15 +616,13 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       column constraint or a table constraint.
      </para>
 
-<!## PG>
      <para>
+<!## PG>
       The primary key constraint should name a set of columns that is
       different from other sets of columns named by any unique
       constraint defined for the same table.
-     </para>
 <!## end>
 <!## XC>
-     <para>
       The primary key constraint should name a set of columns that is
       different from other sets of columns named by any unique
       constraint defined for the same table.
@@ -610,9 +632,8 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       If <command>DISTRIBUTE BY REPLICATION</> is not specified, the
       distribution key must be included in the set of primary key
       columns.
-     </para>
 <!## end>
-
+     </para>
     </listitem>
    </varlistentry>
 
@@ -620,6 +641,16 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 <!-- NOTICE:
      No exclude constraints yet.
 -->
+   <varlistentry id="SQL-CREATETABLE-EXCLUDE">
+    <term><literal>EXCLUDE</literal></term>
+    <listitem>
+     <para>
+      The <literal>EXCLUDE</> clause is not supported by <productname>Postgres-XC</productname> yet.
+     </para>
+    </listitem>
+   </varlistentry>
+<!## end>
+<!## XC>
    <varlistentry id="SQL-CREATETABLE-EXCLUDE">
     <term><literal>EXCLUDE [ USING <replaceable class="parameter">index_method</replaceable> ] ( <replaceable class="parameter">exclude_element</replaceable> WITH <replaceable class="parameter">operator</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> [ WHERE ( <replaceable class="parameter">predicate</replaceable> ) ]</literal></term>
     <listitem>
@@ -658,7 +689,8 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       cannot be used.  Although it's allowed, there is little point in using
       B-tree or hash indexes with an exclusion constraint, because this
       does nothing that an ordinary unique constraint doesn't do better.
-      So in practice the access method will always be <acronym>GiST</>.
+      So in practice the access method will always be <acronym>GiST</> or
+      <acronym>SP-GiST</>.
      </para>
 
      <para>
@@ -669,11 +701,10 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
     </listitem>
    </varlistentry>
 <!## end>
-
    <varlistentry>
     <term><literal>REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> ) ] [ MATCH <replaceable class="parameter">matchtype</replaceable> ] [ ON DELETE <replaceable class="parameter">action</replaceable> ] [ ON UPDATE <replaceable class="parameter">action</replaceable> ]</literal> (column constraint)</term>
 
-   <term><literal>FOREIGN KEY ( <replaceable class="parameter">column</replaceable> [, ... ] )
+   <term><literal>FOREIGN KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] )
     REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> [, ... ] ) ]
     [ MATCH <replaceable class="parameter">matchtype</replaceable> ]
     [ ON DELETE <replaceable class="parameter">action</replaceable> ]
@@ -922,16 +953,15 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
          </para>
         </listitem>
        </varlistentry>
-      </variablelist>
-     </para>
+      </variablelist></para>
     </listitem>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable></literal></term>
+    <term><literal>TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable></literal></term>
     <listitem>
      <para>
-      The <replaceable class="PARAMETER">tablespace</replaceable> is the name
+      The <replaceable class="PARAMETER">tablespace_name</replaceable> is the name
       of the tablespace in which the new table is to be created.
       If not specified,
       <xref linkend="guc-default-tablespace"> is consulted, or
@@ -941,7 +971,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable></literal></term>
+    <term><literal>USING INDEX TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable></literal></term>
     <listitem>
      <para>
       This clause allows selection of the tablespace in which the index
@@ -1238,8 +1268,8 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
  <refsect1 id="SQL-CREATETABLE-notes">
   <title>Notes</title>
 
-<!## PG>
     <para>
+<!## PG>
      Using OIDs in new applications is not recommended: where
      possible, using a <literal>SERIAL</literal> or other sequence
      generator as the table's primary key is preferred. However, if
@@ -1251,14 +1281,12 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
      tables; if you need a database-wide unique identifier, use the
      combination of <structfield>tableoid</> and row OID for the
      purpose.
-    </para>
 <!## end>
 <!## XC>
-    <para>
      Using OIDs in new applications is not recommended: where
      possible.
-    </para>
 <!## end>
+    </para>
 
     <tip>
      <para>
@@ -1311,27 +1339,12 @@ CREATE TABLE films (
     kind        varchar(10),
     len         interval hour to minute
 );
-</programlisting>
 
-<!## PG>
-<programlisting>
 CREATE TABLE distributors (
      did    integer PRIMARY KEY DEFAULT nextval('serial'),
      name   varchar(40) NOT NULL CHECK (name &lt;&gt; '')
 );
 </programlisting>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     XC does not support immutable function here.
--->
-<programlisting>
-CREATE TABLE distributors (
-     did    integer PRIMARY KEY,
-     name   varchar(40) NOT NULL CHECK (name &lt;&gt; '')
-);
-</programlisting>
-<!## end>
   </para>
 
   <para>
@@ -1414,9 +1427,7 @@ CREATE TABLE distributors (
     name    varchar(40),
     PRIMARY KEY(did)
 );
-</programlisting>
 
-<programlisting>
 CREATE TABLE distributors (
     did     integer PRIMARY KEY,
     name    varchar(40)
@@ -1519,6 +1530,7 @@ CREATE TABLE cinemas (
 </programlisting>
 <!## end>
 <!## XC>
+<!## XC>
 <programlisting>
 CREATE TABLE cinemas (
         id integer,
@@ -1538,8 +1550,7 @@ CREATE TABLE employees OF employee_type (
     PRIMARY KEY (name),
     salary WITH OPTIONS DEFAULT 1000
 );
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1 id="SQL-CREATETABLE-compatibility">
@@ -1572,33 +1583,66 @@ CREATE TABLE employees OF employee_type (
     given temporary table name to have the same table structure.
    </para>
 
-<!## PG>
-<!-- NOTICE:
-     Temporary table has not been supported yet!
--->
    <para>
     The standard's definition of the behavior of temporary tables is
+<!## PG>
     widely ignored.  <productname>PostgreSQL</productname>'s behavior
+<!## end>
+<!## XC>
+    widely ignored.  <productname>Postgres-XC</productname>'s behavior
+<!## end>
     on this point is similar to that of several other SQL databases.
    </para>
 
    <para>
-    The standard's distinction between global and local temporary tables
-    is not in <productname>PostgreSQL</productname>, since that distinction
-    depends on the concept of modules, which
-    <productname>PostgreSQL</productname> does not have.
-    For compatibility's sake, <productname>PostgreSQL</productname> will
-    accept the <literal>GLOBAL</literal> and <literal>LOCAL</literal> keywords
-    in a temporary table declaration, but they have no effect.
-   </para>
+    The SQL standard also distinguishes between global and local temporary
+    tables, where a local temporary table has a separate set of contents for
+    each SQL module within each session, though its definition is still shared
+<!## PG>
+    across sessions.  Since <productname>PostgreSQL</productname> does not
 <!## end>
+<!## XC>
+    across sessions.  Since <productname>Postgres-XC</productname> does not
+<!## end>
+    support SQL modules, this distinction is not relevant in
+<!## PG>
+    <productname>PostgreSQL</productname>.
+<!## end>
+<!## XC>
+    <productname>Postgres-XC</productname>.
+<!## end>
+   </para>
+
+   <para>
+<!## PG>
+    For compatibility's sake, <productname>PostgreSQL</productname> will
+<!## end>
+<!## XC>
+    For compatibility's sake, <productname>Postgres-XC</productname> will
+<!## end>
+    accept the <literal>GLOBAL</literal> and <literal>LOCAL</literal> keywords
+    in a temporary table declaration, but they currently have no effect.
+    Use of these keywords is discouraged, since future versions of
+<!## PG>
+    <productname>PostgreSQL</productname> might adopt a more
+<!## end>
+<!## XC>
+    <productname>Postgres-XC</productname> might adopt a more
+<!## end>
+    standard-compliant interpretation of their meaning.
+   </para>
 
    <para>
     The <literal>ON COMMIT</literal> clause for temporary tables
     also resembles the SQL standard, but has some differences.
     If the <literal>ON COMMIT</> clause is omitted, SQL specifies that the
     default behavior is <literal>ON COMMIT DELETE ROWS</>.  However, the
+<!## PG>
     default behavior in <productname>PostgreSQL</productname> is
+<!## end>
+<!## XC>
+    default behavior in <productname>Postgre-XC</productname> is
+<!## end>
     <literal>ON COMMIT PRESERVE ROWS</literal>.  The <literal>ON COMMIT
     DROP</literal> option does not exist in SQL.
    </para>
@@ -1757,7 +1801,7 @@ CREATE TABLE employees OF employee_type (
 <!## end>
 <!## XC>
     the <quote>self-referencing column</quote>.  Postgres-XC does not
-<!## end>
+<!## end>w
     support these self-referencing columns explicitly, but the same
     effect can be had using the OID feature.
    </para>

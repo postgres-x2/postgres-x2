@@ -15,6 +15,7 @@
 #define TABLECMDS_H
 
 #include "access/htup.h"
+#include "catalog/dependency.h"
 #include "nodes/parsenodes.h"
 #include "storage/lock.h"
 #include "utils/relcache.h"
@@ -36,9 +37,13 @@ extern void AlterTableInternal(Oid relid, List *cmds, bool recurse);
 
 extern void AlterTableNamespace(AlterObjectSchemaStmt *stmt);
 
+extern void AlterTableNamespaceInternal(Relation rel, Oid oldNspOid,
+							Oid nspOid, ObjectAddresses *objsMoved);
+
 extern void AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 							   Oid oldNspOid, Oid newNspOid,
-							   bool hasDependEntry);
+							   bool hasDependEntry,
+							   ObjectAddresses *objsMoved);
 
 extern void CheckTableNotInUse(Relation rel, const char *stmt);
 
@@ -64,10 +69,6 @@ extern void find_composite_type_dependencies(Oid typeOid,
 								 const char *origTypeName);
 
 extern void check_of_type(HeapTuple typetuple);
-
-extern AttrNumber *varattnos_map(TupleDesc olddesc, TupleDesc newdesc);
-extern AttrNumber *varattnos_map_schema(TupleDesc old, List *schema);
-extern void change_varattnos_of_a_node(Node *node, const AttrNumber *newattno);
 
 extern void register_on_commit_action(Oid relid, OnCommitAction action);
 extern void remove_on_commit_action(Oid relid);

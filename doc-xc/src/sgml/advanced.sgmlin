@@ -375,8 +375,6 @@ COMMIT;
 
   </sect1>
 
-<!-- Window Functions are not supported yet -->
-
   <sect1 id="tutorial-window">
    <title>Window Functions</title>
 
@@ -677,9 +675,7 @@ CREATE TABLE cities (
 
 CREATE TABLE capitals (
   state      char(2)
-) SELECT name, altitude
-  FROM cities
-  WHERE altitude &gt; 500;INHERITS (cities);
+) INHERITS (cities);
 </programlisting>
    </para>
 

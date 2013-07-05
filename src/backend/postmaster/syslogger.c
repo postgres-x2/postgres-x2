@@ -2,7 +2,7 @@
  *
  * syslogger.c
  *
- * The system logger (syslogger) is new in Postgres 8.0. It catches all
+ * The system logger (syslogger) appeared in Postgres 8.0. It catches all
  * stderr output from the postmaster, backends, and other subprocesses
  * by redirecting to a pipe, and writes it to a set of logfiles.
  * It's possible to have size and age limits for the logfile configured
@@ -24,6 +24,7 @@
 #include "postgres.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
@@ -91,6 +92,7 @@ static bool pipe_eof_seen = false;
 static bool rotation_disabled = false;
 static FILE *syslogFile = NULL;
 static FILE *csvlogFile = NULL;
+NON_EXEC_STATIC pg_time_t first_syslogger_file_time = 0;
 static char *last_file_name = NULL;
 static char *last_csv_file_name = NULL;
 static Latch sysLoggerLatch;
@@ -249,6 +251,8 @@ SysLoggerMain(int argc, char *argv[])
 		elog(FATAL, "setsid() failed: %m");
 #endif
 
+	InitializeLatchSupport();		/* needed for latch waits */
+
 	/* Initialize private latch for use by signal handlers */
 	InitLatch(&sysLoggerLatch);
 
@@ -289,6 +293,13 @@ SysLoggerMain(int argc, char *argv[])
 	if (threadHandle == 0)
 		elog(FATAL, "could not create syslogger data transfer thread: %m");
 #endif   /* WIN32 */
+
+	/*
+	 * Remember active logfile's name.  We recompute this from the reference
+	 * time because passing down just the pg_time_t is a lot cheaper than
+	 * passing a whole file path in the EXEC_BACKEND case.
+	 */
+	last_file_name = logfile_getname(first_syslogger_file_time, NULL);
 
 	/* remember active logfile parameters */
 	currentLogDir = pstrdup(Log_directory);
@@ -405,11 +416,23 @@ SysLoggerMain(int argc, char *argv[])
 		 * above is still close enough.  Note we can't make this calculation
 		 * until after calling logfile_rotate(), since it will advance
 		 * next_rotation_time.
+		 *
+		 * Also note that we need to beware of overflow in calculation of the
+		 * timeout: with large settings of Log_RotationAge, next_rotation_time
+		 * could be more than INT_MAX msec in the future.  In that case we'll
+		 * wait no more than INT_MAX msec, and try again.
 		 */
 		if (Log_RotationAge > 0 && !rotation_disabled)
 		{
-			if (now < next_rotation_time)
-				cur_timeout = (next_rotation_time - now) * 1000L;		/* msec */
+			pg_time_t	delay;
+
+			delay = next_rotation_time - now;
+			if (delay > 0)
+			{
+				if (delay > INT_MAX / 1000)
+					delay = INT_MAX / 1000;
+				cur_timeout = delay * 1000L;	/* msec */
+			}
 			else
 				cur_timeout = 0;
 			cur_flags = WL_TIMEOUT;
@@ -559,9 +582,18 @@ SysLogger_Start(void)
 
 	/*
 	 * The initial logfile is created right in the postmaster, to verify that
-	 * the Log_directory is writable.
+	 * the Log_directory is writable.  We save the reference time so that
+	 * the syslogger child process can recompute this file name.
+	 *
+	 * It might look a bit strange to re-do this during a syslogger restart,
+	 * but we must do so since the postmaster closed syslogFile after the
+	 * previous fork (and remembering that old file wouldn't be right anyway).
+	 * Note we always append here, we won't overwrite any existing file.  This
+	 * is consistent with the normal rules, because by definition this is not
+	 * a time-based rotation.
 	 */
-	filename = logfile_getname(time(NULL), NULL);
+	first_syslogger_file_time = time(NULL);
+	filename = logfile_getname(first_syslogger_file_time, NULL);
 
 	syslogFile = logfile_open(filename, "a", false);
 
@@ -1026,6 +1058,17 @@ pipeThread(void *arg)
 			bytes_in_logbuffer += bytesRead;
 			process_pipe_input(logbuffer, &bytes_in_logbuffer);
 		}
+
+		/*
+		 * If we've filled the current logfile, nudge the main thread to do a
+		 * log rotation.
+		 */
+		if (Log_RotationSize > 0)
+		{
+			if (ftell(syslogFile) >= Log_RotationSize * 1024L ||
+				(csvlogFile != NULL && ftell(csvlogFile) >= Log_RotationSize * 1024L))
+				SetLatch(&sysLoggerLatch);
+		}
 		LeaveCriticalSection(&sysloggerSection);
 	}
 
@@ -1045,8 +1088,12 @@ pipeThread(void *arg)
 #endif   /* WIN32 */
 
 /*
- * open the csv log file - we do this opportunistically, because
+ * Open the csv log file - we do this opportunistically, because
  * we don't know if CSV logging will be wanted.
+ *
+ * This is only used the first time we open the csv log in a given syslogger
+ * process, not during rotations.  As with opening the main log file, we
+ * always append in this situation.
  */
 static void
 open_csvlogfile(void)
@@ -1057,7 +1104,10 @@ open_csvlogfile(void)
 
 	csvlogFile = logfile_open(filename, "a", false);
 
-	pfree(filename);
+	if (last_csv_file_name != NULL)		/* probably shouldn't happen */
+		pfree(last_csv_file_name);
+
+	last_csv_file_name = filename;
 }
 
 /*
@@ -1136,14 +1186,7 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 	 * elapsed time and not something else, and (c) the computed file name is
 	 * different from what we were previously logging into.
 	 *
-	 * Note: during the first rotation after forking off from the postmaster,
-	 * last_file_name will be NULL.  (We don't bother to set it in the
-	 * postmaster because it ain't gonna work in the EXEC_BACKEND case.) So we
-	 * will always append in that situation, even though truncating would
-	 * usually be safe.
-	 *
-	 * For consistency, we treat CSV logs the same even though they aren't
-	 * opened in the postmaster.
+	 * Note: last_file_name should never be NULL here, but if it is, append.
 	 */
 	if (time_based_rotation || (size_rotation_for & LOG_DESTINATION_STDERR))
 	{

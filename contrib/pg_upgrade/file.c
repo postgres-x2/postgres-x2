@@ -103,10 +103,10 @@ copyAndUpdateFile(pageCnvCtx *pageConverter,
 /*
  * linkAndUpdateFile()
  *
- * Creates a symbolic link between the given relation files. We use
+ * Creates a hard link between the given relation files. We use
  * this function to perform a true in-place update. If the on-disk
  * format of the new cluster is bit-for-bit compatible with the on-disk
- * format of the old cluster, we can simply symlink each relation
+ * format of the old cluster, we can simply link each relation
  * instead of copying the data from the old cluster to the new cluster.
  */
 const char *
@@ -224,56 +224,51 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 /*
  * load_directory()
  *
- * Returns count of files that meet the selection criteria coded in
- * the function pointed to by selector.  Creates an array of pointers
- * to dirent structures.  Address of array returned in namelist.
+ * Read all the file names in the specified directory, and return them as
+ * an array of "char *" pointers.  The array address is returned in
+ * *namelist, and the function result is the count of file names.
  *
- * Note that the number of dirent structures needed is dynamically
- * allocated using realloc.  Realloc can be inefficient if invoked a
- * large number of times.
+ * To free the result data, free each (char *) array member, then free the
+ * namelist array itself.
  */
 int
-load_directory(const char *dirname, struct dirent *** namelist)
+load_directory(const char *dirname, char ***namelist)
 {
 	DIR		   *dirdesc;
 	struct dirent *direntry;
 	int			count = 0;
-	int			name_num = 0;
-	size_t		entrysize;
+	int			allocsize = 64;		/* initial array size */
+
+	*namelist = (char **) pg_malloc(allocsize * sizeof(char *));
 
 	if ((dirdesc = opendir(dirname)) == NULL)
-		pg_log(PG_FATAL, "could not open directory \"%s\": %s\n", dirname, getErrorText(errno));
+		pg_log(PG_FATAL, "could not open directory \"%s\": %s\n",
+			   dirname, getErrorText(errno));
 
-	*namelist = NULL;
-
-	while ((direntry = readdir(dirdesc)) != NULL)
+	while (errno = 0, (direntry = readdir(dirdesc)) != NULL)
 	{
-		count++;
-
-		*namelist = (struct dirent **) realloc((void *) (*namelist),
-						(size_t) ((name_num + 1) * sizeof(struct dirent *)));
-
-		if (*namelist == NULL)
+		if (count >= allocsize)
 		{
-			closedir(dirdesc);
-			return -1;
+			allocsize *= 2;
+			*namelist = (char **)
+						pg_realloc(*namelist, allocsize * sizeof(char *));
 		}
 
-		entrysize = sizeof(struct dirent) - sizeof(direntry->d_name) +
-			strlen(direntry->d_name) + 1;
-
-		(*namelist)[name_num] = (struct dirent *) malloc(entrysize);
-
-		if ((*namelist)[name_num] == NULL)
-		{
-			closedir(dirdesc);
-			return -1;
-		}
-
-		memcpy((*namelist)[name_num], direntry, entrysize);
-
-		name_num++;
+		(*namelist)[count++] = pg_strdup(direntry->d_name);
 	}
+
+#ifdef WIN32
+	/*
+	 * This fix is in mingw cvs (runtime/mingwex/dirent.c rev 1.4), but not in
+	 * released version
+	 */
+	if (GetLastError() == ERROR_NO_MORE_FILES)
+		errno = 0;
+#endif
+
+	if (errno)
+		pg_log(PG_FATAL, "could not read directory \"%s\": %s\n",
+			   dirname, getErrorText(errno));
 
 	closedir(dirdesc);
 

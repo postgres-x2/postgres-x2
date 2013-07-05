@@ -11,10 +11,17 @@
    <primary>text search</primary>
   </indexterm>
 
-&common;
-
  <sect1 id="textsearch-intro">
   <title>Introduction</title>
+
+<!## XC>
+  <para>
+   <productname>Postgres-XC</productname> uses full text search of
+   <productname>PostgreSQL</productname> as is.
+   In this chapter, you should read <productname>PostgreSQL</productname> as
+   <productname>Postgres-XC</productname>.
+  </para>
+<!## end>
 
   <para>
    Full Text Searching (or just <firstterm>text search</firstterm>) provides
@@ -32,12 +39,7 @@
 
   <para>
    Textual search operators have existed in databases for years.
-<!## PG>
    <productname>PostgreSQL</productname> has
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> has
-<!## end>
    <literal>~</literal>, <literal>~*</literal>, <literal>LIKE</literal>, and
    <literal>ILIKE</literal> operators for textual data types, but they lack
    many essential properties required by modern information systems:
@@ -86,12 +88,7 @@
      differently.  In principle token classes depend on the specific
      application, but for most purposes it is adequate to use a predefined
      set of classes.
-<!## PG>
      <productname>PostgreSQL</productname> uses a <firstterm>parser</> to
-<!## end>
-<!## XC>
-     <productname>Postgres-XC</productname> uses a <firstterm>parser</> to
-<!## end>
      perform this step.  A standard parser is provided, and custom parsers
      can be created for specific needs.
     </para>
@@ -111,12 +108,7 @@
      are words that are so common that they are useless for searching.
      (In short, then, tokens are raw fragments of the document text, while
      lexemes are words that are believed useful for indexing and searching.)
-<!## PG>
      <productname>PostgreSQL</productname> uses <firstterm>dictionaries</> to
-<!## end>
-<!## XC>
-     <productname>Postgres-XC</productname> uses <firstterm>dictionaries</> to
-<!## end>
      perform this step.  Various standard dictionaries are provided, and
      custom ones can be created for specific needs.
     </para>
@@ -203,12 +195,7 @@
    </para>
 
    <para>
-<!## PG>
     For searches within <productname>PostgreSQL</productname>,
-<!## end>
-<!## XC>
-    For searches within <productname>Postgres-XC</productname>,
-<!## end>
     a document is normally a textual field within a row of a database table,
     or possibly a combination (concatenation) of such fields, perhaps stored
     in several tables or obtained dynamically. In other words, a document can
@@ -241,12 +228,7 @@ WHERE mid = did AND mid = 12;
     retrieve the document from the file system.  However, retrieving files
     from outside the database requires superuser permissions or special
     function support, so this is usually less convenient than keeping all
-<!## PG>
     the data inside <productname>PostgreSQL</productname>.  Also, keeping
-<!## end>
-<!## XC>
-    the data inside <productname>Postgres-XC</productname>.  Also, keeping
-<!## end>
     everything inside the database allows easy access
     to document metadata to assist in indexing and display.
    </para>
@@ -267,12 +249,7 @@ WHERE mid = did AND mid = 12;
    <title>Basic Text Matching</title>
 
    <para>
-<!## PG>
     Full text searching in <productname>PostgreSQL</productname> is based on
-<!## end>
-<!## XC>
-    Full text searching in <productname>Postgres-XC</productname> is based on
-<!## end>
     the match operator <literal>@@</literal>, which returns
     <literal>true</literal> if a <type>tsvector</type>
     (document) matches a <type>tsquery</type> (query).
@@ -357,12 +334,7 @@ text @@ text
     skip indexing certain words (stop words), process synonyms, and use
     sophisticated parsing, e.g., parse based on more than just white space.
     This functionality is controlled by <firstterm>text search
-<!## PG>
     configurations</>.  <productname>PostgreSQL</> comes with predefined
-<!## end>
-<!## XC>
-    configurations</>.  <productname>Postgres-XC</> comes with predefined
-<!## end>
     configurations for many languages, and you can easily create your own
     configurations.  (<application>psql</>'s <command>\dF</> command
     shows all available configurations.)
@@ -389,12 +361,7 @@ text @@ text
    <para>
     To make it easier to build custom text search configurations, a
     configuration is built up from simpler database objects.
-<!## PG>
     <productname>PostgreSQL</>'s text search facility provides
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</>'s text search facility provides
-<!## end>
     four types of configuration-related database objects:
    </para>
 
@@ -434,12 +401,7 @@ text @@ text
     therefore it requires C programming ability to develop new ones, and
     superuser privileges to install one into a database.  (There are examples
     of add-on parsers and templates in the <filename>contrib/</> area of the
-<!## PG>
     <productname>PostgreSQL</> distribution.)  Since dictionaries and
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</> distribution.)  Since dictionaries and
-<!## end>
     configurations just parameterize and connect together some underlying
     parsers and templates, no special privilege is needed to create a new
     dictionary or configuration.  Examples of creating custom dictionaries and
@@ -643,12 +605,7 @@ LIMIT 10;
    user query. Also, we need to return results in a useful order, so we need
    a function that compares documents with respect to their relevance to
    the query. It's also important to be able to display the results nicely.
-<!## PG>
    <productname>PostgreSQL</productname> provides support for all of these
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> provides support for all of these
-<!## end>
    functions.
   </para>
 
@@ -656,12 +613,7 @@ LIMIT 10;
    <title>Parsing Documents</title>
 
    <para>
-<!## PG>
     <productname>PostgreSQL</productname> provides the
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> provides the
-<!## end>
     function <function>to_tsvector</function> for converting a document to
     the <type>tsvector</type> data type.
    </para>
@@ -765,12 +717,7 @@ UPDATE tt SET ti =
    <title>Parsing Queries</title>
 
    <para>
-<!## PG>
     <productname>PostgreSQL</productname> provides the
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> provides the
-<!## end>
     functions <function>to_tsquery</function> and
     <function>plainto_tsquery</function> for converting a query to
     the <type>tsquery</type> data type.  <function>to_tsquery</function>
@@ -897,12 +844,7 @@ SELECT plainto_tsquery('english', 'The Fat &amp; Rats:C');
    <para>
     Ranking attempts to measure how relevant documents are to a particular
     query, so that when there are many matches the most relevant ones can be
-<!## PG>
     shown first.  <productname>PostgreSQL</productname> provides two
-<!## end>
-<!## XC>
-    shown first.  <productname>Postgres-XC</productname> provides two
-<!## end>
     predefined ranking functions, which take into account lexical, proximity,
     and structural information; that is, they consider how often the query
     terms appear in the document, how close together the terms are in the
@@ -934,7 +876,7 @@ ts_rank(<optional> <replaceable class="PARAMETER">weights</replaceable> <type>fl
 
       <listitem>
        <para>
-        Standard ranking function.<!-- TODO document this better -->
+        Ranks vectors based on the frequency of their matching lexemes.
        </para>
       </listitem>
      </varlistentry>
@@ -1121,12 +1063,7 @@ LIMIT 10;
    <para>
     To present search results it is ideal to show a part of each document and
     how it is related to the query. Usually, search engines show fragments of
-<!## PG>
     the document with marked search terms.  <productname>PostgreSQL</>
-<!## end>
-<!## XC>
-    the document with marked search terms.  <productname>Postgres-XC</>
-<!## end>
     provides a function <function>ts_headline</function> that
     implements this functionality.
    </para>
@@ -1164,7 +1101,7 @@ ts_headline(<optional> <replaceable class="PARAMETER">config</replaceable> <type
        if they contain spaces or commas.
       </para>
      </listitem>
-     <listitem >
+     <listitem>
       <para>
        <literal>MaxWords</>, <literal>MinWords</literal>: these numbers
        determine the longest and shortest headlines to output.
@@ -1284,12 +1221,7 @@ FROM (SELECT id, body, q, ts_rank_cd(ti, q) AS rank
    <para>
     <xref linkend="textsearch-parsing-documents"> showed how raw textual
     documents can be converted into <type>tsvector</> values.
-<!## PG>
     <productname>PostgreSQL</productname> also provides functions and
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> also provides functions and
-<!## end>
     operators that can be used to manipulate documents that are already
     in <type>tsvector</> form.
    </para>
@@ -1419,12 +1351,7 @@ strip(<replaceable class="PARAMETER">vector</replaceable> <type>tsvector</>) ret
    <para>
     <xref linkend="textsearch-parsing-queries"> showed how raw textual
     queries can be converted into <type>tsquery</> values.
-<!## PG>
     <productname>PostgreSQL</productname> also provides functions and
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> also provides functions and
-<!## end>
     operators that can be used to manipulate queries that are already
     in <type>tsquery</> form.
    </para>
@@ -1874,12 +1801,7 @@ LIMIT 10;
    Note that a parser does not modify the text at all &mdash; it simply
    identifies plausible word boundaries.  Because of this limited scope,
    there is less need for application-specific custom parsers than there is
-<!## PG>
    for custom dictionaries.  At present <productname>PostgreSQL</productname>
-<!## end>
-<!## XC>
-   for custom dictionaries.  At present <productname>Postgres-XC</productname>
-<!## end>
    provides just one built-in parser, which has been found to be useful for a
    wide range of applications.
   </para>
@@ -1933,12 +1855,7 @@ LIMIT 10;
      <row>
       <entry><literal>hword_asciipart</></entry>
       <entry>Hyphenated word part, all ASCII</entry>
-<!## PG>
       <entry><literal>postgresql</literal> in the context <literal>postgresql-beta1</literal></entry>
-<!## end>
-<!## XC>
-      <entry><literal>postgres-XC</literal> in the context <literal>postgresql-beta1</literal></entry>
-<!## end>
      </row>
      <row>
       <entry><literal>hword_part</></entry>
@@ -1950,12 +1867,7 @@ LIMIT 10;
       <entry><literal>hword_numpart</></entry>
       <entry>Hyphenated word part, letters and digits</entry>
       <entry><literal>beta1</literal> in the context
-<!## PG>
        <literal>postgresql-beta1</literal></entry>
-<!## end>
-<!## XC>
-       <literal>postgres-XC-beta1</literal></entry>
-<!## end>
      </row>
      <row>
       <entry><literal>email</></entry>
@@ -2183,22 +2095,12 @@ SELECT alias, description, token FROM ts_debug('http://example.com/stuff/index.h
   </para>
 
   <para>
-<!## PG>
    <productname>PostgreSQL</productname> provides predefined dictionaries for
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> provides predefined dictionaries for
-<!## end>
    many languages.  There are also several predefined templates that can be
    used to create new dictionaries with custom parameters.  Each predefined
    dictionary template is described below.  If no existing
    template is suitable, it is possible to create new ones; see the
-<!## PG>
    <filename>contrib/</> area of the <productname>PostgreSQL</> distribution
-<!## end>
-<!## XC>
-   <filename>contrib/</> area of the <productname>Postgres-XC</> distribution
-<!## end>
    for examples.
   </para>
 
@@ -2315,18 +2217,8 @@ CREATE TEXT SEARCH DICTIONARY public.simple_dict (
     The file's full name will be
     <filename>$SHAREDIR/tsearch_data/english.stop</>,
     where <literal>$SHAREDIR</> means the
-<!## PG>
     <productname>PostgreSQL</productname> installation's shared-data directory,
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> installation's shared-data directory,
-<!## end>
-<!## PG>
     often <filename>/usr/local/share/postgresql</> (use <command>pg_config
-<!## end>
-<!## XC>
-    often <filename>/usr/local/share/postgres-XC</> (use <command>pg_config
-<!## end>
     --sharedir</> to determine it if you're not sure).
     The file format is simply a list
     of words, one per line.  Blank lines and trailing spaces are ignored,
@@ -2409,8 +2301,8 @@ SELECT ts_lexize('public.simple_dict','The');
     word with a synonym. Phrases are not supported (use the thesaurus
     template (<xref linkend="textsearch-thesaurus">) for that).  A synonym
     dictionary can be used to overcome linguistic problems, for example, to
-    prevent an English stemmer dictionary from reducing the word 'Paris' to
-    'pari'.  It is enough to have a <literal>Paris paris</literal> line in the
+    prevent an English stemmer dictionary from reducing the word <quote>Paris</quote> to
+    <quote>pari</quote>.  It is enough to have a <literal>Paris paris</literal> line in the
     synonym dictionary and put it before the <literal>english_stem</>
     dictionary.  For example:
 
@@ -2443,12 +2335,7 @@ SELECT * FROM ts_debug('english', 'Paris');
     The file's full name will be
     <filename>$SHAREDIR/tsearch_data/my_synonyms.syn</>
     (where <literal>$SHAREDIR</> means the
-<!## PG>
     <productname>PostgreSQL</> installation's shared-data directory).
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</> installation's shared-data directory).
-<!## end>
     The file format is just one line
     per word to be substituted, with the word followed by its synonym,
     separated by white space.  Blank lines and trailing spaces are ignored.
@@ -2532,12 +2419,7 @@ mydb=# SELECT 'indexes are very useful'::tsvector @@ to_tsquery('tst','indices')
    <para>
     Basically a thesaurus dictionary replaces all non-preferred terms by one
     preferred term and, optionally, preserves the original terms for indexing
-<!## PG>
     as well.  <productname>PostgreSQL</>'s current implementation of the
-<!## end>
-<!## XC>
-    as well.  <productname>Postgres-XC</>'s current implementation of the
-<!## end>
     thesaurus dictionary is an extension of the synonym dictionary with added
     <firstterm>phrase</firstterm> support.  A thesaurus dictionary requires
     a configuration file of the following format:
@@ -2751,12 +2633,7 @@ SELECT plainto_tsquery('supernova star');
    </para>
 
    <para>
-<!## PG>
     The standard <productname>PostgreSQL</productname> distribution does
-<!## end>
-<!## XC>
-    The standard <productname>Postgres-XC</productname> distribution does
-<!## end>
     not include any <application>Ispell</> configuration files.
     Dictionaries for a large number of languages are available from <ulink
     url="http://ficus-www.cs.ucla.edu/geoff/ispell.html">Ispell</ulink>.
@@ -2821,12 +2698,7 @@ SELECT ts_lexize('norwegian_ispell', 'sjokoladefabrikk');
     <para>
      <application>MySpell</> does not support compound words.
      <application>Hunspell</> has sophisticated support for compound words. At
-<!## PG>
      present, <productname>PostgreSQL</productname> implements only the basic
-<!## end>
-<!## XC>
-     present, <productname>Postgres-XC</productname> implements only the basic
-<!## end>
      compound word operations of Hunspell.
     </para>
    </note>
@@ -2846,12 +2718,7 @@ SELECT ts_lexize('norwegian_ispell', 'sjokoladefabrikk');
     its language.  A Snowball dictionary requires a <literal>language</>
     parameter to identify which stemmer to use, and optionally can specify a
     <literal>stopword</> file name that gives a list of words to eliminate.
-<!## PG>
     (<productname>PostgreSQL</productname>'s standard stopword lists are also
-<!## end>
-<!## XC>
-    (<productname>Postgres-XC</productname>'s standard stopword lists are also
-<!## end>
     provided by the Snowball project.)
     For example, there is a built-in definition equivalent to
 
@@ -2916,12 +2783,7 @@ CREATE TEXT SEARCH CONFIGURATION public.pg ( COPY = pg_catalog.english );
    </para>
 
    <para>
-<!## PG>
     We will use a PostgreSQL-specific synonym list
-<!## end>
-<!## XC>
-    We will use a Postgres-XC-specific synonym list
-<!## end>
     and store it in <filename>$SHAREDIR/tsearch_data/pg_dict.syn</filename>.
     The file contents look like:
 
@@ -2976,12 +2838,7 @@ ALTER TEXT SEARCH CONFIGURATION pg
 
 <programlisting>
 SELECT * FROM ts_debug('public.pg', '
-<!## PG>
 PostgreSQL, the highly scalable, SQL compliant, open source object-relational
-<!## end>
-<!## XC>
-Postgres-XC, the highly scalable, SQL compliant, open source object-relational
-<!## end>
 database management system, is now undergoing beta testing of the next
 version of our software.
 ');
@@ -3439,12 +3296,7 @@ CREATE INDEX <replaceable>name</replaceable> ON <replaceable>table</replaceable>
    A GiST index is <firstterm>lossy</firstterm>, meaning that the index
    may produce false matches, and it is necessary
    to check the actual table row to eliminate such false matches.
-<!## PG>
    (<productname>PostgreSQL</productname> does this automatically when needed.)
-<!## end>
-<!## XC>
-   (<productname>Postgres-XC</productname> does this automatically when needed.)
-<!## end>
    GiST indexes are lossy because each document is represented in the
    index by a fixed-length signature. The signature is generated by hashing
    each word into a single bit in an n-bit string, with all these bits OR-ed
@@ -3722,12 +3574,7 @@ Parser: "pg_catalog.default"
   <title>Limitations</title>
 
   <para>
-<!## PG>
    The current limitations of <productname>PostgreSQL</productname>'s
-<!## end>
-<!## XC>
-   The current limitations of <productname>Postgres-XC</productname>'s
-<!## end>
    text search features are:
    <itemizedlist  spacing="compact" mark="bullet">
     <listitem>
@@ -3765,12 +3612,7 @@ Parser: "pg_catalog.default"
 
    <!-- TODO we need to put a date on these numbers? -->
   <para>
-<!## PG>
    Another example &mdash; the <productname>PostgreSQL</productname> mailing
-<!## end>
-<!## XC>
-   Another example &mdash; the <productname>Postgres-XC</productname> mailing
-<!## end>
    list archives contained 910,989 unique words with 57,491,343 lexemes in
    461,020 messages.
   </para>

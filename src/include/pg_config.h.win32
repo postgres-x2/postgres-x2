@@ -249,6 +249,9 @@
 #define HAVE_LONG_LONG_INT_64
 #endif
 
+/* Define to 1 if you have the `mbstowcs_l' function. */
+#define HAVE_MBSTOWCS_L 1
+
 /* Define to 1 if you have the `memmove' function. */
 #define HAVE_MEMMOVE 1
 
@@ -548,16 +551,16 @@
 #define PACKAGE_NAME "Postgres-XC"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "Postgres-XC 1.1devel"
+#define PACKAGE_STRING "Postgres-XC 1.1beta"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "9.2beta2"
+#define PACKAGE_VERSION "9.2.4"
 
 /* PostgreSQL version as a string */
-#define PG_VERSION "9.2beta2"
+#define PG_VERSION "9.2.4"
 
 /* PostgreSQL version as a number */
-#define PG_VERSION_NUM 90200
+#define PG_VERSION_NUM 90204
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "postgres-xc"

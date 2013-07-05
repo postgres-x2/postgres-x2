@@ -4,19 +4,12 @@
  <title>Reference</title>
 
  <partintro>
-
 &common;
-
   <para>
    The entries in this Reference are meant to provide in reasonable
    length an authoritative, complete, and formal summary about their
    respective subjects.  More information about the use of
-<!## PG>
    <productname>PostgreSQL</productname>, in narrative, tutorial, or
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname>, in narrative, tutorial, or
-<!## end>
    example form, can be found in other parts of this book.  See the
    cross-references listed on each reference page.
   </para>
@@ -34,12 +27,7 @@
    <para>
     This part contains reference information for the
     <acronym>SQL</acronym> commands supported by
-<!## PG>
     <productname>PostgreSQL</productname>.  By <quote>SQL</quote> the
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname>.  By <quote>SQL</quote> the
-<!## end>
     language in general is meant; information about the standards
     conformance and compatibility of each command can be found on the
     respective reference page.
@@ -220,26 +208,24 @@
  </reference>
 
  <reference id="reference-client">
-<!## PG>
   <title>PostgreSQL Client Applications</title>
-<!## end>
-<!## XC>
-  <title>Postgres-XC Client Applications</title>
-<!## end>
 
   <partintro>
    <para>
     This part contains reference information for
-<!## PG>
     <productname>PostgreSQL</productname> client applications and
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> client applications and
-<!## end>
     utilities.  Not all of these commands are of general utility; some
     might require special privileges.  The common feature of these
     applications is that they can be run on any host, independent of
     where the database server resides.
+   </para>
+
+   <para>
+    When specified on the command line, user and database names have
+    their case preserved &mdash; the presence of spaces or special
+    characters might require quoting.  Table names and other identifiers
+    do not have their case preserved, except where documented, and
+    might require quoting.
    </para>
   </partintro>
 
@@ -255,6 +241,7 @@
    &pgConfig;
    &pgDump;
    &pgDumpall;
+   &pgReceivexlog;
    &pgRestore;
    &psqlRef;
    &reindexdb;
@@ -263,22 +250,12 @@
  </reference>
 
  <reference id="reference-server">
-<!## PG>
   <title>PostgreSQL Server Applications</title>
-<!## end>
-<!## XC>
-  <title>Postgres-XC Server Applications</title>
-<!## end>
 
   <partintro>
    <para>
     This part contains reference information for
-<!## PG>
     <productname>PostgreSQL</productname> server applications and
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> server applications and
-<!## end>
     support utilities.  These commands can only be run usefully on the
     host where the database server resides.  Other utility programs
     are listed in <xref linkend="reference-client">.

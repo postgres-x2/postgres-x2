@@ -32,7 +32,6 @@ ALTER TABLESPACE <replaceable>name</replaceable> RESET ( <replaceable class="PAR
   <title>Description</title>
 
 &common;
-
   <para>
    <command>ALTER TABLESPACE</command> changes the definition of
    a tablespace.
@@ -113,8 +112,7 @@ ALTER TABLESPACE index_space RENAME TO fast_raid;
    Change the owner of tablespace <literal>index_space</literal>:
 <programlisting>
 ALTER TABLESPACE index_space OWNER TO mary;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

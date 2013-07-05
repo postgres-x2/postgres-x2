@@ -32,8 +32,6 @@ VALUES ( <replaceable class="PARAMETER">expression</replaceable> [, ...] ) [, ..
  <refsect1>
   <title>Description</title>
 
-&common;
-
   <para>
    <command>VALUES</command> computes a row value or set of row values
    specified by value expressions.  It is most commonly used to generate
@@ -62,7 +60,7 @@ VALUES ( <replaceable class="PARAMETER">expression</replaceable> [, ...] ) [, ..
 
  <refsect1>
   <title>Parameters</title>
-&common;
+
   <variablelist>
    <varlistentry>
     <term><replaceable class="PARAMETER">expression</replaceable></term>
@@ -127,7 +125,7 @@ VALUES ( <replaceable class="PARAMETER">expression</replaceable> [, ...] ) [, ..
 
  <refsect1>
   <title>Notes</title>
-&common;
+
   <para>
    <command>VALUES</> lists with very large numbers of rows should be avoided,
    as you might encounter out-of-memory failures or poor performance.
@@ -140,7 +138,7 @@ VALUES ( <replaceable class="PARAMETER">expression</replaceable> [, ...] ) [, ..
 
  <refsect1>
   <title>Examples</title>
-&common;
+
   <para>
    A bare <command>VALUES</> command:
 
@@ -221,8 +219,7 @@ UPDATE employees SET salary = salary * v.increase
 <programlisting>
 SELECT * FROM machines
 WHERE ip_address IN (VALUES('192.168.0.1'::inet), ('192.168.0.10'), ('192.168.1.43'));
-</programlisting>
-  </para>
+</programlisting></para>
 
   <tip>
    <para>
@@ -236,16 +233,10 @@ WHERE ip_address IN (VALUES('192.168.0.1'::inet), ('192.168.0.10'), ('192.168.1.
 
  <refsect1>
   <title>Compatibility</title>
-&common
-  <para>
-   <command>VALUES</command> conforms to the SQL standard.
+
+  <para><command>VALUES</command> conforms to the SQL standard.
    <literal>LIMIT</literal> and <literal>OFFSET</literal> are
-<!## PG>
    <productname>PostgreSQL</productname> extensions; see also
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> extensions; see also
-<!## end>
    under <xref linkend="sql-select">.
   </para>
  </refsect1>

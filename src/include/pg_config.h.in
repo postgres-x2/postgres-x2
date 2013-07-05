@@ -333,6 +333,9 @@
 /* Define to 1 if `long long int' works and is 64 bits. */
 #undef HAVE_LONG_LONG_INT_64
 
+/* Define to 1 if you have the `mbstowcs_l' function. */
+#undef HAVE_MBSTOWCS_L
+
 /* Define to 1 if you have the `memmove' function. */
 #undef HAVE_MEMMOVE
 
@@ -631,9 +634,6 @@
 
 /* Define to 1 if you have the <winldap.h> header file. */
 #undef HAVE_WINLDAP_H
-
-/* Define to 1 if your libxml has xmlStructuredErrorContext. */
-#undef HAVE_XMLSTRUCTUREDERRORCONTEXT
 
 /* Define to the appropriate snprintf format for 64-bit ints. */
 #undef INT64_FORMAT

@@ -29,15 +29,13 @@ PostgreSQL documentation
    <command>dropuser</command>
    <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
    <arg rep="repeat"><replaceable>option</replaceable></arg>
-   <arg><replaceable>username</replaceable></arg>
+   <arg choice="opt"><replaceable>username</replaceable></arg>
   </cmdsynopsis>
  </refsynopsisdiv>
 
 
  <refsect1>
   <title>Description</title>
-
-&common;
 
   <para>
    <application>dropuser</application> removes an existing
@@ -84,7 +82,9 @@ PostgreSQL documentation
 <!## XC>
         Specifies the name of the <productname>Postgres-XC</productname> user to be removed.
 <!## end>
-        You will be prompted for a name if none is specified on the command line.
+        You will be prompted for a name if none is specified on the command
+        line and the <option>-i</option>/<option>--interactive</option> option
+        is used.
        </para>
       </listitem>
      </varlistentry>
@@ -105,7 +105,8 @@ PostgreSQL documentation
       <term><option>--interactive</></term>
       <listitem>
        <para>
-        Prompt for confirmation before actually removing the user.
+        Prompt for confirmation before actually removing the user, and prompt
+        for the user name if none is specified on the command line.
        </para>
       </listitem>
      </varlistentry>
@@ -118,6 +119,16 @@ PostgreSQL documentation
        Print the <application>dropuser</application> version and exit.
        </para>
        </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--if-exists</></term>
+      <listitem>
+       <para>
+        Do not throw an error if the user does not exist. A notice is
+        issued in this case.
+       </para>
+      </listitem>
      </varlistentry>
 
      <varlistentry>
@@ -281,8 +292,7 @@ PostgreSQL documentation
 <computeroutput>Role "joe" will be permanently removed.
 Are you sure? (y/n) </computeroutput><userinput>y</userinput>
 <computeroutput>DROP ROLE joe;</computeroutput>
-</screen>
-   </para>
+</screen></para>
  </refsect1>
 
 

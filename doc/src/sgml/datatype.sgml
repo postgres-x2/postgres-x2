@@ -830,6 +830,20 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
     </para>
 
     <note>
+      <para>
+        Because <type>smallserial</type>, <type>serial</type> and
+        <type>bigserial</type> are implemented using sequences, there may
+        be "holes" or gaps in the sequence of values which appears in the
+        column, even if no rows are ever deleted.  A value allocated
+        from the sequence is still "used up" even if a row containing that
+        value is never successfully inserted into the table column.  This
+        may happen, for example, if the inserting transaction rolls back.
+        See <literal>nextval()</literal> in <xref linkend="functions-sequence">
+        for details.
+      </para>
+    </note>
+
+    <note>
      <para>
       Prior to <productname>PostgreSQL</productname> 7.3, <type>serial</type>
       implied <literal>UNIQUE</literal>.  This is no longer automatic.  If
@@ -4182,10 +4196,13 @@ SET xmloption TO { DOCUMENT | CONTENT };
    </indexterm>
 
    <para>
-    The <type>json</type> data type can be used to store JSON data.  Such
+    The <type>json</type> data type can be used to store JSON (JavaScript
+    Object Notation) data, as specified in <ulink
+    url="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</ulink>.  Such
     data can also be stored as <type>text</type>, but the
     <type>json</type> data type has the advantage of checking that each
-    stored value is a valid JSON value.
+    stored value is a valid JSON value.  There are also related support
+    functions available; see <xref linkend="functions-json">.
    </para>
 
    <para>

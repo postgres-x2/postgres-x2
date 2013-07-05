@@ -2036,7 +2036,7 @@
      </row>
 
      <row>
-      <entry><structfield>conisonly</structfield></entry>
+      <entry><structfield>connoinherit</structfield></entry>
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>
@@ -2587,7 +2587,8 @@
        Type of object this entry is for:
        <literal>r</> = relation (table, view),
        <literal>S</> = sequence,
-       <literal>f</> = function
+       <literal>f</> = function,
+       <literal>T</> = type
       </entry>
      </row>
 
@@ -3389,11 +3390,12 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>
-       If true, the index is currently valid for queries.  False means the
+       If both this flag and <structfield>indisready</structfield> are
+       true, the index is currently valid for queries.  False means the
        index is possibly incomplete: it must still be modified by
        <command>INSERT</>/<command>UPDATE</> operations, but it cannot safely
        be used for queries. If it is unique, the uniqueness property is not
-       true either.
+       guaranteed true either.
       </entry>
      </row>
 

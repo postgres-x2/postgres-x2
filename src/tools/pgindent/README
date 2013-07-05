@@ -44,10 +44,10 @@ This can format all PostgreSQL *.c and *.h files, but excludes *.y, and
 	pg_ctl start
 	gmake installcheck-world
 
-9) Indent the Perl MSVC code:
+9) Indent the Perl code:
 
-	cd src/tools/msvc
-	perltidy -b -bl -nsfs -naws -l=100 -ole=unix *.pl *.pm
+	find . -name \*.pl -o -name \*.pm | 
+	xargs perltidy --profile=src/tools/pgindent/perltidyrc
 
 ---------------------------------------------------------------------------
 

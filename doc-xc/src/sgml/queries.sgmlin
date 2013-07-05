@@ -11,6 +11,7 @@
   <primary>SELECT</primary>
  </indexterm>
 
+&common;
  <para>
   The previous chapters explained how to create tables, how to fill
   them with data, and how to manipulate that data.  Now we finally
@@ -21,6 +22,7 @@
  <sect1 id="queries-overview">
   <title>Overview</title>
 
+&common;
   <para>
    The process of retrieving or the command to retrieve data from a
    database is called a <firstterm>query</firstterm>.  In SQL the
@@ -41,7 +43,7 @@
 SELECT * FROM table1;
 </programlisting>
   Assuming that there is a table called <literal>table1</literal>,
-  this command would retrieve all rows and all columns from
+  this command would retrieve all rows and all user-defined columns from
   <literal>table1</literal>.  (The method of retrieval depends on the
   client application.  For example, the
   <application>psql</application> program will display an ASCII-art
@@ -86,6 +88,8 @@ SELECT random();
   <indexterm zone="queries-table-expressions">
    <primary>table expression</primary>
   </indexterm>
+
+&common;
   <para>
    A <firstterm>table expression</firstterm> computes a table.  The
    table expression contains a <literal>FROM</> clause that is
@@ -115,6 +119,7 @@ SELECT random();
 <synopsis>
 FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_reference</replaceable> <optional>, ...</optional></optional>
 </synopsis>
+
     A table reference can be a table name (possibly schema-qualified),
     or a derived table such as a subquery, a table join, or complex
     combinations of these.  If more than one table reference is listed
@@ -138,13 +143,23 @@ FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_r
     &mdash; any columns added in subtables are ignored.
    </para>
 
+   <para>
+    Instead of writing <literal>ONLY</> before the table name, you can write
+    <literal>*</> after the table name to explicitly specify that descendant
+    tables are included.  Writing <literal>*</> is not necessary since that
+    behavior is the default (unless you have changed the setting of the <xref
+    linkend="guc-sql-inheritance"> configuration option).  However writing
+    <literal>*</> might be useful to emphasize that additional tables will be
+    searched.
+   </para>
+
    <sect3 id="queries-join">
     <title>Joined Tables</title>
 
     <indexterm zone="queries-join">
      <primary>join</primary>
     </indexterm>
-&common;
+
     <para>
      A joined table is a table derived from two other (real or
      derived) tables according to the rules of the particular join
@@ -264,7 +279,9 @@ FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_r
         <literal>USING</>: it forms a <literal>USING</> list
         consisting of all column names that appear in both
         input tables.  As with <literal>USING</>, these columns appear
-        only once in the output table.
+        only once in the output table.  If there are no common
+        columns, <literal>NATURAL</literal> behaves like
+        <literal>CROSS JOIN</literal>.
        </para>
 
        <para>
@@ -488,7 +505,7 @@ FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_r
      <primary>label</primary>
      <see>alias</see>
     </indexterm>
-&common;
+
     <para>
      A temporary name can be given to tables and complex table
      references to be used for references to the derived table in
@@ -582,7 +599,7 @@ SELECT a.* FROM (my_table AS a JOIN your_table AS b ON ...) AS c
     <indexterm zone="queries-subqueries">
      <primary>subquery</primary>
     </indexterm>
-&common;
+
     <para>
      Subqueries specifying a derived table must be enclosed in
      parentheses and <emphasis>must</emphasis> be assigned a table
@@ -808,7 +825,7 @@ SELECT <replaceable>select_list</replaceable>
     <optional>WHERE ...</optional>
     GROUP BY <replaceable>grouping_column_reference</replaceable> <optional>, <replaceable>grouping_column_reference</replaceable></optional>...
 </synopsis>
-&common;
+
    <para>
     The <xref linkend="sql-groupby" endterm="sql-groupby-title"> is
     used to group together those rows in a table that have the same
@@ -907,12 +924,7 @@ SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
 
    <para>
     In strict SQL, <literal>GROUP BY</> can only group by columns of
-<!## PG>
     the source table but <productname>PostgreSQL</productname> extends
-<!## end>
-<!## XC>
-    the source table but <productname>Postgres-XC</productname> extends
-<!## end>
     this to also allow <literal>GROUP BY</> to group by columns in the
     select list.  Grouping by value expressions instead of simple
     column names is also allowed.
@@ -1019,7 +1031,7 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
     Currently, window functions always require presorted data, and so the
     query output will be ordered according to one or another of the window
     functions' <literal>PARTITION BY</>/<literal>ORDER BY</> clauses.
-    It is not recommendable to rely on this, however.  Use an explicit
+    It is not recommended to rely on this, however.  Use an explicit
     top-level <literal>ORDER BY</> clause if you want to be sure the
     results are sorted in a particular way.
    </para>
@@ -1034,6 +1046,7 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
    <primary>SELECT</primary>
    <secondary>select list</secondary>
   </indexterm>
+
 &common;
   <para>
    As shown in the previous section,
@@ -1051,7 +1064,7 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
    <indexterm>
     <primary>*</primary>
    </indexterm>
-&common;
+
    <para>
     The simplest kind of select list is <literal>*</literal> which
     emits all columns that the table expression produces.  Otherwise,
@@ -1102,7 +1115,7 @@ SELECT tbl1.*, tbl2.a FROM ...
     <primary>alias</primary>
     <secondary>in the select list</secondary>
    </indexterm>
-&common;
+
    <para>
     The entries in the select list can be assigned names for subsequent
     processing, such as for use in an <literal>ORDER BY</> clause
@@ -1123,12 +1136,7 @@ SELECT a AS value, b + c AS sum FROM ...
    <para>
     The <literal>AS</> keyword is optional, but only if the new column
     name does not match any
-<!## PG>
     <productname>PostgreSQL</productname> keyword (see <xref
-<!## end>
-<!## XC>
-    <productname>Postgres-XC</productname> keyword (see <xref
-<!## end>
     linkend="sql-keywords-appendix">).  To avoid an accidental match to
     a keyword, you can double-quote the column name.  For example,
     <literal>VALUE</> is a keyword, so this does not work:
@@ -1165,7 +1173,7 @@ SELECT a "value", b + c AS sum FROM ...
    <indexterm zone="queries-distinct">
     <primary>duplicates</primary>
    </indexterm>
-&common;
+
    <para>
     After the select list has been processed, the result table can
     optionally be subject to the elimination of duplicate rows.  The
@@ -1242,6 +1250,7 @@ SELECT DISTINCT ON (<replaceable>expression</replaceable> <optional>, <replaceab
   <indexterm zone="queries-union">
    <primary>set operation</primary>
   </indexterm>
+
 &common;
   <para>
    The results of two queries can be combined using the set operations
@@ -1308,6 +1317,7 @@ SELECT DISTINCT ON (<replaceable>expression</replaceable> <optional>, <replaceab
   <indexterm zone="queries-order">
    <primary>ORDER BY</primary>
   </indexterm>
+
 &common;
   <para>
    After a query has produced an output table (after the select list
@@ -1343,12 +1353,7 @@ SELECT a, b FROM table1 ORDER BY a + b, c;
    determined with the <literal>&gt;</literal> operator.
     <footnote>
      <para>
-<!## PG>
       Actually, <productname>PostgreSQL</> uses the <firstterm>default B-tree
-<!## end>
-<!## XC>
-      Actually, <productname>Postgres-XC</> uses the <firstterm>default B-tree
-<!## end>
       operator class</> for the expression's data type to determine the sort
       ordering for <literal>ASC</> and <literal>DESC</>.  Conventionally,
       data types will be set up so that the <literal>&lt;</literal> and
@@ -1414,6 +1419,7 @@ SELECT a + b AS sum, c FROM table1 ORDER BY sum + c;          -- wrong
   <indexterm zone="queries-limit">
    <primary>OFFSET</primary>
   </indexterm>
+
 &common;
   <para>
    <literal>LIMIT</> and <literal>OFFSET</> allow you to retrieve just
@@ -1480,6 +1486,7 @@ SELECT <replaceable>select_list</replaceable>
   <indexterm zone="queries-values">
    <primary>VALUES</primary>
   </indexterm>
+
 &common;
   <para>
    <literal>VALUES</> provides a way to generate a <quote>constant table</>
@@ -1512,12 +1519,7 @@ UNION ALL
 SELECT 3, 'three';
 </programlisting>
 
-<!## PG>
    By default, <productname>PostgreSQL</productname> assigns the names
-<!## end>
-<!## XC>
-   By default, <productname>Postgres-XC</productname> assigns the names
-<!## end>
    <literal>column1</>, <literal>column2</>, etc. to the columns of a
    <literal>VALUES</> table.  The column names are not specified by the
    SQL standard and different database systems do it differently, so
@@ -1545,6 +1547,7 @@ SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression
 
  </sect1>
 
+
  <sect1 id="queries-with">
   <title><literal>WITH</literal> Queries (Common Table Expressions)</title>
 
@@ -1558,6 +1561,7 @@ SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression
    <see>WITH</see>
   </indexterm>
 
+&common;
   <para>
    <literal>WITH</> provides a way to write auxiliary statements for use in a
    larger query.  These statements, which are often referred to as Common
@@ -1773,7 +1777,7 @@ WITH RECURSIVE search_graph(id, link, data, depth, path, cycle) AS (
           path || ROW(g.f1, g.f2),
           ROW(g.f1, g.f2) = ANY(path)
         FROM graph g, search_graph sg
-        WHERE sg.link AND NOT cycle
+        WHERE g.id = sg.link AND NOT cycle
 )
 SELECT * FROM search_graph;
 </programlisting>
@@ -1811,12 +1815,7 @@ WITH RECURSIVE t(n) AS (
 SELECT n FROM t LIMIT 100;
 </programlisting>
 
-<!## PG>
    This works because <productname>PostgreSQL</productname>'s implementation
-<!## end>
-<!## XC>
-   This works because <productname>Postgres-XC</productname>'s implementation
-<!## end>
    evaluates only as many rows of a <literal>WITH</> query as are actually
    fetched by the parent query.  Using this trick in production is not
    recommended, because other systems might work differently.  Also, it
@@ -1843,7 +1842,6 @@ SELECT n FROM t LIMIT 100;
    rows.)
   </para>
 
-
   <para>
    The examples above only show <literal>WITH</> being used with
    <command>SELECT</>, but it can be attached in the same way to
@@ -1851,7 +1849,6 @@ SELECT n FROM t LIMIT 100;
    In each case it effectively provides temporary table(s) that can
    be referred to in the main command.
   </para>
-
  </sect2>
 
  <sect2 id="queries-with-modifying">

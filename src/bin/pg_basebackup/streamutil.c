@@ -54,6 +54,9 @@ xmalloc0(int size)
 {
 	void	   *result;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
 	result = malloc(size);
 	if (!result)
 	{
@@ -143,6 +146,17 @@ GetConnection(void)
 
 		tmpconn = PQconnectdbParams(keywords, values, true);
 
+		/*
+		 * If there is too little memory even to allocate the PGconn object
+		 * and PQconnectdbParams returns NULL, we call exit(1) directly.
+		 */
+		if (!tmpconn)
+		{
+			fprintf(stderr, _("%s: could not connect to server\n"),
+					progname);
+			exit(1);
+		}
+
 		if (PQstatus(tmpconn) == CONNECTION_BAD &&
 			PQconnectionNeedsPassword(tmpconn) &&
 			dbgetpassword != -1)
@@ -156,6 +170,9 @@ GetConnection(void)
 		{
 			fprintf(stderr, _("%s: could not connect to server: %s\n"),
 					progname, PQerrorMessage(tmpconn));
+			PQfinish(tmpconn);
+			free(values);
+			free(keywords);
 			return NULL;
 		}
 
@@ -170,7 +187,8 @@ GetConnection(void)
 		tmpparam = PQparameterStatus(tmpconn, "integer_datetimes");
 		if (!tmpparam)
 		{
-			fprintf(stderr, _("%s: could not determine server setting for integer_datetimes\n"),
+			fprintf(stderr,
+					_("%s: could not determine server setting for integer_datetimes\n"),
 					progname);
 			PQfinish(tmpconn);
 			exit(1);
@@ -182,7 +200,8 @@ GetConnection(void)
 		if (strcmp(tmpparam, "off") != 0)
 #endif
 		{
-			fprintf(stderr, _("%s: integer_datetimes compile flag does not match server\n"),
+			fprintf(stderr,
+			 _("%s: integer_datetimes compile flag does not match server\n"),
 					progname);
 			PQfinish(tmpconn);
 			exit(1);

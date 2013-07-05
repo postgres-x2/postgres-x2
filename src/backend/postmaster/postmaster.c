@@ -465,6 +465,7 @@ typedef struct
 	pid_t		PostmasterPid;
 	TimestampTz PgStartTime;
 	TimestampTz PgReloadTime;
+	pg_time_t	first_syslogger_file_time;
 	bool		redirection_done;
 	bool		IsBinaryUpgrade;
 	int			max_safe_fds;
@@ -849,9 +850,14 @@ PostmasterMain(int argc, char *argv[])
 	/*
 	 * Check for invalid combinations of GUC settings.
 	 */
-	if (ReservedBackends >= MaxBackends)
+	if (ReservedBackends >= MaxConnections)
 	{
 		write_stderr("%s: superuser_reserved_connections must be less than max_connections\n", progname);
+		ExitPostmaster(1);
+	}
+	if (max_wal_senders >= MaxConnections)
+	{
+		write_stderr("%s: max_wal_senders must be less than max_connections\n", progname);
 		ExitPostmaster(1);
 	}
 	if (XLogArchiveMode && wal_level == WAL_LEVEL_MINIMAL)
@@ -2318,9 +2324,9 @@ pmdie(SIGNAL_ARGS)
 			if (pmState == PM_RECOVERY)
 			{
 				/*
-				 * Only startup, bgwriter, and checkpointer should be active
-				 * in this state; we just signaled the first two, and we don't
-				 * want to kill checkpointer yet.
+				 * Only startup, bgwriter, walreceiver, and/or checkpointer
+				 * should be active in this state; we just signaled the first
+				 * three, and we don't want to kill checkpointer yet.
 				 */
 				pmState = PM_WAIT_BACKENDS;
 			}
@@ -2451,6 +2457,18 @@ reaper(SIGNAL_ARGS)
 			StartupPID = 0;
 
 			/*
+			 * Startup process exited in response to a shutdown request (or it
+			 * completed normally regardless of the shutdown request).
+			 */
+			if (Shutdown > NoShutdown &&
+				(EXIT_STATUS_0(exitstatus) || EXIT_STATUS_1(exitstatus)))
+			{
+				pmState = PM_WAIT_BACKENDS;
+				/* PostmasterStateMachine logic does the rest */
+				continue;
+			}
+
+			/*
 			 * Unexpected exit of startup process (including FATAL exit)
 			 * during PM_STARTUP is treated as catastrophic. There are no
 			 * other processes running yet, so we can just exit.
@@ -2462,18 +2480,6 @@ reaper(SIGNAL_ARGS)
 				ereport(LOG,
 				(errmsg("aborting startup due to startup process failure")));
 				ExitPostmaster(1);
-			}
-
-			/*
-			 * Startup process exited in response to a shutdown request (or it
-			 * completed normally regardless of the shutdown request).
-			 */
-			if (Shutdown > NoShutdown &&
-				(EXIT_STATUS_0(exitstatus) || EXIT_STATUS_1(exitstatus)))
-			{
-				pmState = PM_WAIT_BACKENDS;
-				/* PostmasterStateMachine logic does the rest */
-				continue;
 			}
 
 			/*
@@ -3757,7 +3763,7 @@ BackendRun(Port *port)
 	 * from ExtraOptions is (strlen(ExtraOptions) + 1) / 2; see
 	 * pg_split_opts().
 	 */
-	maxac = 5;					/* for fixed args supplied below */
+	maxac = 2;					/* for fixed args supplied below */
 	maxac += (strlen(ExtraOptions) + 1) / 2;
 
 	av = (char **) MemoryContextAlloc(TopMemoryContext,
@@ -3772,11 +3778,6 @@ BackendRun(Port *port)
 	 * ExtraOptions now, since we're safely inside a subprocess.)
 	 */
 	pg_split_opts(av, &ac, ExtraOptions);
-
-	/*
-	 * Tell the backend which database to use.
-	 */
-	av[ac++] = port->database_name;
 
 	av[ac] = NULL;
 
@@ -3800,7 +3801,7 @@ BackendRun(Port *port)
 	 */
 	MemoryContextSwitchTo(TopMemoryContext);
 
-	return (PostgresMain(ac, av, port->user_name));
+	return PostgresMain(ac, av, port->database_name, port->user_name);
 }
 
 
@@ -4427,7 +4428,7 @@ sigusr1_handler(SIGNAL_ARGS)
 	 * first. We don't want to go back to recovery in that case.
 	 */
 	if (CheckPostmasterSignal(PMSIGNAL_RECOVERY_STARTED) &&
-		pmState == PM_STARTUP)
+		pmState == PM_STARTUP && Shutdown == NoShutdown)
 	{
 		/* WAL redo has started. We're out of reinitialization. */
 		FatalError = false;
@@ -4444,7 +4445,7 @@ sigusr1_handler(SIGNAL_ARGS)
 		pmState = PM_RECOVERY;
 	}
 	if (CheckPostmasterSignal(PMSIGNAL_BEGIN_HOT_STANDBY) &&
-		pmState == PM_RECOVERY)
+		pmState == PM_RECOVERY && Shutdown == NoShutdown)
 	{
 		/*
 		 * Likewise, start other special children as needed.
@@ -4522,7 +4523,8 @@ sigusr1_handler(SIGNAL_ARGS)
 		signal_child(SysLoggerPID, SIGUSR1);
 	}
 
-	if (CheckPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER))
+	if (CheckPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER) &&
+		Shutdown == NoShutdown)
 	{
 		/*
 		 * Start one iteration of the autovacuum daemon, even if autovacuuming
@@ -4536,7 +4538,8 @@ sigusr1_handler(SIGNAL_ARGS)
 		start_autovac_launcher = true;
 	}
 
-	if (CheckPostmasterSignal(PMSIGNAL_START_AUTOVAC_WORKER))
+	if (CheckPostmasterSignal(PMSIGNAL_START_AUTOVAC_WORKER) &&
+		Shutdown == NoShutdown)
 	{
 		/* The autovacuum launcher wants us to start a worker process. */
 		StartAutovacuumWorker();
@@ -4545,7 +4548,8 @@ sigusr1_handler(SIGNAL_ARGS)
 	if (CheckPostmasterSignal(PMSIGNAL_START_WALRECEIVER) &&
 		WalReceiverPID == 0 &&
 		(pmState == PM_STARTUP || pmState == PM_RECOVERY ||
-		 pmState == PM_HOT_STANDBY || pmState == PM_WAIT_READONLY))
+		 pmState == PM_HOT_STANDBY || pmState == PM_WAIT_READONLY) &&
+		Shutdown == NoShutdown)
 	{
 		/* Startup Process wants us to start the walreceiver process. */
 		WalReceiverPID = StartWalReceiver();
@@ -4947,7 +4951,7 @@ MaxLivePostmasterChildren(void)
 
 /*
  * The following need to be available to the save/restore_backend_variables
- * functions
+ * functions.  They are marked NON_EXEC_STATIC in their home modules.
  */
 extern slock_t *ShmemLock;
 extern LWLock *LWLockArray;
@@ -4955,6 +4959,7 @@ extern slock_t *ProcStructLock;
 extern PGPROC *AuxiliaryProcs;
 extern PMSignalData *PMSignalState;
 extern pgsocket pgStatSock;
+extern pg_time_t first_syslogger_file_time;
 
 #ifndef WIN32
 #define write_inheritable_socket(dest, src, childpid) ((*(dest) = (src)), true)
@@ -5007,6 +5012,7 @@ save_backend_variables(BackendParameters *param, Port *port,
 	param->PostmasterPid = PostmasterPid;
 	param->PgStartTime = PgStartTime;
 	param->PgReloadTime = PgReloadTime;
+	param->first_syslogger_file_time = first_syslogger_file_time;
 
 	param->redirection_done = redirection_done;
 	param->IsBinaryUpgrade = IsBinaryUpgrade;
@@ -5231,6 +5237,7 @@ restore_backend_variables(BackendParameters *param, Port *port)
 	PostmasterPid = param->PostmasterPid;
 	PgStartTime = param->PgStartTime;
 	PgReloadTime = param->PgReloadTime;
+	first_syslogger_file_time = param->first_syslogger_file_time;
 
 	redirection_done = param->redirection_done;
 	IsBinaryUpgrade = param->IsBinaryUpgrade;

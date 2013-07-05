@@ -36,7 +36,6 @@ CREATE CAST (<replaceable>source_type</replaceable> AS <replaceable>target_type<
   <title>Description</title>
 
 &common;
-
   <para>
    <command>CREATE CAST</command> defines a new cast.  A cast
    specifies how to perform a conversion between
@@ -166,10 +165,11 @@ SELECT CAST ( 2 AS numeric ) + 4.0;
   </note>
 
   <para>
-   To be able to create a cast, you must own the source or the target
-   data type.  To create a binary-coercible cast, you must be superuser.
-   (This restriction is made because an erroneous binary-coercible cast
-   conversion can easily crash the server.)
+   To be able to create a cast, you must own the source or the target data type
+   and have <literal>USAGE</literal> privilege on the other type.  To create a
+   binary-coercible cast, you must be superuser.  (This restriction is made
+   because an erroneous binary-coercible cast conversion can easily crash the
+   server.)
   </para>
  </refsect1>
 
@@ -294,6 +294,11 @@ SELECT CAST ( 2 AS numeric ) + 4.0;
    convert between data types and a second to apply the modifier.
   </para>
 
+  <para>
+   A cast to or from a domain type currently has no effect.  Casting
+   to or from a domain uses the casts associated with its underlying type.
+  </para>
+
  </refsect1>
 
  <refsect1 id="sql-createcast-notes">
@@ -337,6 +342,7 @@ SELECT CAST ( 2 AS numeric ) + 4.0;
    mostly because of requirements of the SQL standard.)
   </para>
 
+<!## PG>
   <para>
    Prior to <productname>PostgreSQL</> 7.3, every function that had
    the same name as a data type, returned that data type, and took one
@@ -347,6 +353,7 @@ SELECT CAST ( 2 AS numeric ) + 4.0;
    scheme, but they have to be shown as casts in the system catalog
    <structname>pg_cast</> as well.
   </para>
+<!## end>
 
   <para>
    While not required, it is recommended that you continue to follow this old

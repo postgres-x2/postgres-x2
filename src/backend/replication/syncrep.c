@@ -45,6 +45,7 @@
 
 #include <unistd.h>
 
+#include "access/transam.h"
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "replication/syncrep.h"
@@ -377,10 +378,12 @@ SyncRepReleaseWaiters(void)
 	/*
 	 * If this WALSender is serving a standby that is not on the list of
 	 * potential standbys then we have nothing to do. If we are still starting
-	 * up or still running base backup, then leave quickly also.
+	 * up, still running base backup or the current flush position is still
+	 * invalid, then leave quickly also.
 	 */
 	if (MyWalSnd->sync_standby_priority == 0 ||
-		MyWalSnd->state < WALSNDSTATE_STREAMING)
+		MyWalSnd->state < WALSNDSTATE_STREAMING ||
+		XLByteEQ(MyWalSnd->flush, InvalidXLogRecPtr))
 		return;
 
 	/*
@@ -400,7 +403,8 @@ SyncRepReleaseWaiters(void)
 			walsnd->state == WALSNDSTATE_STREAMING &&
 			walsnd->sync_standby_priority > 0 &&
 			(priority == 0 ||
-			 priority > walsnd->sync_standby_priority))
+			 priority > walsnd->sync_standby_priority) &&
+			!XLByteEQ(walsnd->flush, InvalidXLogRecPtr))
 		{
 			priority = walsnd->sync_standby_priority;
 			syncWalSnd = walsnd;

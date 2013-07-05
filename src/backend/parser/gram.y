@@ -104,6 +104,7 @@ typedef struct PrivTarget
 #define CAS_INITIALLY_IMMEDIATE		0x04
 #define CAS_INITIALLY_DEFERRED		0x08
 #define CAS_NOT_VALID				0x10
+#define CAS_NO_INHERIT				0x20
 
 
 #define parser_yyerror(msg)  scanner_yyerror(msg, yyscanner)
@@ -147,7 +148,7 @@ static void SplitColQualList(List *qualList,
 							 core_yyscan_t yyscanner);
 static void processCASbits(int cas_bits, int location, const char *constrType,
 			   bool *deferrable, bool *initdeferred, bool *not_valid,
-			   core_yyscan_t yyscanner);
+			   bool *no_inherit, core_yyscan_t yyscanner);
 
 %}
 
@@ -2815,13 +2816,13 @@ ColConstraintElem:
 					n->indexspace = $4;
 					$$ = (Node *)n;
 				}
-			| CHECK opt_no_inherit '(' a_expr ')'
+			| CHECK '(' a_expr ')' opt_no_inherit
 				{
 					Constraint *n = makeNode(Constraint);
 					n->contype = CONSTR_CHECK;
 					n->location = @1;
-					n->is_no_inherit = $2;
-					n->raw_expr = $4;
+					n->is_no_inherit = $5;
+					n->raw_expr = $3;
 					n->cooked_expr = NULL;
 					$$ = (Node *)n;
 				}
@@ -2861,10 +2862,10 @@ ColConstraintElem:
  * combinations.
  *
  * See also ConstraintAttributeSpec, which can be used in places where
- * there is no parsing conflict.  (Note: currently, NOT VALID is an allowed
- * clause in ConstraintAttributeSpec, but not here.  Someday we might need
- * to allow it here too, but for the moment it doesn't seem useful in the
- * statements that use ConstraintAttr.)
+ * there is no parsing conflict.  (Note: currently, NOT VALID and NO INHERIT
+ * are allowed clauses in ConstraintAttributeSpec, but not here.  Someday we
+ * might need to allow them here too, but for the moment it doesn't seem
+ * useful in the statements that use ConstraintAttr.)
  */
 ConstraintAttr:
 			DEFERRABLE
@@ -2941,17 +2942,16 @@ TableConstraint:
 		;
 
 ConstraintElem:
-			CHECK opt_no_inherit '(' a_expr ')' ConstraintAttributeSpec
+			CHECK '(' a_expr ')' ConstraintAttributeSpec
 				{
 					Constraint *n = makeNode(Constraint);
 					n->contype = CONSTR_CHECK;
 					n->location = @1;
-					n->is_no_inherit = $2;
-					n->raw_expr = $4;
+					n->raw_expr = $3;
 					n->cooked_expr = NULL;
-					processCASbits($6, @6, "CHECK",
+					processCASbits($5, @5, "CHECK",
 								   NULL, NULL, &n->skip_validation,
-								   yyscanner);
+								   &n->is_no_inherit, yyscanner);
 					n->initially_valid = !n->skip_validation;
 					$$ = (Node *)n;
 				}
@@ -2967,7 +2967,7 @@ ConstraintElem:
 					n->indexspace = $6;
 					processCASbits($7, @7, "UNIQUE",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					$$ = (Node *)n;
 				}
 			| UNIQUE ExistingIndex ConstraintAttributeSpec
@@ -2981,7 +2981,7 @@ ConstraintElem:
 					n->indexspace = NULL;
 					processCASbits($3, @3, "UNIQUE",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					$$ = (Node *)n;
 				}
 			| PRIMARY KEY '(' columnList ')' opt_definition OptConsTableSpace
@@ -2996,7 +2996,7 @@ ConstraintElem:
 					n->indexspace = $7;
 					processCASbits($8, @8, "PRIMARY KEY",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					$$ = (Node *)n;
 				}
 			| PRIMARY KEY ExistingIndex ConstraintAttributeSpec
@@ -3010,7 +3010,7 @@ ConstraintElem:
 					n->indexspace = NULL;
 					processCASbits($4, @4, "PRIMARY KEY",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					$$ = (Node *)n;
 				}
 			| EXCLUDE access_method_clause '(' ExclusionConstraintList ')'
@@ -3028,7 +3028,7 @@ ConstraintElem:
 					n->where_clause		= $8;
 					processCASbits($9, @9, "EXCLUDE",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					$$ = (Node *)n;
 				}
 			| FOREIGN KEY '(' columnList ')' REFERENCES qualified_name
@@ -3045,7 +3045,7 @@ ConstraintElem:
 					n->fk_del_action	= (char) ($10 & 0xFF);
 					processCASbits($11, @11, "FOREIGN KEY",
 								   &n->deferrable, &n->initdeferred,
-								   &n->skip_validation,
+								   &n->skip_validation, NULL,
 								   yyscanner);
 					n->initially_valid = !n->skip_validation;
 					$$ = (Node *)n;
@@ -4308,7 +4308,7 @@ CreateTrigStmt:
 					n->isconstraint  = TRUE;
 					processCASbits($10, @10, "TRIGGER",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 					n->constrrel = $9;
 					$$ = (Node *)n;
 				}
@@ -4445,6 +4445,7 @@ ConstraintAttributeElem:
 			| INITIALLY IMMEDIATE			{ $$ = CAS_INITIALLY_IMMEDIATE; }
 			| INITIALLY DEFERRED			{ $$ = CAS_INITIALLY_DEFERRED; }
 			| NOT VALID						{ $$ = CAS_NOT_VALID; }
+			| NO INHERIT					{ $$ = CAS_NO_INHERIT; }
 		;
 
 
@@ -4492,7 +4493,7 @@ CreateAssertStmt:
 					n->isconstraint  = TRUE;
 					processCASbits($8, @8, "ASSERTION",
 								   &n->deferrable, &n->initdeferred, NULL,
-								   yyscanner);
+								   NULL, yyscanner);
 
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -5045,7 +5046,7 @@ DropStmt:	DROP drop_type IF_P EXISTS any_name_list opt_drop_behavior
 				{
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_INDEX;
-					n->missing_ok = FALSE;
+					n->missing_ok = TRUE;
 					n->objects = $6;
 					n->arguments = NIL;
 					n->behavior = $7;
@@ -6029,7 +6030,14 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 					n->options = $12;
 					n->tableSpace = $13;
 					n->whereClause = $14;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
 					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
 					$$ = (Node *)n;
 				}
 		;
@@ -11031,6 +11039,29 @@ c_expr:		columnref								{ $$ = $1; }
 					n->location = @1;
 					$$ = (Node *)n;
 				}
+			| select_with_parens indirection
+				{
+					/*
+					 * Because the select_with_parens nonterminal is designed
+					 * to "eat" as many levels of parens as possible, the
+					 * '(' a_expr ')' opt_indirection production above will
+					 * fail to match a sub-SELECT with indirection decoration;
+					 * the sub-SELECT won't be regarded as an a_expr as long
+					 * as there are parens around it.  To support applying
+					 * subscripting or field selection to a sub-SELECT result,
+					 * we need this redundant-looking production.
+					 */
+					SubLink *n = makeNode(SubLink);
+					A_Indirection *a = makeNode(A_Indirection);
+					n->subLinkType = EXPR_SUBLINK;
+					n->testexpr = NULL;
+					n->operName = NIL;
+					n->subselect = $1;
+					n->location = @1;
+					a->arg = (Node *)n;
+					a->indirection = check_indirection($2, yyscanner);
+					$$ = (Node *)a;
+				}
 			| EXISTS select_with_parens
 				{
 					SubLink *n = makeNode(SubLink);
@@ -13546,6 +13577,7 @@ makeXmlExpr(XmlExprOp op, char *name, List *named_args, List *args,
 	x->args = args;
 	/* xmloption, if relevant, must be filled in by caller */
 	/* type and typmod will be filled in during parse analysis */
+	x->type = InvalidOid;			/* marks the node as not analyzed */
 	x->location = location;
 	return (Node *) x;
 }
@@ -13687,7 +13719,7 @@ SplitColQualList(List *qualList,
 static void
 processCASbits(int cas_bits, int location, const char *constrType,
 			   bool *deferrable, bool *initdeferred, bool *not_valid,
-			   core_yyscan_t yyscanner)
+			   bool *no_inherit, core_yyscan_t yyscanner)
 {
 	/* defaults */
 	if (deferrable)
@@ -13732,6 +13764,19 @@ processCASbits(int cas_bits, int location, const char *constrType,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 /* translator: %s is CHECK, UNIQUE, or similar */
 					 errmsg("%s constraints cannot be marked NOT VALID",
+							constrType),
+					 parser_errposition(location)));
+	}
+
+	if (cas_bits & CAS_NO_INHERIT)
+	{
+		if (no_inherit)
+			*no_inherit = true;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 /* translator: %s is CHECK, UNIQUE, or similar */
+					 errmsg("%s constraints cannot be marked NO INHERIT",
 							constrType),
 					 parser_errposition(location)));
 	}

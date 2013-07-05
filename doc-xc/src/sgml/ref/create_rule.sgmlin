@@ -22,7 +22,7 @@ PostgreSQL documentation
  <refsynopsisdiv>
 <synopsis>
 CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS ON <replaceable class="parameter">event</replaceable>
-    TO <replaceable class="parameter">table</replaceable> [ WHERE <replaceable class="parameter">condition</replaceable> ]
+    TO <replaceable class="parameter">table_name</replaceable> [ WHERE <replaceable class="parameter">condition</replaceable> ]
     DO [ ALSO | INSTEAD ] { NOTHING | <replaceable class="parameter">command</replaceable> | ( <replaceable class="parameter">command</replaceable> ; <replaceable class="parameter">command</replaceable> ... ) }
 </synopsis>
  </refsynopsisdiv>
@@ -31,7 +31,6 @@ CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS 
   <title>Description</title>
 
 &common;
-
   <para>
    <command>CREATE RULE</command> defines a new rule applying to a specified
    table or view.
@@ -132,7 +131,7 @@ CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS 
    </varlistentry>
 
    <varlistentry>
-    <term><replaceable class="parameter">table</replaceable></term>
+    <term><replaceable class="parameter">table_name</replaceable></term>
     <listitem>
      <para>
       The name (optionally schema-qualified) of the table or view the
@@ -156,8 +155,7 @@ CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS 
    <varlistentry>
     <term><option>INSTEAD</option></term>
     <listitem>
-     <para>
-      <literal>INSTEAD</literal> indicates that the commands should be
+     <para><literal>INSTEAD</literal> indicates that the commands should be
       executed <emphasis>instead of</> the original command.
      </para>
     </listitem>
@@ -166,8 +164,7 @@ CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS 
    <varlistentry>
     <term><option>ALSO</option></term>
     <listitem>
-     <para>
-      <literal>ALSO</literal> indicates that the commands should be
+     <para><literal>ALSO</literal> indicates that the commands should be
       executed <emphasis>in addition to</emphasis> the original
       command.
      </para>

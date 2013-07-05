@@ -84,6 +84,10 @@
 #define COMPARE_LOCATION_FIELD(fldname) \
 	((void) 0)
 
+/* Compare a CoercionForm field (also a no-op, per comment in primnodes.h) */
+#define COMPARE_COERCIONFORM_FIELD(fldname) \
+	((void) 0)
+
 
 /*
  *	Stuff from primnodes.h
@@ -240,16 +244,7 @@ _equalFuncExpr(const FuncExpr *a, const FuncExpr *b)
 	COMPARE_SCALAR_FIELD(funcid);
 	COMPARE_SCALAR_FIELD(funcresulttype);
 	COMPARE_SCALAR_FIELD(funcretset);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->funcformat != b->funcformat &&
-		a->funcformat != COERCE_DONTCARE &&
-		b->funcformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(funcformat);
 	COMPARE_SCALAR_FIELD(funccollid);
 	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
@@ -453,16 +448,7 @@ _equalRelabelType(const RelabelType *a, const RelabelType *b)
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
 	COMPARE_SCALAR_FIELD(resultcollid);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->relabelformat != b->relabelformat &&
-		a->relabelformat != COERCE_DONTCARE &&
-		b->relabelformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(relabelformat);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -474,16 +460,7 @@ _equalCoerceViaIO(const CoerceViaIO *a, const CoerceViaIO *b)
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resultcollid);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->coerceformat != b->coerceformat &&
-		a->coerceformat != COERCE_DONTCARE &&
-		b->coerceformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(coerceformat);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -498,16 +475,7 @@ _equalArrayCoerceExpr(const ArrayCoerceExpr *a, const ArrayCoerceExpr *b)
 	COMPARE_SCALAR_FIELD(resulttypmod);
 	COMPARE_SCALAR_FIELD(resultcollid);
 	COMPARE_SCALAR_FIELD(isExplicit);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->coerceformat != b->coerceformat &&
-		a->coerceformat != COERCE_DONTCARE &&
-		b->coerceformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(coerceformat);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -518,16 +486,7 @@ _equalConvertRowtypeExpr(const ConvertRowtypeExpr *a, const ConvertRowtypeExpr *
 {
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_SCALAR_FIELD(resulttype);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->convertformat != b->convertformat &&
-		a->convertformat != COERCE_DONTCARE &&
-		b->convertformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(convertformat);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -594,16 +553,7 @@ _equalRowExpr(const RowExpr *a, const RowExpr *b)
 {
 	COMPARE_NODE_FIELD(args);
 	COMPARE_SCALAR_FIELD(row_typeid);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->row_format != b->row_format &&
-		a->row_format != COERCE_DONTCARE &&
-		b->row_format != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(row_format);
 	COMPARE_NODE_FIELD(colnames);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -689,16 +639,7 @@ _equalCoerceToDomain(const CoerceToDomain *a, const CoerceToDomain *b)
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
 	COMPARE_SCALAR_FIELD(resultcollid);
-
-	/*
-	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
-	 * that are equal() to both explicit and implicit coercions.
-	 */
-	if (a->coercionformat != b->coercionformat &&
-		a->coercionformat != COERCE_DONTCARE &&
-		b->coercionformat != COERCE_DONTCARE)
-		return false;
-
+	COMPARE_COERCIONFORM_FIELD(coercionformat);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -1263,6 +1204,7 @@ _equalIndexStmt(const IndexStmt *a, const IndexStmt *b)
 	COMPARE_NODE_FIELD(options);
 	COMPARE_NODE_FIELD(whereClause);
 	COMPARE_NODE_FIELD(excludeOpNames);
+	COMPARE_STRING_FIELD(idxcomment);
 	COMPARE_SCALAR_FIELD(indexOid);
 	COMPARE_SCALAR_FIELD(oldNode);
 	COMPARE_SCALAR_FIELD(unique);

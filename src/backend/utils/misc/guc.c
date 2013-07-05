@@ -1594,7 +1594,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_S
 		},
 		&XLogArchiveTimeout,
-		0, 0, INT_MAX,
+		0, 0, INT_MAX / 2,
 		NULL, NULL, NULL
 	},
 	{
@@ -1604,7 +1604,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_NOT_IN_SAMPLE | GUC_UNIT_S
 		},
 		&PostAuthDelay,
-		0, 0, INT_MAX,
+		0, 0, INT_MAX / 1000000,
 		NULL, NULL, NULL
 	},
 	{
@@ -1850,7 +1850,7 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		{"temp_file_limit", PGC_SUSET, RESOURCES_DISK,
-			gettext_noop("Limits the total size of all temp files used by each session."),
+			gettext_noop("Limits the total size of all temporary files used by each session."),
 			gettext_noop("-1 means no limit."),
 			GUC_UNIT_KB
 		},
@@ -2268,7 +2268,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_MIN
 		},
 		&Log_RotationAge,
-		HOURS_PER_DAY * MINS_PER_HOUR, 0, INT_MAX / MINS_PER_HOUR,
+		HOURS_PER_DAY * MINS_PER_HOUR, 0, INT_MAX / SECS_PER_MINUTE,
 		NULL, NULL, NULL
 	},
 
@@ -3039,7 +3039,7 @@ static struct config_string ConfigureNamesString[] =
 
 	{
 		{"event_source", PGC_POSTMASTER, LOGGING_WHERE,
-			gettext_noop("Sets the application name used to identify"
+			gettext_noop("Sets the application name used to identify "
 						 "PostgreSQL messages in the event log."),
 			NULL
 		},
@@ -3582,6 +3582,9 @@ guc_malloc(int elevel, size_t size)
 {
 	void	   *data;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
 	data = malloc(size);
 	if (data == NULL)
 		ereport(elevel,
@@ -3595,6 +3598,9 @@ guc_realloc(int elevel, void *old, size_t size)
 {
 	void	   *data;
 
+	/* Avoid unportable behavior of realloc(NULL, 0) */
+	if (old == NULL && size == 0)
+		size = 1;
 	data = realloc(old, size);
 	if (data == NULL)
 		ereport(elevel,

@@ -10,18 +10,15 @@ PostgreSQL documentation
   <refmiscinfo>Application</refmiscinfo>
  </refmeta>
 
-<!## PG>
  <refnamediv>
   <refname>postgres</refname>
+<!## PG>
   <refpurpose><productname>PostgreSQL</productname> database server</refpurpose>
- </refnamediv>
 <!## end>
 <!## XC>
- <refnamediv>
-  <refname>postgres</refname>
   <refpurpose><productname>Postgres-XC</productname> database server</refpurpose>
- </refnamediv>
 <!## end>
+ </refnamediv>
 
  <indexterm zone="app-postgres">
   <primary>postgres</primary>
@@ -38,7 +35,6 @@ PostgreSQL documentation
   <title>Description</title>
 
 &common;
-
   <para>
    <command>postgres</command> is the
 <!## PG>
@@ -98,7 +94,7 @@ PostgreSQL documentation
 
  <refsect1 id="app-postgres-options">
   <title>Options</title>
-&common;
+
    <para>
     <command>postgres</command> accepts the following command-line
     arguments.  For a detailed discussion of the options consult <xref
@@ -115,7 +111,6 @@ PostgreSQL documentation
    <refsect2>
     <title>General Purpose</title>
 
-&common;
     <variablelist>
      <varlistentry>
       <term><option>-A 0|1</option></term>
@@ -147,18 +142,6 @@ PostgreSQL documentation
       </listitem>
      </varlistentry>
 
-<!## XC>
-     <varlistentry>
-      <term><option>--coordinator</option></term>
-      <listitem>
-&xconly;
-       <para>
-        Specifies postgres server should run as a Coordinator.
-       </para>
-      </listitem>
-     </varlistentry>
-<!## end>
-
      <varlistentry>
       <term><option>-c <replaceable>name</replaceable>=<replaceable>value</replaceable></option></term>
       <listitem>
@@ -174,6 +157,27 @@ PostgreSQL documentation
         other command line options are in fact short forms of such a
         parameter assignment.  <option>-c</> can appear multiple times
         to set multiple parameters.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>-C <replaceable>name</replaceable></option></term>
+      <listitem>
+       <para>
+        Prints the value of the named run-time parameter, and exits.
+        (See the <option>-c</> option above for details.)  This can
+        be used on a running server, and returns values from
+        <filename>postgresql.conf</>, modified by any parameters
+        supplied in this invocation.  It does not reflect parameters
+        supplied when the cluster was started.
+       </para>
+
+       <para>
+        This option is meant for other programs that interact with a server
+        instance, such as <xref linkend="app-pg-ctl">, to query configuration
+        parameter values.  User-facing applications should instead use <xref
+        linkend="sql-show"> or the <structname>pg_settings</structname> view.
        </para>
       </listitem>
      </varlistentry>
@@ -367,17 +371,15 @@ PostgreSQL documentation
       </listitem>
      </varlistentry>
 
-<!## XC>
      <varlistentry>
-      <term><option>--datanode</option></term>
+      <term><option>-V</></term>
+      <term><option>--version</></term>
       <listitem>
-&xconly;
        <para>
-        Specifies postgres server should run as a Datanode.
+        Print the <application>postgres</application> version and exit.
        </para>
       </listitem>
      </varlistentry>
-<!## end>
 
      <varlistentry>
       <term><option>--<replaceable>name</replaceable>=<replaceable>value</replaceable></option></term>
@@ -399,12 +401,45 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
+
+<!## XC>
+     <varlistentry>
+      <term><option>--coordinator</option></term>
+      <listitem>
+&xconly;
+       <para>
+        Specifies postgres server should run as a Coordinator.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--datanode</option></term>
+      <listitem>
+&xconly;
+       <para>
+        Specifies postgres server should run as a Datanode.
+       </para>
+      </listitem>
+     </varlistentry>
+<!## end>
+
+     <varlistentry>
+      <term><option>-?</></term>
+      <term><option>--help</></term>
+      <listitem>
+       <para>
+        Show help about <application>postgres</application> command line
+        arguments, and exit.
+       </para>
+      </listitem>
+     </varlistentry>
     </variablelist>
    </refsect2>
 
    <refsect2>
     <title>Semi-internal Options</title>
-&common;
+
     <para>
      The options described here are used
      mainly for debugging purposes, and in some cases to assist with
@@ -422,12 +457,15 @@ PostgreSQL documentation
 
     <variablelist>
      <varlistentry>
-      <term><option>-f</option> <literal>{ s | i | m | n | h }</literal></term>
+      <term><option>-f</option> <literal>{ s | i | o | b | t | n | m | h }</literal></term>
       <listitem>
        <para>
         Forbids the use of particular scan and join methods:
         <literal>s</literal> and <literal>i</literal>
-        disable sequential and index scans respectively, while
+        disable sequential and index scans respectively,
+        <literal>o</literal>, <literal>b</literal> and <literal>t</literal>
+        disable index-only scans, bitmap index scans, and TID scans
+        respectively, while
         <literal>n</literal>, <literal>m</literal>, and <literal>h</literal>
         disable nested-loop, merge and hash joins respectively.
        </para>
@@ -614,7 +652,7 @@ PostgreSQL documentation
 
  <refsect1>
   <title>Environment</title>
-&common;
+
   <variablelist>
    <varlistentry>
     <term><envar>PGCLIENTENCODING</envar></term>
@@ -674,7 +712,7 @@ PostgreSQL documentation
 
  <refsect1>
    <title>Diagnostics</title>
-&common;
+
    <para>
     A failure message mentioning <literal>semget</> or
     <literal>shmget</> probably indicates you need to configure your
@@ -730,7 +768,7 @@ PostgreSQL documentation
 
  <refsect1>
   <title>Notes</title>
-&common;
+
   <para>
    The utility command <xref linkend="app-pg-ctl"> can be used to
    start and shut down the <command>postgres</command> server
@@ -781,22 +819,25 @@ PostgreSQL documentation
   </para>
  </refsect1>
 
-<!## PG>
  <refsect1 id="app-postgres-bugs">
   <title>Bugs</title>
   <para>
    The <option>--</> options will not work on <systemitem
    class="osname">FreeBSD</> or <systemitem class="osname">OpenBSD</>.
    Use <option>-c</> instead. This is a bug in the affected operating
+<!## PG>
    systems; a future release of <productname>PostgreSQL</productname>
+<!## end>
+<!## XC>
+   systems; a future release of <productname>Postgres-XC</productname>
+<!## end>
    will provide a workaround if this is not fixed.
   </para>
  </refsect1>
-<!## end>
 
  <refsect1>
   <title>Usage</title>
-&common;
+
    <para>
     To start a single-user mode server, use a command like
 <screen>
@@ -832,7 +873,7 @@ PostgreSQL documentation
 
    <para>
     Note that the single-user mode server does not provide sophisticated
-    line-editing features (no command history, for example). 
+    line-editing features (no command history, for example).
     Single-User mode also does not do any background processing, like
     automatic checkpoints.
 
@@ -842,26 +883,13 @@ PostgreSQL documentation
  <refsect1 id="app-postgres-examples">
   <title>Examples</title>
 
-&xconly;
   <para>
-<!## PG>
    To start <command>postgres</command> in the background
-<!## end>
-<!## XC>
-   To start <command>postgres</command> as a Datanode in the background
-<!## end>
    using default values, type:
 
-<!## PG>
 <screen>
 <prompt>$</prompt> <userinput>nohup postgres &gt;logfile 2&gt;&amp;1 &lt;/dev/null &amp;</userinput>
 </screen>
-<!## end>
-<!## XC>
-<screen>
-<prompt>$</prompt> <userinput>nohup postgres --datanode &gt;logfile 2&gt;&amp;1 &lt;/dev/null &amp;</userinput>
-</screen>
-<!## end>
   </para>
 
   <para>
@@ -869,7 +897,7 @@ PostgreSQL documentation
    To start <command>postgres</command> with a specific
 <!## end>
 <!## XC>
-   To start <command>postgres</command> as a Coordinator with a specific
+   To start <command>postgres</command> with as a Coordinator a specific
 <!## end>
    port, e.g. 1234:
 <!## PG>

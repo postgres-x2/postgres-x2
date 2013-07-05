@@ -25,6 +25,7 @@
 #include "catalog/pg_conversion.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_default_acl.h"
+#include "catalog/pg_extension.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_language.h"
@@ -41,6 +42,7 @@
 #include "commands/collationcmds.h"
 #include "commands/conversioncmds.h"
 #include "commands/defrem.h"
+#include "commands/extension.h"
 #include "commands/proclang.h"
 #include "commands/schemacmds.h"
 #include "commands/tablecmds.h"
@@ -1212,8 +1214,12 @@ shdepDropOwned(List *roleids, DropBehavior behavior)
 			Form_pg_shdepend sdepForm = (Form_pg_shdepend) GETSTRUCT(tuple);
 			ObjectAddress obj;
 
-			/* We only operate on objects in the current database */
-			if (sdepForm->dbid != MyDatabaseId)
+			/*
+			 * We only operate on shared objects and objects in the current
+			 * database
+			 */
+			if (sdepForm->dbid != MyDatabaseId &&
+				sdepForm->dbid != InvalidOid)
 				continue;
 
 			switch (sdepForm->deptype)
@@ -1229,11 +1235,14 @@ shdepDropOwned(List *roleids, DropBehavior behavior)
 											sdepForm->objid);
 					break;
 				case SHARED_DEPENDENCY_OWNER:
-					/* Save it for deletion below */
-					obj.classId = sdepForm->classid;
-					obj.objectId = sdepForm->objid;
-					obj.objectSubId = sdepForm->objsubid;
-					add_exact_object_address(&obj, deleteobjs);
+					/* If a local object, save it for deletion below */
+					if (sdepForm->dbid == MyDatabaseId)
+					{
+						obj.classId = sdepForm->classid;
+						obj.objectId = sdepForm->objid;
+						obj.objectSubId = sdepForm->objsubid;
+						add_exact_object_address(&obj, deleteobjs);
+					}
 					break;
 			}
 		}
@@ -1390,6 +1399,10 @@ shdepReassignOwned(List *roleids, Oid newrole)
 
 				case ForeignDataWrapperRelationId:
 					AlterForeignDataWrapperOwner_oid(sdepForm->objid, newrole);
+					break;
+
+				case ExtensionRelationId:
+					AlterExtensionOwner_oid(sdepForm->objid, newrole);
 					break;
 
 				default:

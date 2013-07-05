@@ -51,7 +51,7 @@ ifndef XSLTPROC
 XSLTPROC = xsltproc
 endif
 
-VERSION = 1.1devel
+VERSION = 1.1beta
 
 override XSLTPROCFLAGS += --stringparam pg.version '$(VERSION)'
 

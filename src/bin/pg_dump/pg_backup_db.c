@@ -23,6 +23,7 @@
 
 #define DB_MAX_ERR_STMT 128
 
+/* translator: this is a module name */
 static const char *modulename = gettext_noop("archiver (db)");
 
 static void _check_database_version(ArchiveHandle *AH);
@@ -300,7 +301,8 @@ ConnectDatabase(Archive *AHX,
 	/* check to see that the backend connection was successfully made */
 	if (PQstatus(AH->connection) == CONNECTION_BAD)
 		exit_horribly(modulename, "connection to database \"%s\" failed: %s",
-					  PQdb(AH->connection), PQerrorMessage(AH->connection));
+					  PQdb(AH->connection) ? PQdb(AH->connection) : "",
+					  PQerrorMessage(AH->connection));
 
 	/* check for version mismatch */
 	_check_database_version(AH);

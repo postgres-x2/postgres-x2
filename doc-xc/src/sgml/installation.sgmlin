@@ -167,12 +167,12 @@ su - postgres
      <para>
       You need an <acronym>ISO</>/<acronym>ANSI</> C compiler (at least
       C89-compliant). Recent
-      versions of <productname>GCC</> are recommendable, but
+      versions of <productname>GCC</> are recommended, but
 <!## PG>
       <productname>PostgreSQL</> is known to build using a wide variety
 <!## end>
 <!## XC>
-      <productname>Postgres-XC</> is known to build using a wide variety
+      <productname>Postgre-XC</> is known to build using a wide variety
 <!## end>
       of compilers from different vendors.
      </para>
@@ -3180,7 +3180,7 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
      </biblioentry>
 
      <biblioentry>
-       <title><ulink url="  http://www.redbooks.ibm.com/abstracts/sg245674.html?Open">Developing and Porting C and C++ Applications on AIX</ulink></title>
+       <title><ulink url="http://www.redbooks.ibm.com/abstracts/sg245674.html?Open">Developing and Porting C and C++ Applications on AIX</ulink></title>
        <publisher>
         <publishername>IBM Redbook</publishername>
        </publisher>
@@ -3691,15 +3691,6 @@ MANPATH=/usr/lib/scohelp/%L/man:/usr/dt/man:/usr/man:/usr/share/man:scohelp:/usr
     PostgreSQL is well-supported on Solaris.  The more up to date your
     operating system, the fewer issues you will experience; details
     below.
-   </para>
-
-   <para>
-    Note that PostgreSQL is bundled with Solaris 10 (from update 2).
-    Official packages are also available on
-    <ulink url="http://pgfoundry.org/projects/solarispackages/"></ulink>.
-    Packages for older Solaris versions (8, 9) you can be obtained
-    from <ulink url="http://www.sunfreeware.com/"></ulink> or
-    <ulink url="http://www.blastwave.org/"></ulink>.
    </para>
 
    <sect3>

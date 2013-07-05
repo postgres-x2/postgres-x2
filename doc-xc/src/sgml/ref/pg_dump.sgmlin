@@ -27,7 +27,7 @@ PostgreSQL documentation
    <command>pg_dump</command>
    <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
    <arg rep="repeat"><replaceable>option</replaceable></arg>
-   <arg><replaceable>dbname</replaceable></arg>
+   <arg choice="opt"><replaceable>dbname</replaceable></arg>
   </cmdsynopsis>
  </refsynopsisdiv>
 
@@ -36,8 +36,6 @@ PostgreSQL documentation
   <title>
    Description
   </title>
-
-&pgnotice;
 
   <para>
    <application>pg_dump</application> is a utility for backing up a
@@ -115,12 +113,12 @@ PostgreSQL documentation
       <listitem>
        <para>
         Dump only the data, not the schema (data definitions).
+        Table data, large objects, and sequence values are dumped.
        </para>
 
        <para>
-        This option is only meaningful for the plain-text format.  For
-        the archive formats, you can specify the option when you
-        call <command>pg_restore</command>.
+        This option is similar to, but for historical reasons not identical
+        to, specifying <option>--section=data</>.
        </para>
       </listitem>
      </varlistentry>
@@ -145,7 +143,8 @@ PostgreSQL documentation
        <para>
         Output commands to clean (drop)
         database objects prior to outputting the commands for creating them.
-        (Restore might generate some harmless errors.)
+        (Restore might generate some harmless error messages, if any objects
+        were not present in the destination database.)
        </para>
 
        <para>
@@ -163,8 +162,10 @@ PostgreSQL documentation
        <para>
         Begin the output with a command to create the
         database itself and reconnect to the created database.  (With a
-        script of this form, it doesn't matter which database you connect
-        to before running the script.)
+        script of this form, it doesn't matter which database in the
+        destination installation you connect to before running the script.)
+        If <option>--clean</option> is also specified, the script drops and
+        recreates the target database before reconnecting to it.
        </para>
 
        <para>
@@ -270,10 +271,7 @@ PostgreSQL documentation
           </para>
          </listitem>
         </varlistentry>
-
-       </variablelist>
-       </para>
-
+       </variablelist></para>
       </listitem>
      </varlistentry>
 
@@ -408,6 +406,20 @@ PostgreSQL documentation
       <listitem>
        <para>
         Dump only the object definitions (schema), not data.
+       </para>
+       <para>
+        This option is the inverse of <option>--data-only</>.
+        It is similar to, but for historical reasons not identical to,
+        specifying
+        <option>--section=pre-data --section=post-data</>.
+       </para>
+       <para>
+        (Do not confuse this with the <option>--schema</> option, which
+        uses the word <quote>schema</> in a different meaning.)
+       </para>
+       <para>
+        To exclude table data for only a subset of tables in the database,
+        see <option>--exclude-table-data</>.
        </para>
       </listitem>
      </varlistentry>
@@ -617,6 +629,24 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>--exclude-table-data=<replaceable class="parameter">table</replaceable></option></term>
+      <listitem>
+       <para>
+        Do not dump data for any tables matching the <replaceable
+        class="parameter">table</replaceable> pattern. The pattern is
+        interpreted according to the same rules as for <option>-t</>.
+        <option>--exclude-table-data</> can be given more than once to
+        exclude tables matching any of several patterns. This option is
+        useful when you need the definition of a particular table even
+        though you do not need the data in it.
+       </para>
+       <para>
+        To exclude data for all tables in the database, see <option>--schema-only</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><option>--inserts</option></term>
       <listitem>
        <para>
@@ -683,7 +713,8 @@ PostgreSQL documentation
        <para>
         Do not dump the contents of unlogged tables.  This option has no
         effect on whether or not the table definitions (schema) are dumped;
-        it only suppresses dumping the table data.
+        it only suppresses dumping the table data. Data in unlogged tables
+        is always excluded when dumping from a standby server.
        </para>
       </listitem>
      </varlistentry>
@@ -697,6 +728,25 @@ PostgreSQL documentation
         additional keywords.
        </para>
       </listitem>
+     </varlistentry>
+
+     <varlistentry>
+       <term><option>--section=<replaceable class="parameter">sectionname</replaceable></option></term>
+       <listitem>
+         <para>
+          Only dump the named section. The section name can be
+          <option>pre-data</>, <option>data</>, or <option>post-data</>.
+          This option can be specified more than once to select multiple
+          sections. The default is to dump all sections.
+         </para>
+         <para>
+          The data section contains actual table data, large-object
+          contents, and sequence values.
+          Post-data items include definitions of indexes, triggers, rules,
+          and constraints other than validated check constraints.
+          Pre-data items include all other data definition items.
+         </para>
+       </listitem>
      </varlistentry>
 
      <varlistentry>
@@ -745,6 +795,17 @@ PostgreSQL documentation
         properly.  Also, a dump using <command>SET SESSION AUTHORIZATION</>
         will certainly require superuser privileges to restore correctly,
         whereas <command>ALTER OWNER</> requires lesser privileges.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--dump-nodes</></term>
+      <listitem>
+       <para>
+        &xconly;
+        Output commands to create nodes and node groups. This option may be used
+		 while adding a new coordinator to an existing <productname>Postgres-XC</> cluster.
        </para>
       </listitem>
      </varlistentry>
@@ -856,19 +917,6 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
-
-     <varlistentry>
-      <term><option>--include-nodes</></term>
-      <listitem>
-       <para>
-        &xconly;
-        Include <command>TO NODE</> clause in the <command>CREATE TABLE</>
-        command when producing the dump. When used while taking the dump
-        from a datanode, the option does nothing.
-       </para>
-      </listitem>
-     </varlistentry>
-
     </variablelist>
    </para>
  </refsect1>
@@ -1090,8 +1138,7 @@ CREATE DATABASE foo WITH TEMPLATE template0;
 
 <screen>
 <prompt>$</prompt> <userinput>pg_dump -t '"MixedCaseName"' mydb &gt; mytab.sql</userinput>
-</screen>
-  </para>
+</screen></para>
 
  </refsect1>
 

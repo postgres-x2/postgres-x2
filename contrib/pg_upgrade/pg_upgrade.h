@@ -63,7 +63,11 @@ extern char *output_files[];
 #define SERVER_STOP_LOG_FILE	SERVER_LOG_FILE
 #else
 #define SERVER_START_LOG_FILE	"pg_upgrade_server_start.log"
-/* pg_ctl stop doesn't keep the log file open, so reuse UTILITY_LOG_FILE */
+/*
+ *	"pg_ctl start" keeps SERVER_START_LOG_FILE and SERVER_LOG_FILE open
+ *	while the server is running, so we use UTILITY_LOG_FILE for "pg_ctl
+ *	stop".
+ */
 #define SERVER_STOP_LOG_FILE	UTILITY_LOG_FILE
 #endif
 
@@ -72,20 +76,24 @@ extern char *output_files[];
 #define pg_copy_file		copy_file
 #define pg_mv_file			rename
 #define pg_link_file		link
+#define PATH_SEPARATOR      '/'
 #define RM_CMD				"rm -f"
 #define RMDIR_CMD			"rm -rf"
 #define SCRIPT_EXT			"sh"
 #define ECHO_QUOTE	"'"
+#define ECHO_BLANK  ""
 #else
 #define pg_copy_file		CopyFile
 #define pg_mv_file			pgrename
 #define pg_link_file		win32_pghardlink
 #define sleep(x)			Sleep(x * 1000)
+#define PATH_SEPARATOR      '\\'
 #define RM_CMD				"DEL /q"
 #define RMDIR_CMD			"RMDIR /s/q"
 #define SCRIPT_EXT			"bat"
 #define EXE_EXT				".exe"
 #define ECHO_QUOTE	""
+#define ECHO_BLANK  "."
 #endif
 
 #define CLUSTER_NAME(cluster)	((cluster) == &old_cluster ? "old" : \
@@ -227,6 +235,7 @@ typedef struct
 	char	   *bindir;			/* pathname for cluster's executable directory */
 	char	   *pgopts;			/* options to pass to the server, like pg_ctl
 								 * -o */
+	char	   *sockdir;		/* directory for Unix Domain socket, if any */
 	unsigned short port;		/* port number where postmaster is waiting */
 	uint32		major_version;	/* PG_VERSION of cluster */
 	char		major_version_str[64];	/* string PG_VERSION of cluster */
@@ -284,7 +293,6 @@ extern UserOpts user_opts;
 extern ClusterInfo old_cluster,
 			new_cluster;
 extern OSInfo os_info;
-extern char scandir_file_pattern[];
 
 
 /* check.c */
@@ -318,9 +326,10 @@ void		split_old_dump(void);
 
 /* exec.c */
 
-int
-exec_prog(bool throw_error, bool is_priv,
-		  const char *log_file, const char *cmd,...)
+#define EXEC_PSQL_ARGS "--echo-queries --set ON_ERROR_STOP=on --no-psqlrc --dbname=template1"
+bool
+exec_prog(const char *log_file, const char *opt_log_file,
+		  bool throw_error, const char *fmt,...)
 __attribute__((format(PG_PRINTF_ATTRIBUTE, 4, 5)));
 void		verify_directories(void);
 bool		is_server_running(const char *datadir);
@@ -358,7 +367,7 @@ const char *setupPageConverter(pageCnvCtx **result);
 typedef void *pageCnvCtx;
 #endif
 
-int			load_directory(const char *dirname, struct dirent *** namelist);
+int			load_directory(const char *dirname, char ***namelist);
 const char *copyAndUpdateFile(pageCnvCtx *pageConverter, const char *src,
 				  const char *dst, bool force);
 const char *linkAndUpdateFile(pageCnvCtx *pageConverter, const char *src,
@@ -388,6 +397,7 @@ void print_maps(FileNameMap *maps, int n,
 
 void		parseCommandLine(int argc, char *argv[]);
 void		adjust_data_dir(ClusterInfo *cluster);
+void		get_sock_dir(ClusterInfo *cluster, bool live_check);
 
 /* relfilenode.c */
 
@@ -407,6 +417,8 @@ PGconn	   *connectToServer(ClusterInfo *cluster, const char *db_name);
 PGresult *
 executeQueryOrDie(PGconn *conn, const char *fmt,...)
 __attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
+
+char	   *cluster_conn_opts(ClusterInfo *cluster);
 
 void		start_postmaster(ClusterInfo *cluster);
 void		stop_postmaster(bool fast);
@@ -430,7 +442,8 @@ prep_status(const char *fmt,...)
 __attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 void		check_ok(void);
 char	   *pg_strdup(const char *s);
-void	   *pg_malloc(int size);
+void	   *pg_malloc(size_t size);
+void	   *pg_realloc(void *ptr, size_t size);
 void		pg_free(void *ptr);
 const char *getErrorText(int errNum);
 unsigned int str2uint(const char *str);

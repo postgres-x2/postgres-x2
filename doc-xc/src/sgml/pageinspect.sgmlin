@@ -7,8 +7,6 @@
   <primary>pageinspect</primary>
  </indexterm>
 
-&common;
-
  <para>
   The <filename>pageinspect</> module provides functions that allow you to
   inspect the contents of database pages at a low level, which is useful for
@@ -29,7 +27,7 @@
 
  <sect2>
   <title>Functions</title>
-&common;
+
   <variablelist>
    <varlistentry>
     <term>

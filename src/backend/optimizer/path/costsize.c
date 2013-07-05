@@ -2981,6 +2981,13 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 	 * to expect that the current ordering of the clauses is the one that's
 	 * going to end up being used.	The above per-RestrictInfo caching would
 	 * not mix well with trying to re-order clauses anyway.
+	 *
+	 * Another issue that is entirely ignored here is that if a set-returning
+	 * function is below top level in the tree, the functions/operators above
+	 * it will need to be evaluated multiple times.  In practical use, such
+	 * cases arise so seldom as to not be worth the added complexity needed;
+	 * moreover, since our rowcount estimates for functions tend to be pretty
+	 * phony, the results would also be pretty phony.
 	 */
 	if (IsA(node, FuncExpr))
 	{
@@ -3717,6 +3724,15 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 			continue;
 
 		/*
+		 * The subquery could be an expansion of a view that's had columns
+		 * added to it since the current query was parsed, so that there are
+		 * non-junk tlist columns in it that don't correspond to any column
+		 * visible at our query level.  Ignore such columns.
+		 */
+		if (te->resno < rel->min_attr || te->resno > rel->max_attr)
+			continue;
+
+		/*
 		 * XXX This currently doesn't work for subqueries containing set
 		 * operations, because the Vars in their tlists are bogus references
 		 * to the first leaf subquery, which wouldn't give the right answer
@@ -3737,7 +3753,6 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 
 			item_width = subrel->attr_widths[var->varattno - subrel->min_attr];
 		}
-		Assert(te->resno >= rel->min_attr && te->resno <= rel->max_attr);
 		rel->attr_widths[te->resno - rel->min_attr] = item_width;
 	}
 
@@ -3765,7 +3780,7 @@ set_function_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	Assert(rte->rtekind == RTE_FUNCTION);
 
 	/* Estimate number of rows the function itself will return */
-	rel->tuples = clamp_row_est(expression_returns_set_rows(rte->funcexpr));
+	rel->tuples = expression_returns_set_rows(rte->funcexpr);
 
 	/* Now estimate number of output rows, etc */
 	set_baserel_size_estimates(root, rel);

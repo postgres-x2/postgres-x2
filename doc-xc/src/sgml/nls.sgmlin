@@ -13,24 +13,22 @@
  <sect1 id="nls-translator">
   <title>For the Translator</title>
 
-&common;
-  <para>
-<!## PG>
-   <productname>PostgreSQL</>
-<!## end>
 <!## XC>
-   <productname>Postgres-XC</>
+&xconly;
+ <para>
+  <productname>Postgres-XC</productname> inherits most of the high availability feature from
+  <productname>PostgreSQL</productname>.
+  In this chapter, please read PostgreSQL as Postgres-XC if not described explicitly.
+ </para>
 <!## end>
+
+  <para>
+   <productname>PostgreSQL</>
    programs (server and client) can issue their messages in
    your favorite language &mdash; if the messages have been translated.
    Creating and maintaining translated message sets needs the help of
    people who speak their own language well and want to contribute to
-<!## PG>
    the <productname>PostgreSQL</> effort.  You do not have to be a
-<!## end>
-<!## XC>
-   the <productname>Postgres-XC</> effort.  You do not have to be a
-<!## end>
    programmer at all
    to do this.  This section explains how to help.
   </para>
@@ -38,7 +36,6 @@
   <sect2>
    <title>Requirements</title>
 
-&common;
    <para>
     We won't judge your language skills &mdash; this section is about
     software tools.  Theoretically, you only need a text editor.  But
@@ -72,7 +69,6 @@
   <sect2>
    <title>Concepts</title>
 
-&common;
    <para>
     The pairs of original (English) messages and their (possibly)
     translated equivalents are kept in <firstterm>message
@@ -153,7 +149,6 @@ msgstr "another translated"
   <sect2>
    <title>Creating and Maintaining Message Catalogs</title>
 
-&common;
    <para>
     OK, so how does one create a <quote>blank</quote> message
     catalog?  First, go into the directory that contains the program
@@ -174,7 +169,7 @@ msgstr "another translated"
     can also be named
     <filename><replaceable>language</replaceable>_<replaceable>region</replaceable>.po</filename>
     where <replaceable>region</replaceable> is the
-    <ulink url="http://www.iso.org/iso/english_country_names_and_code_elements">
+    <ulink url="http://www.iso.org/iso/country_names_and_code_elements">
     ISO 3166-1 two-letter country code (in upper case)</ulink>,
     e.g.,
     <filename>pt_BR.po</filename> for Portuguese in Brazil.  If you
@@ -222,7 +217,6 @@ gmake update-po
   <sect2>
    <title>Editing the PO Files</title>
 
-&common;
    <para>
     The PO files can be edited with a regular text editor.  The
     translator should only change the area between the quotes after
@@ -320,16 +314,10 @@ msgstr "Die Datei %2$s hat %1$u Zeichen."
   <sect2 id="nls-mechanics">
    <title>Mechanics</title>
 
-&common;
   <para>
    This section describes how to implement native language support in a
    program or library that is part of the
-<!## PG>
    <productname>PostgreSQL</> distribution.
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</> distribution.
-<!## end>
    Currently, it only applies to C programs.
   </para>
 
@@ -463,7 +451,6 @@ fprintf(stderr, gettext("panic level %d\n"), lvl);
   <sect2 id="nls-guidelines">
    <title>Message-writing Guidelines</title>
 
-&common;
   <para>
    Here are some guidelines for writing messages that are easily
    translatable.

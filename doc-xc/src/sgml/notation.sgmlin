@@ -2,7 +2,7 @@
 
 <sect1 id="notation">
  <title>Conventions</title>
-&common;
+
  <para>
   This book uses the following typographical conventions to mark
   certain portions of text: new terms, foreign phrases, and other
@@ -26,27 +26,9 @@
   feature.  To specify following sections or paragraphs are common to
   both, the following notice will be used.
  </para>
+<!## end>
 
 &common;
-
- <para>
-  To specify the following sections or paragraphs are specific
-  to <productname>Postgres-XC</productname>, the following notice will
-  be used.
- </para>
-
-&xconly;
-
- <para>
-  If some <productname>PostgreSQL</productname> features are missing
-  or it is not applicable to <productname>Postgres-XC</productname>
-  but important to understand the backgrounds, it will be noticed as
-  follows:
- </para>
-
-&pgonly;
-
-<!## end>
 
  <para>
   The following conventions are used in the synopsis of a command:

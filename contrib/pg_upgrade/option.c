@@ -9,6 +9,8 @@
 
 #include "postgres.h"
 
+#include "miscadmin.h"
+
 #include "pg_upgrade.h"
 
 #include <getopt_long.h>
@@ -21,7 +23,7 @@
 
 
 static void usage(void);
-static void check_required_directory(char **dirpath,
+static void check_required_directory(char **dirpath, char **configpath,
 				   char *envVarName, char *cmdLineOption, char *description);
 
 
@@ -203,14 +205,14 @@ parseCommandLine(int argc, char *argv[])
 	}
 
 	/* Get values from env if not already set */
-	check_required_directory(&old_cluster.bindir, "PGBINOLD", "-b",
+	check_required_directory(&old_cluster.bindir, NULL, "PGBINOLD", "-b",
 							 "old cluster binaries reside");
-	check_required_directory(&new_cluster.bindir, "PGBINNEW", "-B",
+	check_required_directory(&new_cluster.bindir, NULL, "PGBINNEW", "-B",
 							 "new cluster binaries reside");
-	check_required_directory(&old_cluster.pgdata, "PGDATAOLD", "-d",
-							 "old cluster data resides");
-	check_required_directory(&new_cluster.pgdata, "PGDATANEW", "-D",
-							 "new cluster data resides");
+	check_required_directory(&old_cluster.pgdata, &old_cluster.pgconfig,
+							 "PGDATAOLD", "-d", "old cluster data resides");
+	check_required_directory(&new_cluster.pgdata, &new_cluster.pgconfig,
+							 "PGDATANEW", "-D", "new cluster data resides");
 }
 
 
@@ -236,7 +238,7 @@ Options:\n\
   -u, --user=NAME               cluster superuser (default \"%s\")\n\
   -v, --verbose                 enable verbose internal logging\n\
   -V, --version                 display version information, then exit\n\
-  -h, --help                    show this help, then exit\n\
+  -?, -h, --help                show this help, then exit\n\
 \n\
 Before running pg_upgrade you must:\n\
   create a new database cluster (using the new version of initdb)\n\
@@ -276,6 +278,7 @@ or\n"), old_cluster.port, new_cluster.port, os_info.user);
  *
  * Checks a directory option.
  *	dirpath		  - the directory name supplied on the command line
+ *	configpath	  - optional configuration directory
  *	envVarName	  - the name of an environment variable to get if dirpath is NULL
  *	cmdLineOption - the command line option corresponds to this directory (-o, -O, -n, -N)
  *	description   - a description of this directory option
@@ -284,15 +287,20 @@ or\n"), old_cluster.port, new_cluster.port, os_info.user);
  * user hasn't provided the required directory name.
  */
 static void
-check_required_directory(char **dirpath, char *envVarName,
-						 char *cmdLineOption, char *description)
+check_required_directory(char **dirpath, char **configpath,
+						 char *envVarName, char *cmdLineOption,
+						 char *description)
 {
 	if (*dirpath == NULL || strlen(*dirpath) == 0)
 	{
 		const char *envVar;
 
 		if ((envVar = getenv(envVarName)) && strlen(envVar))
+		{
 			*dirpath = pg_strdup(envVar);
+			if (configpath)
+				*configpath = pg_strdup(envVar);
+		}
 		else
 			pg_log(PG_FATAL, "You must identify the directory where the %s.\n"
 				   "Please use the %s command-line option or the %s environment variable.\n",
@@ -300,7 +308,8 @@ check_required_directory(char **dirpath, char *envVarName,
 	}
 
 	/*
-	 * Trim off any trailing path separators
+	 * Trim off any trailing path separators because we construct paths
+	 * by appending to this path.
 	 */
 #ifndef WIN32
 	if ((*dirpath)[strlen(*dirpath) - 1] == '/')
@@ -368,4 +377,81 @@ adjust_data_dir(ClusterInfo *cluster)
 	cluster->pgdata = pg_strdup(cmd_output);
 
 	check_ok();
+}
+
+
+/*
+ * get_sock_dir
+ *
+ * Identify the socket directory to use for this cluster.  If we're doing
+ * a live check (old cluster only), we need to find out where the postmaster
+ * is listening.  Otherwise, we're going to put the socket into the current
+ * directory.
+ */
+void
+get_sock_dir(ClusterInfo *cluster, bool live_check)
+{
+#ifdef HAVE_UNIX_SOCKETS
+	/*
+	 *	sockdir and port were added to postmaster.pid in PG 9.1.
+	 *	Pre-9.1 cannot process pg_ctl -w for sockets in non-default
+	 *	locations.
+	 */
+	if (GET_MAJOR_VERSION(cluster->major_version) >= 901)
+	{
+		if (!live_check)
+		{
+			/* Use the current directory for the socket */
+			cluster->sockdir = pg_malloc(MAXPGPATH);
+			if (!getcwd(cluster->sockdir, MAXPGPATH))
+				pg_log(PG_FATAL, "cannot find current directory\n");
+		}
+		else
+		{
+			/*
+			 *	If we are doing a live check, we will use the old cluster's Unix
+			 *	domain socket directory so we can connect to the live server.
+			 */
+			unsigned short orig_port = cluster->port;
+			char		filename[MAXPGPATH], line[MAXPGPATH];
+			FILE		*fp;
+			int			lineno;
+	
+			snprintf(filename, sizeof(filename), "%s/postmaster.pid",
+					 cluster->pgdata);
+			if ((fp = fopen(filename, "r")) == NULL)
+				pg_log(PG_FATAL, "Cannot open file %s: %m\n", filename);
+	
+			for (lineno = 1;
+				 lineno <= Max(LOCK_FILE_LINE_PORT, LOCK_FILE_LINE_SOCKET_DIR);
+				 lineno++)
+			{
+				if (fgets(line, sizeof(line), fp) == NULL)
+					pg_log(PG_FATAL, "Cannot read line %d from %s: %m\n", lineno, filename);
+	
+				/* potentially overwrite user-supplied value */
+				if (lineno == LOCK_FILE_LINE_PORT)
+					sscanf(line, "%hu", &old_cluster.port);
+				if (lineno == LOCK_FILE_LINE_SOCKET_DIR)
+				{
+					cluster->sockdir = pg_malloc(MAXPGPATH);
+					/* strip off newline */
+					sscanf(line, "%s\n", cluster->sockdir);
+				}
+			}
+			fclose(fp);
+	
+			/* warn of port number correction */
+			if (orig_port != DEF_PGUPORT && old_cluster.port != orig_port)
+				pg_log(PG_WARNING, "User-supplied old port number %hu corrected to %hu\n",
+				orig_port, cluster->port);
+		}
+	}
+	else
+		/* Can't get sockdir and pg_ctl -w can't use a non-default, use default */
+		cluster->sockdir = NULL;
+
+#else /* !HAVE_UNIX_SOCKETS */
+	cluster->sockdir = NULL;
+#endif
 }

@@ -30,7 +30,7 @@
 
 
 static EquivalenceMember *add_eq_member(EquivalenceClass *ec,
-			  Expr *expr, Relids relids,
+			  Expr *expr, Relids relids, Relids nullable_relids,
 			  bool is_child, Oid datatype);
 static void generate_base_implied_equalities_const(PlannerInfo *root,
 									   EquivalenceClass *ec);
@@ -106,7 +106,9 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 	Expr	   *item1;
 	Expr	   *item2;
 	Relids		item1_relids,
-				item2_relids;
+				item2_relids,
+				item1_nullable_relids,
+				item2_nullable_relids;
 	List	   *opfamilies;
 	EquivalenceClass *ec1,
 			   *ec2;
@@ -162,6 +164,12 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 			contain_nonstrict_functions((Node *) item2))
 			return false;		/* RHS is non-strict but not constant */
 	}
+
+	/* Calculate nullable-relid sets for each side of the clause */
+	item1_nullable_relids = bms_intersect(item1_relids,
+										  restrictinfo->nullable_relids);
+	item2_nullable_relids = bms_intersect(item2_relids,
+										  restrictinfo->nullable_relids);
 
 	/*
 	 * We use the declared input types of the operator, not exprType() of the
@@ -309,7 +317,8 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 	else if (ec1)
 	{
 		/* Case 3: add item2 to ec1 */
-		em2 = add_eq_member(ec1, item2, item2_relids, false, item2_type);
+		em2 = add_eq_member(ec1, item2, item2_relids, item2_nullable_relids,
+							false, item2_type);
 		ec1->ec_sources = lappend(ec1->ec_sources, restrictinfo);
 		ec1->ec_below_outer_join |= below_outer_join;
 		/* mark the RI as associated with this eclass */
@@ -322,7 +331,8 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 	else if (ec2)
 	{
 		/* Case 3: add item1 to ec2 */
-		em1 = add_eq_member(ec2, item1, item1_relids, false, item1_type);
+		em1 = add_eq_member(ec2, item1, item1_relids, item1_nullable_relids,
+							false, item1_type);
 		ec2->ec_sources = lappend(ec2->ec_sources, restrictinfo);
 		ec2->ec_below_outer_join |= below_outer_join;
 		/* mark the RI as associated with this eclass */
@@ -349,8 +359,10 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 		ec->ec_broken = false;
 		ec->ec_sortref = 0;
 		ec->ec_merged = NULL;
-		em1 = add_eq_member(ec, item1, item1_relids, false, item1_type);
-		em2 = add_eq_member(ec, item2, item2_relids, false, item2_type);
+		em1 = add_eq_member(ec, item1, item1_relids, item1_nullable_relids,
+							false, item1_type);
+		em2 = add_eq_member(ec, item2, item2_relids, item2_nullable_relids,
+							false, item2_type);
 
 		root->eq_classes = lappend(root->eq_classes, ec);
 
@@ -448,12 +460,13 @@ canonicalize_ec_expression(Expr *expr, Oid req_type, Oid req_collation)
  */
 static EquivalenceMember *
 add_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
-			  bool is_child, Oid datatype)
+			  Relids nullable_relids, bool is_child, Oid datatype)
 {
 	EquivalenceMember *em = makeNode(EquivalenceMember);
 
 	em->em_expr = expr;
 	em->em_relids = relids;
+	em->em_nullable_relids = nullable_relids;
 	em->em_is_const = false;
 	em->em_is_child = is_child;
 	em->em_datatype = datatype;
@@ -609,7 +622,7 @@ get_eclass_for_sort_expr(PlannerInfo *root,
 		elog(ERROR, "volatile EquivalenceClass has no sortref");
 
 	newem = add_eq_member(newec, copyObject(expr), pull_varnos((Node *) expr),
-						  false, opcintype);
+						  NULL, false, opcintype);
 
 	/*
 	 * add_eq_member doesn't check for volatile functions, set-returning
@@ -756,7 +769,12 @@ generate_base_implied_equalities_const(PlannerInfo *root,
 		}
 	}
 
-	/* Find the constant member to use */
+	/*
+	 * Find the constant member to use.  We prefer an actual constant to
+	 * pseudo-constants (such as Params), because the constraint exclusion
+	 * machinery might be able to exclude relations on the basis of generated
+	 * "var = const" equalities, but "var = param" won't work for that.
+	 */
 	foreach(lc, ec->ec_members)
 	{
 		EquivalenceMember *cur_em = (EquivalenceMember *) lfirst(lc);
@@ -764,7 +782,8 @@ generate_base_implied_equalities_const(PlannerInfo *root,
 		if (cur_em->em_is_const)
 		{
 			const_em = cur_em;
-			break;
+			if (IsA(cur_em->em_expr, Const))
+				break;
 		}
 	}
 	Assert(const_em != NULL);
@@ -789,7 +808,9 @@ generate_base_implied_equalities_const(PlannerInfo *root,
 		}
 		process_implied_equality(root, eq_op, ec->ec_collation,
 								 cur_em->em_expr, const_em->em_expr,
-								 ec->ec_relids,
+								 bms_copy(ec->ec_relids),
+								 bms_union(cur_em->em_nullable_relids,
+										   const_em->em_nullable_relids),
 								 ec->ec_below_outer_join,
 								 cur_em->em_is_const);
 	}
@@ -844,7 +865,9 @@ generate_base_implied_equalities_no_const(PlannerInfo *root,
 			}
 			process_implied_equality(root, eq_op, ec->ec_collation,
 									 prev_em->em_expr, cur_em->em_expr,
-									 ec->ec_relids,
+									 bms_copy(ec->ec_relids),
+									 bms_union(prev_em->em_nullable_relids,
+											   cur_em->em_nullable_relids),
 									 ec->ec_below_outer_join,
 									 false);
 		}
@@ -1312,7 +1335,9 @@ create_join_clause(PlannerInfo *root,
 										leftem->em_expr,
 										rightem->em_expr,
 										bms_union(leftem->em_relids,
-												  rightem->em_relids));
+												  rightem->em_relids),
+										bms_union(leftem->em_nullable_relids,
+											   rightem->em_nullable_relids));
 
 	/* Mark the clause as redundant, or not */
 	rinfo->parent_ec = parent_ec;
@@ -1534,7 +1559,8 @@ reconsider_outer_join_clause(PlannerInfo *root, RestrictInfo *rinfo,
 				left_type,
 				right_type,
 				inner_datatype;
-	Relids		inner_relids;
+	Relids		inner_relids,
+				inner_nullable_relids;
 	ListCell   *lc1;
 
 	Assert(is_opclause(rinfo->clause));
@@ -1561,6 +1587,8 @@ reconsider_outer_join_clause(PlannerInfo *root, RestrictInfo *rinfo,
 		inner_datatype = left_type;
 		inner_relids = rinfo->left_relids;
 	}
+	inner_nullable_relids = bms_intersect(inner_relids,
+										  rinfo->nullable_relids);
 
 	/* Scan EquivalenceClasses for a match to outervar */
 	foreach(lc1, root->eq_classes)
@@ -1619,7 +1647,8 @@ reconsider_outer_join_clause(PlannerInfo *root, RestrictInfo *rinfo,
 												   cur_ec->ec_collation,
 												   innervar,
 												   cur_em->em_expr,
-												   inner_relids);
+												   bms_copy(inner_relids),
+											bms_copy(inner_nullable_relids));
 			if (process_equivalence(root, newrinfo, true))
 				match = true;
 		}
@@ -1653,7 +1682,9 @@ reconsider_full_join_clause(PlannerInfo *root, RestrictInfo *rinfo)
 				left_type,
 				right_type;
 	Relids		left_relids,
-				right_relids;
+				right_relids,
+				left_nullable_relids,
+				right_nullable_relids;
 	ListCell   *lc1;
 
 	/* Can't use an outerjoin_delayed clause here */
@@ -1669,6 +1700,10 @@ reconsider_full_join_clause(PlannerInfo *root, RestrictInfo *rinfo)
 	rightvar = (Expr *) get_rightop(rinfo->clause);
 	left_relids = rinfo->left_relids;
 	right_relids = rinfo->right_relids;
+	left_nullable_relids = bms_intersect(left_relids,
+										 rinfo->nullable_relids);
+	right_nullable_relids = bms_intersect(right_relids,
+										  rinfo->nullable_relids);
 
 	foreach(lc1, root->eq_classes)
 	{
@@ -1754,7 +1789,8 @@ reconsider_full_join_clause(PlannerInfo *root, RestrictInfo *rinfo)
 													   cur_ec->ec_collation,
 													   leftvar,
 													   cur_em->em_expr,
-													   left_relids);
+													   bms_copy(left_relids),
+											 bms_copy(left_nullable_relids));
 				if (process_equivalence(root, newrinfo, true))
 					matchleft = true;
 			}
@@ -1767,7 +1803,8 @@ reconsider_full_join_clause(PlannerInfo *root, RestrictInfo *rinfo)
 													   cur_ec->ec_collation,
 													   rightvar,
 													   cur_em->em_expr,
-													   right_relids);
+													   bms_copy(right_relids),
+											bms_copy(right_nullable_relids));
 				if (process_equivalence(root, newrinfo, true))
 					matchright = true;
 			}
@@ -1894,6 +1931,7 @@ add_child_rel_equivalences(PlannerInfo *root,
 				/* Yes, generate transformed child version */
 				Expr	   *child_expr;
 				Relids		new_relids;
+				Relids		new_nullable_relids;
 
 				child_expr = (Expr *)
 					adjust_appendrel_attrs(root,
@@ -1910,7 +1948,21 @@ add_child_rel_equivalences(PlannerInfo *root,
 											parent_rel->relids);
 				new_relids = bms_add_members(new_relids, child_rel->relids);
 
-				(void) add_eq_member(cur_ec, child_expr, new_relids,
+				/*
+				 * And likewise for nullable_relids.  Note this code assumes
+				 * parent and child relids are singletons.
+				 */
+				new_nullable_relids = cur_em->em_nullable_relids;
+				if (bms_overlap(new_nullable_relids, parent_rel->relids))
+				{
+					new_nullable_relids = bms_difference(new_nullable_relids,
+														 parent_rel->relids);
+					new_nullable_relids = bms_add_members(new_nullable_relids,
+														  child_rel->relids);
+				}
+
+				(void) add_eq_member(cur_ec, child_expr,
+									 new_relids, new_nullable_relids,
 									 true, cur_em->em_datatype);
 			}
 		}
@@ -1921,12 +1973,12 @@ add_child_rel_equivalences(PlannerInfo *root,
 /*
  * mutate_eclass_expressions
  *	  Apply an expression tree mutator to all expressions stored in
- *	  equivalence classes.
+ *	  equivalence classes (but ignore child exprs unless include_child_exprs).
  *
  * This is a bit of a hack ... it's currently needed only by planagg.c,
  * which needs to do a global search-and-replace of MIN/MAX Aggrefs
  * after eclasses are already set up.  Without changing the eclasses too,
- * subsequent matching of ORDER BY clauses would fail.
+ * subsequent matching of ORDER BY and DISTINCT clauses would fail.
  *
  * Note that we assume the mutation won't affect relation membership or any
  * other properties we keep track of (which is a bit bogus, but by the time
@@ -1936,7 +1988,8 @@ add_child_rel_equivalences(PlannerInfo *root,
 void
 mutate_eclass_expressions(PlannerInfo *root,
 						  Node *(*mutator) (),
-						  void *context)
+						  void *context,
+						  bool include_child_exprs)
 {
 	ListCell   *lc1;
 
@@ -1948,6 +2001,9 @@ mutate_eclass_expressions(PlannerInfo *root,
 		foreach(lc2, cur_ec->ec_members)
 		{
 			EquivalenceMember *cur_em = (EquivalenceMember *) lfirst(lc2);
+
+			if (cur_em->em_is_child && !include_child_exprs)
+				continue;		/* ignore children unless requested */
 
 			cur_em->em_expr = (Expr *)
 				mutator((Node *) cur_em->em_expr, context);

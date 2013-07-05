@@ -29,6 +29,7 @@ CREATE SERVER <replaceable class="parameter">server_name</replaceable> [ TYPE '<
 
  <refsect1>
   <title>Description</title>
+
 <!## XC>
 &xconly;
   <para>
@@ -38,8 +39,6 @@ CREATE SERVER <replaceable class="parameter">server_name</replaceable> [ TYPE '<
   </para>
 <!## end>
 <!## PG>
-&pgonly;
-
   <para>
    <command>CREATE SERVER</command> defines a new foreign server.  The
    user who defines the server becomes its owner.
@@ -146,10 +145,7 @@ CREATE SERVER foo FOREIGN DATA WRAPPER "default";
    foreign-data wrapper <literal>pgsql</>:
 <programlisting>
 CREATE SERVER myserver FOREIGN DATA WRAPPER pgsql OPTIONS (host 'foo', dbname 'foodb', port '5432');
-</programlisting>
-  </para>
-
-<!## end>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -169,6 +165,7 @@ CREATE SERVER myserver FOREIGN DATA WRAPPER pgsql OPTIONS (host 'foo', dbname 'f
    <member><xref linkend="sql-createforeigndatawrapper"></member>
    <member><xref linkend="sql-createusermapping"></member>
   </simplelist>
+<!## end>
  </refsect1>
 
 </refentry>

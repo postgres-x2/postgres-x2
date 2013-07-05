@@ -3,8 +3,6 @@
  <chapter id="sql-intro">
   <title>SQL</title>
 
-&common;
-
   <abstract>
    <para>
     This chapter introduces the mathematical concepts behind
@@ -103,7 +101,7 @@
 
   <sect1 id="rel-model">
    <title>The Relational Data Model</title>
-&common;
+
   <para>
     As mentioned before, <acronym>SQL</acronym> is a relational
     language. That means it is
@@ -192,7 +190,7 @@ PART:                         4  |  3
 
   <sect1 id="relmodel-formal">
    <title id="formal-notion">Relational Data Model Formalities</title>
-&common;
+
    <para>
     The mathematical concept underlying the relational model is the
     set-theoretic <firstterm>relation</firstterm> which is a subset of
@@ -341,7 +339,7 @@ attributes are taken from. We often write a relation scheme as
 
    <sect2>
     <title id="domains">Domains vs. Data Types</title>
-&common;
+
     <para>
      We often talked about <firstterm>domains</firstterm>
      in the last section. Recall that a
@@ -373,7 +371,7 @@ attributes are taken from. We often write a relation scheme as
 
   <sect1 id="relmodel-oper">
    <title id="operations">Operations in the Relational Data Model</title>
-&common;
+
    <para>
     In the previous section
     (<xref linkend="formal-notion" endterm="formal-notion">)
@@ -408,7 +406,7 @@ attributes are taken from. We often write a relation scheme as
 
    <sect2>
     <title id="rel-alg">Relational Algebra</title>
-&common;
+
     <para>
      The <firstterm>Relational Algebra</firstterm> was introduced by
      E. F. Codd in 1972. It consists of a set of operations on relations:
@@ -684,7 +682,7 @@ R:                    S:
 
    <sect2 id="rel-calc">
     <title>Relational Calculus</title>
-&common;
+
     <para>
      The relational calculus is based on the
      <firstterm>first order logic</firstterm>. There are
@@ -721,7 +719,7 @@ R:                    S:
 
    <sect2>
     <title>Tuple Relational Calculus</title>
-&common;
+
     <para>
      The queries used in <acronym>TRC</acronym> are of the following
      form:
@@ -760,7 +758,7 @@ x(A) &mid; F(x)
 
    <sect2 id="alg-vs-calc">
     <title>Relational Algebra vs. Relational Calculus</title>
-&common;
+
     <para>
      The relational algebra and the relational calculus have the same
      <firstterm>expressive power</firstterm>; i.e., all queries that
@@ -789,7 +787,7 @@ x(A) &mid; F(x)
 
   <sect1 id="sql-language">
    <title>The <acronym>SQL</acronym> Language</title>
-&common;
+
    <para>
     As is the case with most modern relational languages,
     <acronym>SQL</acronym> is based on the tuple
@@ -847,14 +845,13 @@ A &lt; B + 3.
 
    <sect2 id="select">
     <title id="select-title">Select</title>
-&common;
+
     <para>
      The most often used command in <acronym>SQL</acronym> is the
      <command>SELECT</command> statement,
      used to retrieve data. The syntax is:
 
 <!## PG>
-<!-- NO INTO -->
 <synopsis>
 SELECT [ ALL | DISTINCT [ ON ( <replaceable class="PARAMETER">expression</replaceable> [, ...] ) ] ]
     * | <replaceable class="PARAMETER">expression</replaceable> [ [ AS ] <replaceable class="PARAMETER">output_name</replaceable> ] [, ...]
@@ -883,7 +880,8 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="PARAMETER">expression</replac
     [ LIMIT { <replaceable class="PARAMETER">count</replaceable> | ALL } ]
     [ OFFSET <replaceable class="PARAMETER">start</replaceable> ]
     [ FOR { UPDATE | SHARE } [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT ] [...] ]
-<!## end>
++ <!## end>
+
     </para>
 
     <para>
@@ -895,7 +893,7 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="PARAMETER">expression</replac
 
     <sect3>
      <title>Simple Selects</title>
-&common;
+
      <para>
       Here are some simple examples using a <command>SELECT</command> statement:
 
@@ -1001,7 +999,7 @@ SELECT PNAME, PRICE * 2 AS DOUBLE
 
     <sect3>
      <title>Joins</title>
-&common;
+
      <para id="simple-join">
       The following example shows how <firstterm>joins</firstterm> are
       realized in <acronym>SQL</acronym>.
@@ -1122,7 +1120,7 @@ SELECT sname, pname from supplier
             <arg choice="opt"> NATURAL </arg>
             <group choice="opt">
                 <arg choice="opt"> INNER </arg>
-                <arg>
+                <arg choice="plain">
                 <group choice="req">
                     <arg choice="plain"> LEFT </arg>
                     <arg choice="plain"> RIGHT </arg>
@@ -1134,8 +1132,8 @@ SELECT sname, pname from supplier
             <command> JOIN </command>
             <arg choice="req"> <replaceable class="parameter">T2</replaceable> </arg>
             <group choice="req">
-                <arg> ON <replaceable>search condition</replaceable></arg>
-                <arg> USING ( <replaceable>join column list</replaceable> ) </arg>
+                <arg choice="plain"> ON <replaceable>search condition</replaceable></arg>
+                <arg choice="plain"> USING ( <replaceable>join column list</replaceable> ) </arg>
             </group>
             </cmdsynopsis>
 
@@ -1160,7 +1158,7 @@ SELECT sname, pname from supplier
             <varlistentry>
                 <term>
                     <cmdsynopsis>
-                        <arg> INNER </arg>
+                        <arg choice="opt"> INNER </arg>
                         <command> JOIN </command>
                     </cmdsynopsis>
                 </term>
@@ -1182,7 +1180,7 @@ SELECT sname, pname from supplier
                 <term>
                     <cmdsynopsis>
                         <arg choice="plain"> LEFT </arg>
-                        <arg> OUTER </arg>
+                        <arg choice="opt"> OUTER </arg>
                         <command> JOIN </command>
                     </cmdsynopsis>
                 </term>
@@ -1204,7 +1202,7 @@ SELECT sname, pname from supplier
                 <term>
                     <cmdsynopsis>
                         <arg choice="plain"> RIGHT </arg>
-                        <arg> OUTER </arg>
+                        <arg choice="opt"> OUTER </arg>
                         <command> JOIN </command>
                     </cmdsynopsis>
                 </term>
@@ -1226,7 +1224,7 @@ SELECT sname, pname from supplier
                 <term>
                     <cmdsynopsis>
                         <arg choice="plain"> FULL </arg>
-                        <arg> OUTER </arg>
+                        <arg choice="opt"> OUTER </arg>
                         <command> JOIN </command>
                     </cmdsynopsis>
                 </term>
@@ -1267,7 +1265,7 @@ SELECT sname, pname from supplier
 
     <sect3>
      <title id="aggregates-tutorial">Aggregate Functions</title>
-&common;
+
      <para>
       <acronym>SQL</acronym> provides aggregate functions such as AVG,
       COUNT, SUM, MIN, and MAX.  The argument(s) of an aggregate function
@@ -1326,7 +1324,7 @@ SELECT COUNT(PNO)
 
     <sect3>
      <title>Aggregation by Groups</title>
-&common;
+
      <para>
       <acronym>SQL</acronym> allows one to partition the tuples of a table
       into groups. Then the
@@ -1441,7 +1439,7 @@ SELECT S.SNO, S.SNAME, COUNT(SE.PNO)
 
     <sect3>
      <title>Having</title>
-&common;
+
      <para>
       The HAVING clause works much like the WHERE clause and is used to
       consider only those groups satisfying the qualification given in the
@@ -1486,14 +1484,6 @@ SELECT S.SNO, S.SNAME, COUNT(SE.PNO)
     <sect3>
      <title>Subqueries</title>
 
-&xconly;
-<!## XC>
-     <para>
-      Subqueries in <productname>Postgres-XC</> have restrictions.
-      You may be warned if some of them cannot be handled.
-     </para>
-<!## end>
-&common;
      <para>
       In the WHERE and HAVING clauses the use of subqueries (subselects) is
       allowed in every place where a value is expected. In this case the
@@ -1570,7 +1560,7 @@ SELECT *
 
     <sect3>
      <title>Subqueries in FROM</title>
-&common;
+
      <para>
       A somewhat different way of using subqueries is to put them in the
       FROM clause.  This is a useful feature because a subquery of this
@@ -1604,7 +1594,7 @@ SELECT MAX(subtable.avgprice)
 
     <sect3>
      <title>Union, Intersect, Except</title>
-&common;
+
      <para>
       These operations calculate the union, intersection and set theoretic
       difference of the tuples derived by two subqueries.
@@ -1688,7 +1678,7 @@ EXCEPT
 
    <sect2 id="datadef">
     <title>Data Definition</title>
-&common;
+
     <para>
      There is a set of commands used for data definition included in the
      <acronym>SQL</acronym> language.
@@ -1696,7 +1686,7 @@ EXCEPT
 
     <sect3 id="create">
      <title id="create-title">Create Table</title>
-&common;
+
      <para>
       The most fundamental command for data definition is the
       one that creates a new relation (a new table). The syntax of the
@@ -1743,7 +1733,7 @@ CREATE TABLE SELLS
 
     <sect3>
      <title>Data Types in <acronym>SQL</acronym></title>
-&common;
+
      <para>
       The following is a list of some data types that are supported by
       <acronym>SQL</acronym>:
@@ -1802,7 +1792,7 @@ CREATE TABLE SELLS
 
     <sect3>
      <title>Create Index</title>
-&common;
+
      <para>
       Indexes are used to speed up access to a relation. If a relation <classname>R</classname>
       has an index on attribute <classname>A</classname> then we can
@@ -1850,7 +1840,7 @@ CREATE INDEX I ON SUPPLIER (SNAME);
 
     <sect3>
      <title>Create View</title>
-&common;
+
      <para>
       A view can be regarded as a <firstterm>virtual table</firstterm>,
       i.e., a table that
@@ -1944,7 +1934,7 @@ SELECT * FROM London_Suppliers
 
     <sect3>
      <title>Drop Table, Drop Index, Drop View</title>
-&common;
+
      <para>
       To destroy a table (including all tuples stored in that table) the
       <command>DROP TABLE</command> command is used:
@@ -1983,10 +1973,10 @@ DROP VIEW <replaceable class="parameter">view_name</replaceable>;
 
    <sect2>
     <title>Data Manipulation</title>
-&common;
+
     <sect3>
      <title>Insert Into</title>
-&common;
+
      <para>
       Once a table is created (see
       <xref linkend="create-title" endterm="create-title">), it can be filled
@@ -2023,7 +2013,7 @@ INSERT INTO SELLS (SNO, PNO)
 
     <sect3>
      <title>Update</title>
-&common;
+
      <para>
       To change one or more attribute values of tuples in a relation the
       <command>UPDATE</command> command is used. The syntax is:
@@ -2055,7 +2045,7 @@ UPDATE PART
 
     <sect3>
      <title>Delete</title>
-&common;
+
      <para>
       To delete a tuple from a particular table use the command DELETE
       FROM. The syntax is:
@@ -2080,7 +2070,7 @@ DELETE FROM SUPPLIER
 
    <sect2 id="tutorial-catalogs">
     <title id="tutorial-catalogs-title">System Catalogs</title>
-&common;
+
     <para>
      In every <acronym>SQL</acronym> database system
      <firstterm>system catalogs</firstterm> are used to keep
@@ -2106,7 +2096,7 @@ DELETE FROM SUPPLIER
 
    <sect2>
     <title>Embedded <acronym>SQL</acronym></title>
-&common;
+
     <para>
      In this section we will sketch how <acronym>SQL</acronym> can be
      embedded into a host language (e.g., <literal>C</literal>).

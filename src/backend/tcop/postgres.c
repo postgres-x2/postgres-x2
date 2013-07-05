@@ -1057,6 +1057,10 @@ exec_simple_query(const char *query_string)
 
 		plantree_list = pg_plan_queries(querytree_list, 0, NULL);
 
+		/* Done with the snapshot used for parsing/planning */
+		if (snapshot_set)
+			PopActiveSnapshot();
+
 		/* If we got a cancel signal in analysis or planning, quit */
 		CHECK_FOR_INTERRUPTS();
 
@@ -1088,19 +1092,9 @@ exec_simple_query(const char *query_string)
 						  NULL);
 
 		/*
-		 * Start the portal.
-		 *
-		 * If we took a snapshot for parsing/planning, the portal may be able
-		 * to reuse it for the execution phase.  Currently, this will only
-		 * happen in PORTAL_ONE_SELECT mode.  But even if PortalStart doesn't
-		 * end up being able to do this, keeping the parse/plan snapshot
-		 * around until after we start the portal doesn't cost much.
+		 * Start the portal.  No parameters here.
 		 */
-		PortalStart(portal, NULL, 0, snapshot_set);
-
-		/* Done with the snapshot used for parsing/planning */
-		if (snapshot_set)
-			PopActiveSnapshot();
+		PortalStart(portal, NULL, 0, InvalidSnapshot);
 
 		/*
 		 * Select the appropriate output format: text unless we are doing a
@@ -1865,18 +1859,14 @@ exec_bind_message(StringInfo input_message)
 					  cplan->stmt_list,
 					  cplan);
 
-	/*
-	 * And we're ready to start portal execution.
-	 *
-	 * If we took a snapshot for parsing/planning, we'll try to reuse it for
-	 * query execution (currently, reuse will only occur if PORTAL_ONE_SELECT
-	 * mode is chosen).
-	 */
-	PortalStart(portal, params, 0, snapshot_set);
-
 	/* Done with the snapshot used for parameter I/O and parsing/planning */
 	if (snapshot_set)
 		PopActiveSnapshot();
+
+	/*
+	 * And we're ready to start portal execution.
+	 */
+	PortalStart(portal, params, 0, InvalidSnapshot);
 
 	/*
 	 * Apply the result format requests to the portal.
@@ -3373,13 +3363,14 @@ get_stats_option_name(const char *arg)
  * coming from the client, or PGC_SUSET for insecure options coming from
  * a superuser client.
  *
- * Returns the database name extracted from the command line, if any.
+ * If a database name is present in the command line arguments, it's
+ * returned into *dbname (this is allowed only if *dbname is initially NULL).
  * ----------------------------------------------------------------
  */
-const char *
-process_postgres_switches(int argc, char *argv[], GucContext ctx)
+void
+process_postgres_switches(int argc, char *argv[], GucContext ctx,
+						  const char **dbname)
 {
-	const char *dbname;
 	bool		secure = (ctx == PGC_POSTMASTER);
 	int			errs = 0;
 	GucSource	gucsource;
@@ -3436,7 +3427,8 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 
 			case 'b':
 				/* Undocumented flag used for binary upgrades */
-				IsBinaryUpgrade = true;
+				if (secure)
+					IsBinaryUpgrade = true;
 				break;
 
 			case 'C':
@@ -3453,7 +3445,8 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 				break;
 
 			case 'E':
-				EchoQuery = true;
+				if (secure)
+					EchoQuery = true;
 				break;
 
 			case 'e':
@@ -3478,7 +3471,8 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 				break;
 
 			case 'j':
-				UseNewLine = 0;
+				if (secure)
+					UseNewLine = 0;
 				break;
 
 			case 'k':
@@ -3638,13 +3632,10 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 #endif
 
 	/*
-	 * Should be no more arguments except an optional database name, and
-	 * that's only in the secure case.
+	 * Optional database name should be there only if *dbname is NULL.
 	 */
-	if (!errs && secure && argc - optind >= 1)
-		dbname = strdup(argv[optind++]);
-	else
-		dbname = NULL;
+	if (!errs && dbname && *dbname == NULL && argc - optind >= 1)
+		*dbname = strdup(argv[optind++]);
 
 	if (errs || argc != optind)
 	{
@@ -3673,8 +3664,6 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 #ifdef HAVE_INT_OPTRESET
 	optreset = 1;				/* some systems need this too */
 #endif
-
-	return dbname;
 }
 
 
@@ -3684,14 +3673,16 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
  *
  * argc/argv are the command line arguments to be used.  (When being forked
  * by the postmaster, these are not the original argv array of the process.)
- * username is the (possibly authenticated) PostgreSQL user name to be used
- * for the session.
+ * dbname is the name of the database to connect to, or NULL if the database
+ * name should be extracted from the command line arguments or defaulted.
+ * username is the PostgreSQL user name to be used for the session.
  * ----------------------------------------------------------------
  */
 int
-PostgresMain(int argc, char *argv[], const char *username)
+PostgresMain(int argc, char *argv[],
+			 const char *dbname,
+			 const char *username)
 {
-	const char *dbname;
 	int			firstchar;
 	StringInfoData input_message;
 	sigjmp_buf	local_sigjmp_buf;
@@ -3751,7 +3742,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 	/*
 	 * Parse command-line options.
 	 */
-	dbname = process_postgres_switches(argc, argv, PGC_POSTMASTER);
+	process_postgres_switches(argc, argv, PGC_POSTMASTER, &dbname);
 
 	/* Must have gotten a database name, or have a default (the username) */
 	if (dbname == NULL)

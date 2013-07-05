@@ -94,11 +94,11 @@ usage(void)
 	printf(_("  -l, --list               list available databases, then exit\n"));
 	printf(_("  -v, --set=, --variable=NAME=VALUE\n"
 			 "                           set psql variable NAME to VALUE\n"));
+	printf(_("  -V, --version            output version information, then exit\n"));
 	printf(_("  -X, --no-psqlrc          do not read startup file (~/.psqlrc)\n"));
 	printf(_("  -1 (\"one\"), --single-transaction\n"
 			 "                           execute command file as a single transaction\n"));
-	printf(_("  --help                   show this help, then exit\n"));
-	printf(_("  --version                output version information, then exit\n"));
+	printf(_("  -?, --help               show this help, then exit\n"));
 
 	printf(_("\nInput and output options:\n"));
 	printf(_("  -a, --echo-all           echo all input from script\n"));
@@ -161,6 +161,11 @@ void
 slashUsage(unsigned short int pager)
 {
 	FILE	   *output;
+	char	   *currdb;
+
+	currdb = PQdb(pset.db);
+	if (currdb == NULL)
+		currdb = "";
 
 	output = PageOutput(94, pager);
 
@@ -253,7 +258,7 @@ slashUsage(unsigned short int pager)
 	fprintf(output, _("Connection\n"));
 	fprintf(output, _("  \\c[onnect] [DBNAME|- USER|- HOST|- PORT|-]\n"
 	"                         connect to new database (currently \"%s\")\n"),
-			PQdb(pset.db));
+			currdb);
 	fprintf(output, _("  \\encoding [ENCODING]   show or set client encoding\n"));
 	fprintf(output, _("  \\password [USERNAME]   securely change the password for a user\n"));
 	fprintf(output, _("  \\conninfo              display information about current connection\n"));
@@ -435,7 +440,7 @@ print_copyright(void)
 	puts(
 		 "PostgreSQL Database Management System\n"
 		 "(formerly known as Postgres, then as Postgres95)\n\n"
-		 "Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group\n\n"
+		 "Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group\n\n"
 		 "Portions Copyright (c) 1994, The Regents of the University of California\n\n"
 	"Permission to use, copy, modify, and distribute this software and its\n"
 		 "documentation for any purpose, without fee, and without a written agreement\n"

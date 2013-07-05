@@ -335,6 +335,9 @@ xmalloc(size_t size)
 {
 	void	   *result;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
 	result = malloc(size);
 	if (!result)
 	{
@@ -349,6 +352,9 @@ xrealloc(void *ptr, size_t size)
 {
 	void	   *result;
 
+	/* Avoid unportable behavior of realloc(NULL, 0) */
+	if (ptr == NULL && size == 0)
+		size = 1;
 	result = realloc(ptr, size);
 	if (!result)
 	{
@@ -414,12 +420,12 @@ usage(const char *progname)
 		   "  -T NUM       duration of benchmark test in seconds\n"
 		   "  -v           vacuum all four standard tables before tests\n"
 		   "\nCommon options:\n"
-		   "  -d           print debugging output\n"
-		   "  -h HOSTNAME  database server host or socket directory\n"
-		   "  -p PORT      database server port number\n"
-		   "  -U USERNAME  connect as specified database user\n"
-		   "  --help       show this help, then exit\n"
-		   "  --version    output version information, then exit\n"
+		   "  -d             print debugging output\n"
+		   "  -h HOSTNAME    database server host or socket directory\n"
+		   "  -p PORT        database server port number\n"
+		   "  -U USERNAME    connect as specified database user\n"
+		   "  -V, --version  output version information, then exit\n"
+		   "  -?, --help     show this help, then exit\n"
 		   "\n"
 		   "Report bugs to <pgsql-bugs@postgresql.org>.\n",
 		   progname, progname);

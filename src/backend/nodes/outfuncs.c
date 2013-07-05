@@ -1727,7 +1727,6 @@ _outPlannerGlobal(StringInfo str, const PlannerGlobal *node)
 	WRITE_NODE_TYPE("PLANNERGLOBAL");
 
 	/* NB: this isn't a complete set of fields */
-	WRITE_NODE_FIELD(paramlist);
 	WRITE_NODE_FIELD(subplans);
 	WRITE_BITMAPSET_FIELD(rewindPlanIDs);
 	WRITE_NODE_FIELD(finalrtable);
@@ -1735,6 +1734,7 @@ _outPlannerGlobal(StringInfo str, const PlannerGlobal *node)
 	WRITE_NODE_FIELD(resultRelations);
 	WRITE_NODE_FIELD(relationOids);
 	WRITE_NODE_FIELD(invalItems);
+	WRITE_INT_FIELD(nParamExec);
 	WRITE_UINT_FIELD(lastPHId);
 	WRITE_UINT_FIELD(lastRowMarkId);
 	WRITE_BOOL_FIELD(transientPlan);
@@ -1749,6 +1749,7 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_NODE_FIELD(parse);
 	WRITE_NODE_FIELD(glob);
 	WRITE_UINT_FIELD(query_level);
+	WRITE_NODE_FIELD(plan_params);
 	WRITE_BITMAPSET_FIELD(all_baserels);
 	WRITE_NODE_FIELD(join_rel_list);
 	WRITE_INT_FIELD(join_cur_level);
@@ -1873,6 +1874,7 @@ _outEquivalenceMember(StringInfo str, const EquivalenceMember *node)
 
 	WRITE_NODE_FIELD(em_expr);
 	WRITE_BITMAPSET_FIELD(em_relids);
+	WRITE_BITMAPSET_FIELD(em_nullable_relids);
 	WRITE_BOOL_FIELD(em_is_const);
 	WRITE_BOOL_FIELD(em_is_child);
 	WRITE_OID_FIELD(em_datatype);
@@ -2001,7 +2003,7 @@ _outPlannerParamItem(StringInfo str, const PlannerParamItem *node)
 	WRITE_NODE_TYPE("PLANNERPARAMITEM");
 
 	WRITE_NODE_FIELD(item);
-	WRITE_UINT_FIELD(abslevel);
+	WRITE_INT_FIELD(paramId);
 }
 
 /*****************************************************************************
@@ -2059,6 +2061,7 @@ _outIndexStmt(StringInfo str, const IndexStmt *node)
 	WRITE_NODE_FIELD(options);
 	WRITE_NODE_FIELD(whereClause);
 	WRITE_NODE_FIELD(excludeOpNames);
+	WRITE_STRING_FIELD(idxcomment);
 	WRITE_OID_FIELD(indexOid);
 	WRITE_OID_FIELD(oldNode);
 	WRITE_BOOL_FIELD(unique);

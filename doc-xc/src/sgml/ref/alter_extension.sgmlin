@@ -23,10 +23,10 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> UPDATE [ TO <replaceable class="PARAMETER">new_version</replaceable> ]
-ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> SET SCHEMA <replaceable class="PARAMETER">new_schema</replaceable>
-ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> ADD <replaceable class="PARAMETER">member_object</replaceable>
-ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> DROP <replaceable class="PARAMETER">member_object</replaceable>
+ALTER EXTENSION <replaceable class="PARAMETER">name</replaceable> UPDATE [ TO <replaceable class="PARAMETER">new_version</replaceable> ]
+ALTER EXTENSION <replaceable class="PARAMETER">name</replaceable> SET SCHEMA <replaceable class="PARAMETER">new_schema</replaceable>
+ALTER EXTENSION <replaceable class="PARAMETER">name</replaceable> ADD <replaceable class="PARAMETER">member_object</replaceable>
+ALTER EXTENSION <replaceable class="PARAMETER">name</replaceable> DROP <replaceable class="PARAMETER">member_object</replaceable>
 
 <phrase>where <replaceable class="PARAMETER">member_object</replaceable> is:</phrase>
 
@@ -126,7 +126,7 @@ ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> DROP
   <para>
    <variablelist>
     <varlistentry>
-     <term><replaceable class="PARAMETER">extension_name</replaceable></term>
+     <term><replaceable class="PARAMETER">name</replaceable></term>
      <listitem>
       <para>
        The name of an installed extension.
@@ -242,6 +242,18 @@ ALTER EXTENSION <replaceable class="PARAMETER">extension_name</replaceable> DROP
     </varlistentry>
 
     <varlistentry>
+     <term><replaceable class="parameter">left_type</replaceable></term>
+     <term><replaceable class="parameter">right_type</replaceable></term>
+     <listitem>
+      <para>
+       The data type(s) of the operator's arguments (optionally
+       schema-qualified).  Write <literal>NONE</> for the missing argument
+       of a prefix or postfix operator.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
      <term><literal>PROCEDURAL</literal></term>
 
      <listitem>
@@ -276,7 +288,15 @@ ALTER EXTENSION hstore SET SCHEMA utils;
    To add an existing function to the <literal>hstore</literal> extension:
 <programlisting>
 ALTER EXTENSION hstore ADD FUNCTION populate_record(anyelement, hstore);
-</programlisting>
+</programlisting></para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+
+  <para>
+   <command>ALTER EXTENSION</command> is a <productname>PostgreSQL</>
+   extension.
   </para>
  </refsect1>
 

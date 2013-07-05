@@ -80,8 +80,8 @@
    directory in the <productname>Postgres-XC</productname> source
 <!## end>
    distribution.
-  </para>
 
+  </para>
 <!## XC>
 &xconly;
    <para>
@@ -90,6 +90,7 @@
     releases.
    </para>
 <!## end>
+
   </sect1>
 
   <sect1 id="xfunc-sql">
@@ -101,7 +102,6 @@
     <tertiary>in SQL</tertiary>
    </indexterm>
 
-&common;
    <para>
     SQL functions execute an arbitrary list of SQL statements, returning
     the result of the last query in the list.
@@ -175,14 +175,50 @@ SELECT clean_emp();
     the function (see <xref linkend="sql-syntax-strings">).
    </para>
 
-   <para>
-    Arguments to the SQL function are referenced in the function
-    body using the syntax <literal>$<replaceable>n</></>: <literal>$1</>
-    refers to the first argument, <literal>$2</> to the second, and so on.
-    If an argument is of a composite type, then the dot notation,
-    e.g., <literal>$1.name</literal>, can be used to access attributes
-    of the argument.  The arguments can only be used as data values,
-    not as identifiers.  Thus for example this is reasonable:
+   <sect2 id="xfunc-sql-function-arguments">
+    <title>Arguments for <acronym>SQL</acronym> Functions</title>
+
+   <indexterm>
+    <primary>function</primary>
+    <secondary>named argument</secondary>
+   </indexterm>
+
+    <para>
+     Arguments of a SQL function can be referenced in the function
+     body using either names or numbers.  Examples of both methods appear
+     below.
+    </para>
+
+    <para>
+     To use a name, declare the function argument as having a name, and
+     then just write that name in the function body.  If the argument name
+     is the same as any column name in the current SQL command within the
+     function, the column name will take precedence.  To override this,
+     qualify the argument name with the name of the function itself, that is
+     <literal><replaceable>function_name</>.<replaceable>argument_name</></literal>.
+     (If this would conflict with a qualified column name, again the column
+     name wins.  You can avoid the ambiguity by choosing a different alias for
+     the table within the SQL command.)
+    </para>
+
+    <para>
+     In the older numeric approach, arguments are referenced using the syntax
+     <literal>$<replaceable>n</></>: <literal>$1</> refers to the first input
+     argument, <literal>$2</> to the second, and so on.  This will work
+     whether or not the particular argument was declared with a name.
+    </para>
+
+    <para>
+     If an argument is of a composite type, then the dot notation,
+     e.g., <literal>argname.fieldname</literal> or
+     <literal>$1.fieldname</literal>, can be used to access attributes of the
+     argument.  Again, you might need to qualify the argument's name with the
+     function name to make the form with an argument name unambiguous.
+    </para>
+
+    <para>
+     SQL function arguments can only be used as data values,
+     not as identifiers.  Thus for example this is reasonable:
 <programlisting>
 INSERT INTO mytable VALUES ($1);
 </programlisting>
@@ -190,11 +226,25 @@ but this will not work:
 <programlisting>
 INSERT INTO $1 VALUES (42);
 </programlisting>
-   </para>
+    </para>
+
+    <note>
+     <para>
+      The ability to use names to reference SQL function arguments was added
+<!## PG>
+      in <productname>PostgreSQL</productname> 9.2.  Functions to be used in
+<!## end>
+<!## XC>
+      in <productname>PostgreSQL</productname> 9.2, as well as <productname>Postgres-XC 1.1</productname>.  Functions to be used in
+<!## end>
+      older servers must use the <literal>$<replaceable>n</></> notation.
+     </para>
+    </note>
+   </sect2>
 
    <sect2 id="xfunc-sql-base-functions">
     <title><acronym>SQL</acronym> Functions on Base Types</title>
-&common;
+
     <para>
      The simplest possible <acronym>SQL</acronym> function has no arguments and
      simply returns a base type, such as <type>integer</type>:
@@ -226,9 +276,24 @@ SELECT one();
 
     <para>
      It is almost as easy to define <acronym>SQL</acronym> functions
-     that take base types as arguments.  In the example below, notice
-     how we refer to the arguments within the function as <literal>$1</>
-     and <literal>$2</>.
+     that take base types as arguments:
+
+<screen>
+CREATE FUNCTION add_em(x integer, y integer) RETURNS integer AS $$
+    SELECT x + y;
+$$ LANGUAGE SQL;
+
+SELECT add_em(1, 2) AS answer;
+
+ answer
+--------
+      3
+</screen>
+    </para>
+
+    <para>
+     Alternatively, we could dispense with names for the arguments and
+     use numbers:
 
 <screen>
 CREATE FUNCTION add_em(integer, integer) RETURNS integer AS $$
@@ -248,10 +313,10 @@ SELECT add_em(1, 2) AS answer;
      bank account:
 
 <programlisting>
-CREATE FUNCTION tf1 (integer, numeric) RETURNS integer AS $$
+CREATE FUNCTION tf1 (accountno integer, debit numeric) RETURNS integer AS $$
     UPDATE bank
-        SET balance = balance - $2
-        WHERE accountno = $1;
+        SET balance = balance - debit
+        WHERE accountno = tf1.accountno;
     SELECT 1;
 $$ LANGUAGE SQL;
 </programlisting>
@@ -264,21 +329,26 @@ SELECT tf1(17, 100.0);
 </programlisting>
     </para>
 
-<!## PG>
-<!-- NOTICE:
-     No "RETURNING", only one statement in each function
--->
+    <para>
+     In this example, we chose the name <literal>accountno</> for the first
+     argument, but this is the same as the name of a column in the
+     <literal>bank</> table.  Within the <command>UPDATE</> command,
+     <literal>accountno</> refers to the column <literal>bank.accountno</>,
+     so <literal>tf1.accountno</> must be used to refer to the argument.
+     We could of course avoid this by using a different name for the argument.
+    </para>
+
     <para>
      In practice one would probably like a more useful result from the
      function than a constant 1, so a more likely definition
      is:
 
 <programlisting>
-CREATE FUNCTION tf1 (integer, numeric) RETURNS numeric AS $$
+CREATE FUNCTION tf1 (accountno integer, debit numeric) RETURNS integer AS $$
     UPDATE bank
-        SET balance = balance - $2
-        WHERE accountno = $1;
-    SELECT balance FROM bank WHERE accountno = $1;
+        SET balance = balance - debit
+        WHERE accountno = tf1.accountno;
+    SELECT balance FROM bank WHERE accountno = tf1.accountno;
 $$ LANGUAGE SQL;
 </programlisting>
 
@@ -286,36 +356,23 @@ $$ LANGUAGE SQL;
      The same thing could be done in one command using <literal>RETURNING</>:
 
 <programlisting>
-CREATE FUNCTION tf1 (integer, numeric) RETURNS numeric AS $$
+CREATE FUNCTION tf1 (accountno integer, debit numeric) RETURNS integer AS $$
     UPDATE bank
-        SET balance = balance - $2
-        WHERE accountno = $1
+        SET balance = balance - debit
+        WHERE accountno = tf1.accountno
     RETURNING balance;
 $$ LANGUAGE SQL;
 </programlisting>
     </para>
-<!## end>
-<!## XC>
-&xconly;
-    <para>
-     Here, original <productname>PostgreSQL</> document describes
-     multiple statement function and <command>RETURNING</> clause,
-     neither of them are not supported by <productname>Postgres-XC</>
-     yet.  They will be supported in the future releases.
-    </para>
-<!## end>
    </sect2>
 
    <sect2 id="xfunc-sql-composite-functions">
     <title><acronym>SQL</acronym> Functions on Composite Types</title>
 
-&common;
     <para>
-     When writing  functions with arguments of composite
-     types, we must  not  only  specify  which
-     argument  we  want (as we did above with <literal>$1</> and <literal>$2</literal>) but
-     also the desired attribute (field) of  that  argument.   For  example,
-     suppose that
+     When writing functions with arguments of composite types, we must not
+     only specify which argument we want but also the desired attribute
+     (field) of that argument.  For example, suppose that
      <type>emp</type> is a table containing employee data, and therefore
      also the name of the composite type of each row of the table.  Here
      is a function <function>double_salary</function> that computes what someone's
@@ -560,51 +617,6 @@ SELECT getname(new_emp());
     </para>
    </sect2>
 
-   <sect2 id="xfunc-named-parameters">
-    <title><acronym>SQL</> Functions with Parameter Names</title>
-
-   <indexterm>
-    <primary>function</primary>
-    <secondary>named parameter</secondary>
-   </indexterm>
-<!## PG>
-<!-- NOTICE:
-     No RETURNING yet!
--->
-    <para>
-     It is possible to attach names to a function's parameters, for example
-
-<programlisting>
-CREATE FUNCTION tf1 (acct_no integer, debit numeric) RETURNS numeric AS $$
-    UPDATE bank
-        SET balance = balance - $2
-        WHERE accountno = $1
-    RETURNING balance;
-$$ LANGUAGE SQL;
-</programlisting>
-
-     Here the first parameter has been given the name <literal>acct_no</>,
-     and the second parameter the name <literal>debit</>.
-     So far as the SQL function itself is concerned, these names are just
-     decoration; you must still refer to the parameters as <literal>$1</>,
-     <literal>$2</>, etc within the function body.  (Some procedural
-     languages let you use the parameter names instead.)  However,
-     attaching names to the parameters is useful for documentation purposes.
-     When a function has many parameters, it is also useful to use the names
-     while calling the function, as described in
-     <xref linkend="sql-syntax-calling-funcs">.
-    </para>
-<!## end>
-<!## XC>
-&xconly;
-    <para>
-     This feature needs <command>RETURNING</> clause, which is not
-     supported in current <productname>Postgres-XC</>.  This feature
-     will be supported in the future releases.
-    </para>
-<!## end>
-   </sect2>
-
    <sect2 id="xfunc-output-parameters">
     <title><acronym>SQL</> Functions with Output Parameters</title>
 
@@ -612,14 +624,14 @@ $$ LANGUAGE SQL;
     <primary>function</primary>
     <secondary>output parameter</secondary>
    </indexterm>
-&common;
+
     <para>
      An alternative way of describing a function's results is to define it
      with <firstterm>output parameters</>, as in this example:
 
 <screen>
 CREATE FUNCTION add_em (IN x int, IN y int, OUT sum int)
-AS 'SELECT $1 + $2'
+AS 'SELECT x + y'
 LANGUAGE SQL;
 
 SELECT add_em(3,7);
@@ -636,7 +648,7 @@ SELECT add_em(3,7);
 
 <screen>
 CREATE FUNCTION sum_n_product (x int, y int, OUT sum int, OUT product int)
-AS 'SELECT $1 + $2, $1 * $2'
+AS 'SELECT x + y, x * y'
 LANGUAGE SQL;
 
  SELECT * FROM sum_n_product(11,42);
@@ -707,17 +719,7 @@ DROP FUNCTION sum_n_product (int, int);
     <indexterm>
      <primary>variadic function</primary>
     </indexterm>
-<!## XC>
-<!-- NOTICE:
-     VARIADIC is not well tested yet.  CREATE FUNCTION succeeds but the result can be wrong.
--->
-&xconly;
-    <para>
-     It is highly recommended not to use <literal>VARIADIC</> in the
-     current <productname>Postgres-XC</>.  It is not well reviewed and
-     may return wrong result.
-    </para>
-<!## end>
+
     <para>
      <acronym>SQL</acronym> functions can be declared to accept
      variable numbers of arguments, so long as all the <quote>optional</>
@@ -795,7 +797,7 @@ SELECT mleast(arr := ARRAY[10, -1, 5, 4.4]);
      <primary>function</primary>
      <secondary>default values for arguments</secondary>
     </indexterm>
-&common;
+
     <para>
      Functions can be declared with default values for some or all input
      arguments.  The default values are inserted whenever the function is
@@ -845,7 +847,7 @@ ERROR:  function foo() does not exist
 
    <sect2 id="xfunc-sql-table-functions">
     <title><acronym>SQL</acronym> Functions as Table Sources</title>
-&common;
+
     <para>
      All SQL functions can be used in the <literal>FROM</> clause of a query,
      but it is particularly useful for functions returning composite types.
@@ -1025,7 +1027,7 @@ SELECT name, listchildren(name) FROM nodes;
      <primary>function</primary>
      <secondary>RETURNS TABLE</secondary>
     </indexterm>
-&common;
+
     <para>
      There is another way to declare a function as returning a set,
      which is to use the syntax
@@ -1056,12 +1058,12 @@ $$ LANGUAGE SQL;
 
    <sect2>
     <title>Polymorphic <acronym>SQL</acronym> Functions</title>
-&common;
+
     <para>
      <acronym>SQL</acronym> functions can be declared to accept and
      return the polymorphic types <type>anyelement</type>,
-     <type>anyarray</type>, <type>anynonarray</type>, and
-     <type>anyenum</type>.  See <xref
+     <type>anyarray</type>, <type>anynonarray</type>,
+     <type>anyenum</type>, and <type>anyrange</type>.  See <xref
      linkend="extend-types-polymorphic"> for a more detailed
      explanation of polymorphic functions. Here is a polymorphic
      function <function>make_array</function> that builds up an array
@@ -1131,7 +1133,6 @@ SELECT * FROM dup(22);
 </screen>
     </para>
 
-<!## PG>
     <para>
      Polymorphism can also be used with variadic functions.
      For example:
@@ -1163,19 +1164,6 @@ SELECT concat_values('|', 1, 4, 2);
 (1 row)
 </screen>
     </para>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     VARIADIC is not well tested and supported
--->
-&xconly;
-    <para>
-     Here, original <productname>PostgreSQL</> document describes an
-     example with <command>VARIADIC</>, which is not well tested and
-     supported in current <productname>Postgres-XC</>.  This may be
-     supported in the future releases.
-    </para>
-<!## end>
    </sect2>
 
    <sect2>
@@ -1241,7 +1229,7 @@ $$ LANGUAGE SQL;
     <primary>overloading</primary>
     <secondary>functions</secondary>
    </indexterm>
-&common;
+
    <para>
     More than one function can be defined with the same SQL name, so long
     as the arguments they take are different.  In other words,
@@ -1328,7 +1316,7 @@ CREATE FUNCTION test(int, int) RETURNS int
    <indexterm zone="xfunc-volatility">
     <primary>IMMUTABLE</primary>
    </indexterm>
-&common;
+
    <para>
     Every function has a <firstterm>volatility</> classification, with
     the possibilities being <literal>VOLATILE</>, <literal>STABLE</>, or
@@ -1469,7 +1457,12 @@ CREATE FUNCTION test(int, int) RETURNS int
 
    <note>
     <para>
+<!## PG>
      Before <productname>PostgreSQL</productname> release 8.0, the requirement
+<!## end>
+<!## XC>
+     Before <productname>Postgres-XC</productname> release 8.0, the requirement
+<!## end>
      that <literal>STABLE</> and <literal>IMMUTABLE</> functions cannot modify
      the database was not enforced by the system.  Releases 8.0 and later enforce it
      by requiring SQL functions and procedural language functions of these
@@ -1485,7 +1478,7 @@ CREATE FUNCTION test(int, int) RETURNS int
 
   <sect1 id="xfunc-pl">
    <title>Procedural Language Functions</title>
-&common;
+
    <para>
 <!## PG>
     <productname>PostgreSQL</productname> allows user-defined functions
@@ -1501,7 +1494,7 @@ CREATE FUNCTION test(int, int) RETURNS int
     <productname>PostgreSQL</productname> server; they are offered
 <!## end>
 <!## XC>
-    <productname>Postgres-XC</productname> server; they are offered
+    <productname>Postgres-XC</productname> components (coordinators and datanodes); they are offered
 <!## end>
     by loadable modules.
     See <xref linkend="xplang"> and following chapters for more
@@ -1513,14 +1506,14 @@ CREATE FUNCTION test(int, int) RETURNS int
    <title>Internal Functions</title>
 
    <indexterm zone="xfunc-internal"><primary>function</><secondary>internal</></>
-&common;
+
    <para>
     Internal functions are functions written in C that have been statically
 <!## PG>
     linked into the <productname>PostgreSQL</productname> server.
 <!## end>
 <!## XC>
-    linked into the <productname>Postgres-XC</productname> server.
+    linked into the <productname>Postggres-XC</productname> conponents (coordinators and datanodes).
 <!## end>
     The <quote>body</quote> of the function definition
     specifies the C-language name of the function, which need not be the
@@ -1565,7 +1558,7 @@ CREATE FUNCTION square_root(double precision) RETURNS double precision
     <secondary>user-defined</secondary>
     <tertiary>in C</tertiary>
    </indexterm>
-&common;
+
    <para>
     User-defined functions can be written in C (or a language that can
     be made compatible with C, such as C++).  Such functions are
@@ -1595,7 +1588,7 @@ CREATE FUNCTION square_root(double precision) RETURNS double precision
    <indexterm zone="xfunc-c-dynload">
     <primary>dynamic loading</primary>
    </indexterm>
-&common;
+
    <para>
     The first time a user-defined function in a particular
     loadable object file is called in a session,
@@ -1672,7 +1665,7 @@ CREATE FUNCTION square_root(double precision) RETURNS double precision
     The user ID the <productname>PostgreSQL</productname> server runs
 <!## end>
 <!## XC>
-    The user ID the <productname>Postgres-XC</productname> server runs
+    The user ID the <productname>Postgres-XC</productname> components run
 <!## end>
     as must be able to traverse the path to the file you intend to
     load.  Making the file or a higher-level directory not readable
@@ -1719,11 +1712,12 @@ CREATE FUNCTION square_root(double precision) RETURNS double precision
     compiled for a different major version of
 <!## PG>
     <productname>PostgreSQL</productname>.  A magic block is required as of
+    <productname>PostgreSQL</productname> 8.2.  To include a magic block,
 <!## end>
 <!## XC>
-    <productname>Postgres-XC</productname>.  A magic block is required as of
+    <productname>Postgres-XC</productname>.  A magic block is required
+    To include a magic block,
 <!## end>
-    <productname>PostgreSQL</productname> 8.2.  To include a magic block,
     write this in one (and only one) of the module source files, after having
     included the header <filename>fmgr.h</>:
 
@@ -1733,9 +1727,11 @@ PG_MODULE_MAGIC;
 #endif
 </programlisting>
 
+<!## PG>
     The <literal>#ifdef</> test can be omitted if the code doesn't
     need to compile against pre-8.2 <productname>PostgreSQL</productname>
     releases.
+<!## end>
    </para>
 
    <para>
@@ -1782,35 +1778,35 @@ PG_MODULE_MAGIC;
      <primary>data type</primary>
      <secondary>internal organization</secondary>
     </indexterm>
-&common;
-<!## PG>
+
     <para>
      To know how to write C-language functions, you need to know how
+<!## PG>
      <productname>PostgreSQL</productname> internally represents base
-     data types and how they can be passed to and from functions.
-     Internally, <productname>PostgreSQL</productname> regards a base
-     type as a <quote>blob of memory</quote>.  The user-defined
-     functions that you define over a type in turn define the way that
-     <productname>PostgreSQL</productname> can operate on it.  That
-     is, <productname>PostgreSQL</productname> will only store and
-     retrieve the data from disk and use your user-defined functions
-     to input, process, and output the data.
-    </para>
 <!## end>
 <!## XC>
-    <para>
-     To know how to write C-language functions, you need to know how
      <productname>Postgres-XC</productname> internally represents base
+<!## end>
      data types and how they can be passed to and from functions.
+<!## PG>
+     Internally, <productname>PostgreSQL</productname> regards a base
+<!## end>
+<!## XC>
      Internally, <productname>Postgres-XC</productname> regards a base
+<!## end>
      type as a <quote>blob of memory</quote>.  The user-defined
      functions that you define over a type in turn define the way that
+<!## PG>
+     <productname>PostgreSQL</productname> can operate on it.  That
+     is, <productname>PostgreSQL</productname> will only store and
+<!## end>
+<!## XC>
      <productname>Postgres-XC</productname> can operate on it.  That
      is, <productname>Postgres-XC</productname> will only store and
+<!## end>
      retrieve the data from disk and use your user-defined functions
      to input, process, and output the data.
     </para>
-<!## end>
 
     <para>
      Base types can have one of three internal formats:
@@ -1886,12 +1882,22 @@ typedef struct
     <para>
      Finally, all variable-length types must also be  passed
      by  reference.   All  variable-length  types must begin
-     with a length field of exactly 4 bytes, and all data to
+     with an opaque length field of exactly 4 bytes, which will be set
+     by <symbol>SET_VARSIZE</symbol>; never set this field directly! All data to
      be  stored within that type must be located in the memory
      immediately  following  that  length  field.   The
      length field contains the total length of the structure,
      that is,  it  includes  the  size  of  the  length  field
      itself.
+    </para>
+
+    <para>
+     Another important point is to avoid leaving any uninitialized bits
+     within data type values; for example, take care to zero out any
+     alignment padding bytes that might be present in structs.  Without
+     this, logically-equivalent constants of your data type might be
+     seen as unequal by the planner, leading to inefficient (though not
+     incorrect) plans.
     </para>
 
     <warning>
@@ -1937,15 +1943,17 @@ typedef struct {
 char buffer[40]; /* our source data */
 ...
 text *destination = (text *) palloc(VARHDRSZ + 40);
-destination->length = VARHDRSZ + 40;
+SET_VARSIZE(destination, VARHDRSZ + 40);
 memcpy(destination->data, buffer, 40);
 ...
 ]]>
 </programlisting>
 
-     <literal>VARHDRSZ</> is the same as <literal>sizeof(int4)</>, but
+     <literal>VARHDRSZ</> is the same as <literal>sizeof(int32)</>, but
      it's considered good style to use the macro <literal>VARHDRSZ</>
      to refer to the size of the overhead for a variable-length type.
+     Also, the length field <emphasis>must</> be set using the
+     <literal>SET_VARSIZE</> macro, not by simple assignment.
     </para>
 
     <para>
@@ -2051,7 +2059,7 @@ memcpy(destination->data, buffer, 40);
         <row>
          <entry><type>interval</type></entry>
          <entry><type>Interval*</type></entry>
-         <entry><filename>utils/timestamp.h</filename></entry>
+         <entry><filename>datatype/timestamp.h</filename></entry>
         </row>
         <row>
          <entry><type>lseg</type></entry>
@@ -2116,7 +2124,7 @@ memcpy(destination->data, buffer, 40);
         <row>
          <entry><type>timestamp</type></entry>
          <entry><type>Timestamp*</type></entry>
-         <entry><filename>utils/timestamp.h</filename></entry>
+         <entry><filename>datatype/timestamp.h</filename></entry>
         </row>
         <row>
          <entry><type>tinterval</type></entry>
@@ -2145,7 +2153,7 @@ memcpy(destination->data, buffer, 40);
 
    <sect2>
     <title>Version 0 Calling Conventions</title>
-&common;
+
     <para>
      We present the <quote>old style</quote> calling convention first &mdash; although
      this approach is now deprecated, it's easier to get a handle on
@@ -2309,7 +2317,7 @@ CREATE FUNCTION concat_text(text, text) RETURNS text
 
    <sect2>
     <title>Version 1 Calling Conventions</title>
-&common;
+
     <para>
      The version-1 calling convention relies on macros to suppress most
      of the complexity of passing arguments and results.  The C declaration
@@ -2518,21 +2526,23 @@ concat_text(PG_FUNCTION_ARGS)
 
    <sect2>
     <title>Writing Code</title>
-&common;
+
     <para>
      Before we turn to the more advanced topics, we should discuss
 <!## PG>
      some coding rules for <productname>PostgreSQL</productname>
-     C-language functions.  While it might be possible to load functions
-     written in languages other than C into
-     <productname>PostgreSQL</productname>, this is usually difficult
 <!## end>
 <!## XC>
      some coding rules for <productname>Postgres-XC</productname>
+<!## end>
      C-language functions.  While it might be possible to load functions
      written in languages other than C into
-     <productname>Postgres-XC</productname>, this is usually difficult
+<!## PG>
+     <productname>PostgreSQL</productname>, this is usually difficult
 <!## end>
+<!## XC>
+     <productname>Postgres-XC</productname>, this is usually difficult
+<!## end>p
      (when it is possible at all) because other languages, such as
      C++, FORTRAN, or Pascal often do not follow the same calling
      convention as C.  That is, other languages do not pass argument
@@ -2553,7 +2563,7 @@ concat_text(PG_FUNCTION_ARGS)
         to find out where the <productname>PostgreSQL</> server header
 <!## end>
 <!## XC>
-        to find out where the <productname>Postgres-XC</> server header
+        to find out where the <productname>Postgrs-XC</> component header
 <!## end>
         files are installed on your system (or the system that your
         users will be running on).
@@ -2602,13 +2612,16 @@ concat_text(PG_FUNCTION_ARGS)
 
       <listitem>
        <para>
-        Always zero the bytes of your structures using
-        <function>memset</function>.  Without this, it's difficult to
+        Always zero the bytes of your structures using <function>memset</>
+        (or allocate them with <function>palloc0</> in the first place).
+        Even if you assign to each field of your structure, there might be
+        alignment padding (holes in the structure) that contain
+        garbage values.  Without this, it's difficult to
         support hash indexes or hash joins, as you must pick out only
         the significant bits of your data structure to compute a hash.
-        Even if you initialize all fields of your structure, there might be
-        alignment padding (holes in the structure) that contain
-        garbage values.
+        The planner also sometimes relies on comparing constants via
+        bitwise equality, so you can get undesirable planning results if
+        logically-equivalent values aren't bitwise equal.
        </para>
       </listitem>
 
@@ -2641,8 +2654,8 @@ concat_text(PG_FUNCTION_ARGS)
         <productname>PostgreSQL</productname> server executable.  You
 <!## end>
 <!## XC>
-        <productname>Postgres-XC</productname> server executable.  You
-<!## end>
+        <productname>Postgres-XC</productname> component executable.  You
+<!## end>p
         will have to rename your functions or variables if you get
         error messages to this effect.
        </para>
@@ -2780,7 +2793,7 @@ CREATE FUNCTION c_overpaid(emp, integer) RETURNS boolean
 
    <sect2>
     <title>Returning Rows (Composite Types)</title>
-&common;
+
     <para>
      To return a row or composite-type value from a C-language
      function, you can use a special API that provides macros and
@@ -2931,7 +2944,7 @@ HeapTupleGetDatum(HeapTuple tuple)
 
    <sect2 id="xfunc-c-return-set">
     <title>Returning Sets</title>
-&common;
+
     <para>
      There is also a special API that provides support for returning
      sets (multiple rows) from a C-language function.  A set-returning
@@ -3243,12 +3256,12 @@ CREATE OR REPLACE FUNCTION retcomposite(IN integer, IN integer,
 
    <sect2>
     <title>Polymorphic Arguments and Return Types</title>
-&common;
+
     <para>
      C-language functions can be declared to accept and
      return the polymorphic types
      <type>anyelement</type>, <type>anyarray</type>, <type>anynonarray</type>,
-     and <type>anyenum</type>.
+     <type>anyenum</type>, and <type>anyrange</type>.
      See <xref linkend="extend-types-polymorphic"> for a more detailed explanation
      of polymorphic functions. When function arguments or return types
      are defined as polymorphic types, the function author cannot know
@@ -3344,9 +3357,48 @@ CREATE FUNCTION make_array(anyelement) RETURNS anyarray
     </para>
    </sect2>
 
+   <sect2 id="xfunc-transform-functions">
+    <title>Transform Functions</title>
+
+    <para>
+     Some function calls can be simplified during planning based on
+     properties specific to the function.  For example,
+     <literal>int4mul(n, 1)</> could be simplified to just <literal>n</>.
+     To define such function-specific optimizations, write a
+     <firstterm>transform function</> and place its OID in the
+     <structfield>protransform</> field of the primary function's
+     <structname>pg_proc</> entry.  The transform function must have the SQL
+     signature <literal>protransform(internal) RETURNS internal</>.  The
+     argument, actually <type>FuncExpr *</>, is a dummy node representing a
+     call to the primary function.  If the transform function's study of the
+     expression tree proves that a simplified expression tree can substitute
+     for all possible concrete calls represented thereby, build and return
+     that simplified expression.  Otherwise, return a <literal>NULL</>
+     pointer (<emphasis>not</> a SQL null).
+    </para>
+
+    <para>
+<!## PG>
+     We make no guarantee that <productname>PostgreSQL</> will never call the
+<!## end>
+<!## XC>
+     We make no guarantee that <productname>Postgres-XC</> will never call the
+<!## end>
+     primary function in cases that the transform function could simplify.
+     Ensure rigorous equivalence between the simplified expression and an
+     actual call to the primary function.
+    </para>
+
+    <para>
+     Currently, this facility is not exposed to users at the SQL level
+     because of security concerns, so it is only practical to use for
+     optimizing built-in functions.
+    </para>
+   </sect2>
+
    <sect2>
     <title>Shared Memory and LWLocks</title>
-&common;
+
     <para>
      Add-ins can reserve LWLocks and an allocation of shared memory on server
      startup.  The add-in's shared library must be preloaded by specifying

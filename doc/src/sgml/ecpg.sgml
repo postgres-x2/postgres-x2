@@ -194,9 +194,11 @@ EXEC SQL CONNECT TO unix:postgresql://sql.mydomain.com/mydb AS myconnection USER
 EXEC SQL BEGIN DECLARE SECTION;
 const char *target = "mydb@sql.mydomain.com";
 const char *user = "john";
+const char *passwd = "secret";
 EXEC SQL END DECLARE SECTION;
  ...
-EXEC SQL CONNECT TO :target USER :user;
+EXEC SQL CONNECT TO :target USER :user USING :passwd;
+/* or EXEC SQL CONNECT TO :target USER :user/:passwd; */
 </programlisting>
    The last form makes use of the variant referred to above as
    character variable reference.  You will see in later sections how C
@@ -760,11 +762,6 @@ do
     normal clauses.
    </para>
 
-   <para>
-    Both of these methods only allow retrieving one row at a time.  If
-    you need to process result sets that potentially contain more than
-    one row, you need to use a cursor, as shown in the second example.
-   </para>
   </sect2>
 
   <sect2 id="ecpg-variables-type-mapping">

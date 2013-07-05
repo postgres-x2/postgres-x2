@@ -7,8 +7,6 @@
   <primary>citext</primary>
  </indexterm>
 
-&common;
-
  <para>
   The <filename>citext</> module provides a case-insensitive
   character string type, <type>citext</>. Essentially, it internally calls
@@ -18,8 +16,6 @@
 
  <sect2>
   <title>Rationale</title>
-
-&common;
 
   <para>
    The standard approach to doing case-insensitive matches
@@ -75,8 +71,6 @@ SELECT * FROM tab WHERE lower(col) = LOWER(?);
  <sect2>
   <title>How to Use It</title>
 
-&xconly;
-
   <para>
    Here's a simple example of usage:
 
@@ -104,11 +98,11 @@ CREATE TABLE users (
     pass TEXT   NOT NULL
 );
 
-INSERT INTO users VALUES (1,  'larry',  md5(random()::text) );
-INSERT INTO users VALUES (2,  'Tom',    md5(random()::text) );
-INSERT INTO users VALUES (3,  'Damian', md5(random()::text) );
-INSERT INTO users VALUES (4,  'NEAL',   md5(random()::text) );
-INSERT INTO users VALUES (5,  'Bj&oslash;rn',  md5(random()::text) );
+INSERT INTO users VALUES (1, 'larry',  md5(random()::text) );
+INSERT INTO users VALUES (2, 'Tom',    md5(random()::text) );
+INSERT INTO users VALUES (3, 'Damian', md5(random()::text) );
+INSERT INTO users VALUES (4, 'NEAL',   md5(random()::text) );
+INSERT INTO users VALUES (5, 'Bj&oslash;rn',  md5(random()::text) );
 
 SELECT * FROM users WHERE nick = 'Larry';
 </programlisting>
@@ -132,7 +126,6 @@ SELECT * FROM users WHERE nick = 'Larry';
  <sect2>
   <title>String Comparison Behavior</title>
 
-&common;
   <para>
    <type>citext</> performs comparisons by converting each string to lower
    case (as though <function>lower</> were called) and then comparing the
@@ -210,8 +203,6 @@ SELECT * FROM users WHERE nick = 'Larry';
 
    <itemizedlist>
     <listitem>
-&common;
-
      <para>
       <type>citext</>'s case-folding behavior depends on
       the <literal>LC_CTYPE</> setting of your database. How it compares

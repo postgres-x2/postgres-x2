@@ -1505,7 +1505,8 @@
        <entry>
         Encode binary data into a textual representation.  Supported
         formats are: <literal>base64</>, <literal>hex</>, <literal>escape</>.
-        <literal>escape</> merely outputs null bytes as <literal>\000</> and
+        <literal>escape</> converts zero bytes and high-bit-set bytes to
+        octal sequences (<literal>\</><replaceable>nnn</>) and
         doubles backslashes.
        </entry>
        <entry><literal>encode(E'123\\000\\001', 'base64')</literal></entry>
@@ -3020,12 +3021,12 @@
          <primary>decode</primary>
         </indexterm>
        <literal><function>decode(<parameter>string</parameter> <type>text</type>,
-              <parameter>type</parameter> <type>text</type>)</function></literal>
+       <parameter>format</parameter> <type>text</type>)</function></literal>
       </entry>
       <entry><type>bytea</type></entry>
       <entry>
-       Decode binary string from <parameter>string</parameter> previously
-       encoded with <function>encode</>.  Parameter type is same as in <function>encode</>.
+       Decode binary data from textual representation in <parameter>string</>.
+       Options for <parameter>format</> are same as in <function>encode</>.
       </entry>
       <entry><literal>decode(E'123\\000456', 'escape')</literal></entry>
       <entry><literal>123\000456</literal></entry>
@@ -3036,13 +3037,16 @@
         <indexterm>
          <primary>encode</primary>
         </indexterm>
-       <literal><function>encode(<parameter>string</parameter> <type>bytea</type>,
-              <parameter>type</parameter> <type>text</type>)</function></literal>
+       <literal><function>encode(<parameter>data</parameter> <type>bytea</type>,
+       <parameter>format</parameter> <type>text</type>)</function></literal>
       </entry>
       <entry><type>text</type></entry>
       <entry>
-       Encode binary string to <acronym>ASCII</acronym>-only representation.  Supported
-       types are: <literal>base64</>, <literal>hex</>, <literal>escape</>.
+       Encode binary data into a textual representation.  Supported
+       formats are: <literal>base64</>, <literal>hex</>, <literal>escape</>.
+       <literal>escape</> converts zero bytes and high-bit-set bytes to
+       octal sequences (<literal>\</><replaceable>nnn</>) and
+       doubles backslashes.
       </entry>
       <entry><literal>encode(E'123\\000456'::bytea, 'escape')</literal></entry>
       <entry><literal>123\000456</literal></entry>
@@ -6935,16 +6939,19 @@ SELECT EXTRACT(SECOND FROM TIME '17:12:28.5');
       <listitem>
        <para>
         The number of the week of the year that the day is in.  By definition
-        (<acronym>ISO</acronym> 8601), the first week of a year
-        contains January 4 of that year.  (The <acronym>ISO</acronym>-8601
-        week starts on Monday.)  In other words, the first Thursday of
-        a year is in week 1 of that year.
+        (<acronym>ISO</acronym> 8601), weeks start on Mondays and the first
+        week of a year contains January 4 of that year.  In other words, the
+        first Thursday of a year is in week 1 of that year.
        </para>
        <para>
-        Because of this, it is possible for early January dates to be part of the
-        52nd or 53rd week of the previous year.  For example, <literal>2005-01-01</>
-        is part of the 53rd week of year 2004, and <literal>2006-01-01</> is part of
-        the 52nd week of year 2005.
+        In the ISO definition, it is possible for early-January dates to be
+        part of the 52nd or 53rd week of the previous year, and for
+        late-December dates to be part of the first week of the next year.
+        For example, <literal>2005-01-01</> is part of the 53rd week of year
+        2004, and <literal>2006-01-01</> is part of the 52nd week of year
+        2005, while <literal>2012-12-31</> is part of the first week of 2013.
+        It's recommended to use the <literal>isoyear</> field together with
+        <literal>week</> to get consistent results.
        </para>
 
 <screen>
@@ -7870,7 +7877,7 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
          </indexterm>
          <literal><function>path(<type>polygon</type>)</function></literal>
         </entry>
-        <entry><type>point</type></entry>
+        <entry><type>path</type></entry>
         <entry>polygon to path</entry>
         <entry><literal>path(polygon '((0,0),(1,1),(2,0))')</literal></entry>
        </row>
@@ -9618,7 +9625,7 @@ table2-mapping
  <sect1 id="functions-json">
   <title>JSON Functions</title>
 
-  <indexterm zone="datatype-json">
+  <indexterm zone="functions-json">
     <primary>JSON</primary>
     <secondary>Functions and operators</secondary>
   </indexterm>
@@ -9820,6 +9827,27 @@ nextval('foo'::text)      <lineannotation><literal>foo</literal> is looked up at
         execute <function>nextval</function> concurrently, each will safely receive
         a distinct sequence value.
        </para>
+
+       <para>
+        If a sequence object has been created with default parameters,
+        successive <function>nextval</function> calls will return successive
+        values beginning with 1.  Other behaviors can be obtained by using
+        special parameters in the <xref linkend="sql-createsequence"> command;
+        see its command reference page for more information.
+       </para>
+
+       <important>
+        <para>
+         To avoid blocking concurrent transactions that obtain numbers from the
+         same sequence, a <function>nextval</function> operation is never
+         rolled back; that is, once a value has been fetched it is considered
+         used, even if the transaction that did the
+         <function>nextval</function> later aborts.  This means that aborted
+         transactions might leave unused <quote>holes</quote> in the sequence
+         of assigned values.
+        </para>
+       </important>
+
       </listitem>
      </varlistentry>
 
@@ -9883,30 +9911,17 @@ SELECT setval('foo', 42, false);    <lineannotation>Next <function>nextval</> wi
         The result returned by <function>setval</function> is just the value of its
         second argument.
        </para>
+       <important>
+        <para>
+         Because sequences are non-transactional, changes made by
+         <function>setval</function> are not undone if the transaction rolls
+         back.
+        </para>
+       </important>
       </listitem>
      </varlistentry>
     </variablelist>
   </para>
-
-  <para>
-   If a sequence object has been created with default parameters,
-   successive <function>nextval</function> calls will return successive values
-   beginning with 1.  Other behaviors can be obtained by using
-   special parameters in the <xref linkend="sql-createsequence"> command;
-   see its command reference page for more information.
-  </para>
-
-  <important>
-   <para>
-    To avoid blocking concurrent transactions that obtain numbers from the
-    same sequence, a <function>nextval</function> operation is never rolled back;
-    that is, once a value has been fetched it is considered used, even if the
-    transaction that did the <function>nextval</function> later aborts.  This means
-    that aborted transactions might leave unused <quote>holes</quote> in the
-    sequence of assigned values.  <function>setval</function> operations are never
-    rolled back, either.
-   </para>
-  </important>
 
  </sect1>
 
@@ -13812,7 +13827,7 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_get_viewdef(<parameter>view_name</parameter>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
-       <entry>get underlying <command>SELECT</command> command for view,
+       <entry>get underlying <command>SELECT</command> command for view;
               lines with fields are wrapped to 80 columns if <parameter>pretty_bool</parameter> is true (<emphasis>deprecated</emphasis>)</entry>
       </row>
       <row>
@@ -13823,14 +13838,15 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
-       <entry>get underlying <command>SELECT</command> command for view,
+       <entry>get underlying <command>SELECT</command> command for view;
               lines with fields are wrapped to 80 columns if <parameter>pretty_bool</parameter> is true</entry>
       </row>
       <row>
-       <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>, <parameter>wrap_int</>)</function></literal></entry>
+       <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>, <parameter>wrap_column_int</>)</function></literal></entry>
        <entry><type>text</type></entry>
-       <entry>get underlying <command>SELECT</command> command for view,
-              wrapping lines with fields as specified, pretty printing is implied</entry>
+       <entry>get underlying <command>SELECT</command> command for view;
+              lines with fields are wrapped to specified number of columns,
+              pretty printing is implied</entry>
       </row>
       <row>
        <entry><literal><function>pg_options_to_table(<parameter>reloptions</parameter>)</function></literal></entry>
@@ -14392,7 +14408,11 @@ SELECT set_config('log_statement_stats', 'off', false);
         <literal><function>pg_terminate_backend(<parameter>pid</parameter> <type>int</>)</function></literal>
         </entry>
        <entry><type>boolean</type></entry>
-       <entry>Terminate a backend</entry>
+       <entry>Terminate a backend.  You can execute this against
+        another backend that has exactly the same role as the user
+        calling the function.  In all other cases, you must be a
+        superuser.
+       </entry>
       </row>
      </tbody>
     </tgroup>
@@ -14413,9 +14433,8 @@ SELECT set_config('log_statement_stats', 'off', false);
     <command>postgres</command> processes on the server (using
     <application>ps</> on Unix or the <application>Task
     Manager</> on <productname>Windows</>).
-    For the less restrictive <function>pg_cancel_backend</>, the role of an
-    active backend can be found from
-    the <structfield>usename</structfield> column of the
+    The role of an active backend can be found from the
+    <structfield>usename</structfield> column of the
     <structname>pg_stat_activity</structname> view.
    </para>
 

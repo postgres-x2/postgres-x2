@@ -1151,7 +1151,7 @@ select * from d;
 
 -- Test non-inheritable parent constraints
 create table p1(ff1 int);
-alter table p1 add constraint p1chk check no inherit (ff1 > 0);
+alter table p1 add constraint p1chk check (ff1 > 0) no inherit;
 alter table p1 add constraint p2chk check (ff1 > 10);
 -- connoinherit should be true for NO INHERIT constraint
 select pc.relname, pgc.conname, pgc.contype, pgc.conislocal, pgc.coninhcount, pgc.connoinherit from pg_class as pc inner join pg_constraint as pgc on (pgc.conrelid = pc.oid) where pc.relname = 'p1' order by 1,2;
@@ -1169,7 +1169,7 @@ create table c1 () inherits (p1);
 --------+---------+-----------
  ff1    | integer | 
 Check constraints:
-    "p1chk" CHECK NO INHERIT (ff1 > 0)
+    "p1chk" CHECK (ff1 > 0) NO INHERIT
     "p2chk" CHECK (ff1 > 10)
 Number of child tables: 1 (Use \d+ to list them.)
 
@@ -1529,6 +1529,126 @@ DETAIL:  drop cascades to table inht2
 drop cascades to table inhts
 drop cascades to table inht3
 drop cascades to table inht4
+-- Test non-inheritable indices [UNIQUE, EXCLUDE] contraints
+CREATE TABLE test_constraints (id int, val1 varchar, val2 int, UNIQUE(val1, val2));
+NOTICE:  CREATE TABLE / UNIQUE will create implicit index "test_constraints_val1_val2_key" for table "test_constraints"
+CREATE TABLE test_constraints_inh () INHERITS (test_constraints);
+\d+ test_constraints
+                        Table "public.test_constraints"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           |           | plain    |              | 
+ val1   | character varying |           | extended |              | 
+ val2   | integer           |           | plain    |              | 
+Indexes:
+    "test_constraints_val1_val2_key" UNIQUE CONSTRAINT, btree (val1, val2)
+Child tables: test_constraints_inh
+Has OIDs: no
+
+ALTER TABLE ONLY test_constraints DROP CONSTRAINT test_constraints_val1_val2_key;
+\d+ test_constraints
+                        Table "public.test_constraints"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           |           | plain    |              | 
+ val1   | character varying |           | extended |              | 
+ val2   | integer           |           | plain    |              | 
+Child tables: test_constraints_inh
+Has OIDs: no
+
+\d+ test_constraints_inh
+                      Table "public.test_constraints_inh"
+ Column |       Type        | Modifiers | Storage  | Stats target | Description 
+--------+-------------------+-----------+----------+--------------+-------------
+ id     | integer           |           | plain    |              | 
+ val1   | character varying |           | extended |              | 
+ val2   | integer           |           | plain    |              | 
+Inherits: test_constraints
+Has OIDs: no
+
+DROP TABLE test_constraints_inh;
+DROP TABLE test_constraints;
+CREATE TABLE test_ex_constraints (
+    c circle,
+    EXCLUDE USING gist (c WITH &&)
+);
+NOTICE:  CREATE TABLE / EXCLUDE will create implicit index "test_ex_constraints_c_excl" for table "test_ex_constraints"
+CREATE TABLE test_ex_constraints_inh () INHERITS (test_ex_constraints);
+\d+ test_ex_constraints
+                 Table "public.test_ex_constraints"
+ Column |  Type  | Modifiers | Storage | Stats target | Description 
+--------+--------+-----------+---------+--------------+-------------
+ c      | circle |           | plain   |              | 
+Indexes:
+    "test_ex_constraints_c_excl" EXCLUDE USING gist (c WITH &&)
+Child tables: test_ex_constraints_inh
+Has OIDs: no
+
+ALTER TABLE test_ex_constraints DROP CONSTRAINT test_ex_constraints_c_excl;
+\d+ test_ex_constraints
+                 Table "public.test_ex_constraints"
+ Column |  Type  | Modifiers | Storage | Stats target | Description 
+--------+--------+-----------+---------+--------------+-------------
+ c      | circle |           | plain   |              | 
+Child tables: test_ex_constraints_inh
+Has OIDs: no
+
+\d+ test_ex_constraints_inh
+               Table "public.test_ex_constraints_inh"
+ Column |  Type  | Modifiers | Storage | Stats target | Description 
+--------+--------+-----------+---------+--------------+-------------
+ c      | circle |           | plain   |              | 
+Inherits: test_ex_constraints
+Has OIDs: no
+
+DROP TABLE test_ex_constraints_inh;
+DROP TABLE test_ex_constraints;
+-- Test non-inheritable foreign key contraints
+CREATE TABLE test_primary_constraints(id int PRIMARY KEY);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "test_primary_constraints_pkey" for table "test_primary_constraints"
+CREATE TABLE test_foreign_constraints(id1 int REFERENCES test_primary_constraints(id));
+CREATE TABLE test_foreign_constraints_inh () INHERITS (test_foreign_constraints);
+\d+ test_primary_constraints
+               Table "public.test_primary_constraints"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id     | integer | not null  | plain   |              | 
+Indexes:
+    "test_primary_constraints_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "test_foreign_constraints" CONSTRAINT "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
+Has OIDs: no
+
+\d+ test_foreign_constraints
+               Table "public.test_foreign_constraints"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id1    | integer |           | plain   |              | 
+Foreign-key constraints:
+    "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
+Child tables: test_foreign_constraints_inh
+Has OIDs: no
+
+ALTER TABLE test_foreign_constraints DROP CONSTRAINT test_foreign_constraints_id1_fkey;
+\d+ test_foreign_constraints
+               Table "public.test_foreign_constraints"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id1    | integer |           | plain   |              | 
+Child tables: test_foreign_constraints_inh
+Has OIDs: no
+
+\d+ test_foreign_constraints_inh
+             Table "public.test_foreign_constraints_inh"
+ Column |  Type   | Modifiers | Storage | Stats target | Description 
+--------+---------+-----------+---------+--------------+-------------
+ id1    | integer |           | plain   |              | 
+Inherits: test_foreign_constraints
+Has OIDs: no
+
+DROP TABLE test_foreign_constraints_inh;
+DROP TABLE test_foreign_constraints;
+DROP TABLE test_primary_constraints;
 --
 -- Test parameterized append plans for inheritance trees
 --

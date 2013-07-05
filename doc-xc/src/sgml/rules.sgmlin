@@ -7,8 +7,6 @@
   <primary>rule</primary>
  </indexterm>
 
-&common;
-
 <para>
      This chapter discusses the rule system in
      <productname>PostgreSQL</productname>.  Production rule systems
@@ -42,7 +40,6 @@
  <primary>query tree</primary>
 </indexterm>
 
-&common;
 <para>
     To understand how the rule system works it is necessary to know
     when it is invoked and what its input and results are.
@@ -281,7 +278,6 @@
  <secondary>implementation through rules</>
 </indexterm>
 
-&common;
 <para>
     Views in <productname>PostgreSQL</productname> are implemented
     using the rule system. In fact, there is essentially no difference
@@ -316,7 +312,6 @@ CREATE RULE "_RETURN" AS ON SELECT TO myview DO INSTEAD
  <secondary sortas="SELECT">for SELECT</secondary>
 </indexterm>
 
-&common;
 <para>
     Rules <literal>ON SELECT</> are applied to all queries as the last step, even
     if the command given is an <command>INSERT</command>,
@@ -786,14 +781,12 @@ SELECT t1.a, t2.b, t1.ctid FROM t1, t2 WHERE t1.a = t2.a;
     Knowing all that, we can simply apply view rules in absolutely
     the same way to any command. There is no difference.
 </para>
-
 <!## end>
 </sect2>
 
 <sect2>
 <title>The Power of Views in <productname>PostgreSQL</productname></title>
 
-&common;
 <para>
     The above demonstrates how the rule system incorporates view
     definitions into the original query tree. In the second example, a
@@ -823,7 +816,6 @@ SELECT t1.a, t2.b, t1.ctid FROM t1, t2 WHERE t1.a = t2.a;
 <sect2 id="rules-views-update">
 <title>Updating a View</title>
 
-&common;
 <para>
     What happens if a view is named as the target relation for an
     <command>INSERT</command>, <command>UPDATE</command>, or
@@ -901,7 +893,6 @@ SELECT t1.a, t2.b, t1.ctid FROM t1, t2 WHERE t1.a = t2.a;
  <secondary sortas="DELETE">for DELETE</secondary>
 </indexterm>
 
-&common;
 <para>
     Rules that are defined on <command>INSERT</>, <command>UPDATE</>,
     and <command>DELETE</> are significantly different from the view rules
@@ -948,7 +939,6 @@ SELECT t1.a, t2.b, t1.ctid FROM t1, t2 WHERE t1.a = t2.a;
 <sect2>
 <title>How Update Rules Work</title>
 
-&common;
 <para>
     Keep the syntax:
 
@@ -1073,7 +1063,6 @@ CREATE [ OR REPLACE ] RULE <replaceable class="parameter">name</replaceable> AS 
 <sect3>
 <title>A First Rule Step by Step</title>
 
-&common;
 <para>
     Say we want to trace changes to the <literal>sl_avail</> column in the
     <literal>shoelace_data</literal> relation. So we set up a log table
@@ -1323,7 +1312,6 @@ SELECT shoelace_data.sl_name, 0,
 
 <indexterm zone="rules-update-views"><primary>view</><secondary>updating</></>
 
-&common;
 <para>
     A simple way to protect view relations from the mentioned
     possibility that someone can try to run <command>INSERT</command>,
@@ -1771,7 +1759,6 @@ SELECT * FROM shoelace;
  <secondary sortas="Sichten">with views</secondary>
 </indexterm>
 
-&common;
 <para>
     Due to rewriting of queries by the <productname>PostgreSQL</productname>
     rule system, other tables/views than those used in the original
@@ -1846,8 +1833,9 @@ GRANT SELECT ON phone_number TO secretary;
 <para>
     Note that while views can be used to hide the contents of certain
     columns using the technique shown above, they cannot be used to reliably
-    conceal the data in unseen rows.  For example, the following view is
-    insecure:
+    conceal the data in unseen rows unless the
+    <literal>security_barrier</literal> flag has been set.  For example,
+    the following view is insecure:
 <programlisting>
 CREATE VIEW phone_number AS
     SELECT person, phone FROM phone_data WHERE phone NOT LIKE '412%';
@@ -1894,12 +1882,59 @@ SELECT * FROM phone_number WHERE tricky(person, phone);
     which references <literal>shoelace_log</> is an unqualified
     <literal>INSERT</>.  This might not be true in more complex scenarios.
 </para>
+
+<para>
+    When it is necessary for a view to provide row-level security, the
+    <literal>security_barrier</literal> attribute should be applied to
+    the view.  This prevents maliciously-chosen functions and operators from
+    being invoked on rows until after the view has done its work.  For
+    example, if the view shown above had been created like this, it would
+    be secure:
+<programlisting>
+CREATE VIEW phone_number WITH (security_barrier) AS
+    SELECT person, phone FROM phone_data WHERE phone NOT LIKE '412%';
+</programlisting>
+    Views created with the <literal>security_barrier</literal> may perform
+    far worse than views created without this option.  In general, there is
+    no way to avoid this: the fastest possible plan must be rejected
+    if it may compromise security.  For this reason, this option is not
+    enabled by default.
+</para>
+
+<para>
+    The query planner has more flexibility when dealing with functions that
+    have no side effects.  Such functions are referred to as <literal>LEAKPROOF</literal>, and
+    include many simple, commonly used operators, such as many equality
+    operators.  The query planner can safely allow such functions to be evaluated
+    at any point in the query execution process, since invoking them on rows
+    invisible to the user will not leak any information about the unseen rows.
+    In contrast, a function that might throw an error depending on the values
+    received as arguments (such as one that throws an error in the event of
+    overflow or division by zero) are not leak-proof, and could provide
+    significant information about the unseen rows if applied before the security
+    view's row filters.
+</para>
+
+<para>
+    It is important to understand that even a view created with the
+    <literal>security_barrier</literal> option is intended to be secure only
+    in the limited sense that the contents of the invisible tuples will not be
+    passed to possibly-insecure functions.  The user may well have other means
+    of making inferences about the unseen data; for example, they can see the
+    query plan using <command>EXPLAIN</command>, or measure the run time of
+    queries against the view.  A malicious attacker might be able to infer
+    something about the amount of unseen data, or even gain some information
+    about the data distribution or most common values (since these things may
+    affect the run time of the plan; or even, since they are also reflected in
+    the optimizer statistics, the choice of plan).  If these types of "covert
+    channel" attacks are of concern, it is probably unwise to grant any access
+    to the data at all.
+</para>
 </sect1>
 
 <sect1 id="rules-status">
 <title>Rules and Command Status</title>
 
-&common;
 <para>
     The <productname>PostgreSQL</productname> server returns a command
     status string, such as <literal>INSERT 149592 1</>, for each
@@ -1965,16 +2000,6 @@ SELECT * FROM phone_number WHERE tricky(person, phone);
  <secondary sortas="Regeln">compared with rules</secondary>
 </indexterm>
 
-<!## XC>
-&xconly;
-<para>
-    Trigger is not supported by the current release
-    of <productname>Postgres-XC</>.  This may be supported in the
-    future releases.
-</para>
-<!## end>
-
-<!## PG>
 <para>
     Many things that can be done using triggers can also be
     implemented using the <productname>PostgreSQL</productname>
@@ -2190,7 +2215,6 @@ Nestloop
     triggers if their actions result in large and badly qualified
     joins, a situation where the planner fails.
 </para>
-<!## end>
 </sect1>
 
 </chapter>

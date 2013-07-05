@@ -27,6 +27,7 @@ COMMIT [ WORK | TRANSACTION ]
 
  <refsect1>
   <title>Description</title>
+
 &common;
   <para>
    <command>COMMIT</command> commits the current transaction. All
@@ -63,6 +64,17 @@ COMMIT [ WORK | TRANSACTION ]
    Issuing <command>COMMIT</> when not inside a transaction does
    no harm, but it will provoke a warning message.
   </para>
+
+<!## XC>
+&xconly;
+  <para>
+   When more than one node are involved in a transaction, commit may be assosicated with
+   inplicit 2PC and PREPARE command will be issued internaly.
+   In this case, application may have additional restriction
+   related to 2PC restrictions.
+  </para>
+<!## end>
+
  </refsect1>
 
  <refsect1>
@@ -72,8 +84,7 @@ COMMIT [ WORK | TRANSACTION ]
    To commit the current transaction and make all changes permanent:
 <programlisting>
 COMMIT;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

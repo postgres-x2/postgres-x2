@@ -9,7 +9,7 @@
 
 
 <!-- Parameters -->
-<xsl:param name="base.dir" select="'html'"></xsl:param>
+<xsl:param name="base.dir" select="'html/'"></xsl:param>
 <xsl:param name="html.stylesheet" select="'stylesheet.css'"></xsl:param>
 <xsl:param name="use.id.as.filename" select="'1'"></xsl:param>
 <xsl:param name="make.valid.html" select="1"></xsl:param>
@@ -19,6 +19,12 @@
 <xsl:param name="chunker.output.indent" select="'yes'"/>
 <xsl:param name="chunk.quietly" select="1"></xsl:param>
 
+
+<!-- Change display of some elements -->
+
+<xsl:template match="command">
+  <xsl:call-template name="inline.monoseq"/>
+</xsl:template>
 
 <!--
   Format multiple terms in varlistentry vertically, instead

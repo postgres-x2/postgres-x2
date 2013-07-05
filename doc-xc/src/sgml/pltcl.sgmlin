@@ -584,10 +584,6 @@ SELECT 'doesn''t' AS ret
      <primary>trigger</primary>
      <secondary>in PL/Tcl</secondary>
     </indexterm>
-<!## PG>
-<!-- NOTICE:
-     No Trigger yet!
--->
     <para>
      Trigger procedures can be written in PL/Tcl.
 <!## PG>
@@ -786,15 +782,7 @@ CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
      name; that's supplied from the trigger arguments.  This lets the
      trigger procedure be reused with different tables.
     </para>
-<!## end>
-<!## XC>
-&xconly;
-    <para>
-     Trigger is not supported in the current release
-     of <productname>Postgres-XC</>.  This may be supported in the
-     future releases.
-    </para>
-<!## end>
+
    </sect1>
 
    <sect1 id="pltcl-unknown">

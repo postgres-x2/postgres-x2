@@ -31,12 +31,11 @@ NOTIFY <replaceable class="PARAMETER">channel</replaceable> [ , <replaceable cla
 <!## XC>
 &xconly;
   <para>
-   <command>NOTIFY</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
+   <command>NOTIFY</> statement works only locally to the Coordinator or the Database.
+   That is, it can send an event only locally to the node where the command is issued.
   </para>
 <!## end>
 
-<!## PG>
 
   <para>
    The <command>NOTIFY</command> command sends a notification event together
@@ -214,8 +213,7 @@ Asynchronous notification "virtual" with payload "This is the payload" received 
 LISTEN foo;
 SELECT pg_notify('fo' || 'o', 'pay' || 'load');
 Asynchronous notification "foo" with payload "payload" received from server process with PID 14728.
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -225,8 +223,6 @@ Asynchronous notification "foo" with payload "payload" received from server proc
    There is no <command>NOTIFY</command> statement in the SQL
    standard.
   </para>
-<!## end>
-
  </refsect1>
 
  <refsect1>

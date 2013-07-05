@@ -514,15 +514,21 @@
     <term><acronym>PGSQL</acronym></term>
     <listitem>
      <para>
-<!## PG>
       <link linkend="postgres"><productname>PostgreSQL</></link>
-<!## end>
-<!## XC>
-      <link linkend="postgres"><productname>Postgres-XC</></link>
-<!## end>
      </para>
     </listitem>
    </varlistentry>
+
+<!## XC>
+   <varlistentry>
+    <term><acronym>PGXC</acronym></term>
+    <listitem>
+     <para>
+      <link linkend="postgres"><productname>Postgres-XC</></link>
+     </para>
+    </listitem>
+   </varlistentry>
+<!## end>
 
    <varlistentry>
     <term><acronym>PGXS</acronym></term>
@@ -613,6 +619,15 @@
     <listitem>
      <para>
       <link linkend="spi">Server Programming Interface</link>
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><acronym>SP-GiST</acronym></term>
+    <listitem>
+     <para>
+      <link linkend="SPGiST">Space-Partitioned Generalized Search Tree</link>
      </para>
     </listitem>
    </varlistentry>

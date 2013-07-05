@@ -23,12 +23,11 @@ generate_old_dump(void)
 	 * --binary-upgrade records the width of dropped columns in pg_class, and
 	 * restores the frozenid's for databases and relations.
 	 */
-	exec_prog(true, true, UTILITY_LOG_FILE,
-			  SYSTEMQUOTE "\"%s/pg_dumpall\" --port %d --username \"%s\" "
-			  "--schema-only --binary-upgrade %s > \"%s\" 2>> \"%s\""
-			  SYSTEMQUOTE, new_cluster.bindir, old_cluster.port, os_info.user,
+	exec_prog(UTILITY_LOG_FILE, NULL, true,
+			  "\"%s/pg_dumpall\" %s --schema-only --binary-upgrade %s -f %s",
+			  new_cluster.bindir, cluster_conn_opts(&old_cluster),
 			  log_opts.verbose ? "--verbose" : "",
-			  ALL_DUMP_FILE, UTILITY_LOG_FILE);
+			  ALL_DUMP_FILE);
 	check_ok();
 }
 
@@ -59,14 +58,20 @@ split_old_dump(void)
 	char		filename[MAXPGPATH];
 	bool		suppressed_username = false;
 
+
+	/* 
+	 * Open all files in binary mode to avoid line end translation on Windows,
+	 * boths for input and output.
+	 */
+
 	snprintf(filename, sizeof(filename), "%s", ALL_DUMP_FILE);
-	if ((all_dump = fopen(filename, "r")) == NULL)
+	if ((all_dump = fopen(filename, PG_BINARY_R)) == NULL)
 		pg_log(PG_FATAL, "Could not open dump file \"%s\": %s\n", filename, getErrorText(errno));
 	snprintf(filename, sizeof(filename), "%s", GLOBALS_DUMP_FILE);
-	if ((globals_dump = fopen_priv(filename, "w")) == NULL)
+	if ((globals_dump = fopen_priv(filename, PG_BINARY_W)) == NULL)
 		pg_log(PG_FATAL, "Could not write to dump file \"%s\": %s\n", filename, getErrorText(errno));
 	snprintf(filename, sizeof(filename), "%s", DB_DUMP_FILE);
-	if ((db_dump = fopen_priv(filename, "w")) == NULL)
+	if ((db_dump = fopen_priv(filename, PG_BINARY_W)) == NULL)
 		pg_log(PG_FATAL, "Could not write to dump file \"%s\": %s\n", filename, getErrorText(errno));
 
 	current_output = globals_dump;

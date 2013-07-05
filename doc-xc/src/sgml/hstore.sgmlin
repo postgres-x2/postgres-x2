@@ -466,7 +466,7 @@ CREATE INDEX hidx ON testhstore USING HASH (h);
   <para>
    Add a key, or update an existing key with a new value:
 <programlisting>
-UPDATE tab SET h = h || ('c' =&gt; '3');
+UPDATE tab SET h = h || hstore('c', '3');
 </programlisting>
   </para>
 

@@ -21,7 +21,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-TRUNCATE [ TABLE ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [, ... ]
+TRUNCATE [ TABLE ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ] [, ... ]
     [ RESTART IDENTITY | CONTINUE IDENTITY ] [ CASCADE | RESTRICT ]
 </synopsis>
  </refsynopsisdiv>
@@ -30,7 +30,6 @@ TRUNCATE [ TABLE ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [,
   <title>Description</title>
 
 &pgnotice;
-
   <para>
    <command>TRUNCATE</command> quickly removes all rows from a set of
    tables. It has the same effect as an unqualified
@@ -49,10 +48,12 @@ TRUNCATE [ TABLE ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [,
     <term><replaceable class="PARAMETER">name</replaceable></term>
     <listitem>
      <para>
-      The name (optionally schema-qualified) of a table to be
-      truncated.  If <literal>ONLY</> is specified, only that table is
-      truncated.  If <literal>ONLY</> is not specified, the table and
-      all its descendant tables (if any) are truncated.
+      The name (optionally schema-qualified) of a table to truncate.
+      If <literal>ONLY</> is specified before the table name, only that table
+      is truncated.  If <literal>ONLY</> is not specified, the table and all
+      its descendant tables (if any) are truncated.  Optionally, <literal>*</>
+      can be specified after the table name to explicitly indicate that
+      descendant tables are included.
      </para>
     </listitem>
    </varlistentry>
@@ -62,8 +63,7 @@ TRUNCATE [ TABLE ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [,
     <listitem>
      <para>
       Automatically restart sequences owned by columns of
-      the truncated table(s). This feature is not implemented in
-      Postgres-XC currently.
+      the truncated table(s).
      </para>
     </listitem>
    </varlistentry>
@@ -209,8 +209,7 @@ TRUNCATE bigtable, fattable RESTART IDENTITY;
 
 <programlisting>
 TRUNCATE othertable CASCADE;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

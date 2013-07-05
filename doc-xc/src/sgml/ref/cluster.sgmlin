@@ -29,14 +29,8 @@ CLUSTER [VERBOSE]
  <refsect1>
   <title>Description</title>
 
-&common;
   <para>
-<!## PG>
    <command>CLUSTER</command> instructs <productname>PostgreSQL</productname>
-<!## end>
-<!## XC>
-   <command>CLUSTER</command> instructs <productname>Postgres-XC</productname>
-<!## end>
    to cluster the table specified
    by <replaceable class="parameter">table_name</replaceable>
    based on the index specified by
@@ -45,6 +39,7 @@ CLUSTER [VERBOSE]
    <replaceable class="parameter">table_name</replaceable>.
   </para>
 
+&common;
   <para>
    When a table is clustered, it is physically reordered
    based on the index information. Clustering is a one-time operation:
@@ -86,19 +81,11 @@ CLUSTER [VERBOSE]
    database operations (both reads and writes) from operating on the
    table until the <command>CLUSTER</command> is finished.
   </para>
-
-<!## XC>
-&xconly;
-  <para>
-   In <productname>Postgres-XC</>, <command>CLUSTER</> will be
-   executed on all the Datanodes as well.
-  </para>
-<!## end>
  </refsect1>
 
  <refsect1>
   <title>Parameters</title>
-&common;
+
   <variablelist>
    <varlistentry>
     <term><replaceable class="PARAMETER">table_name</replaceable></term>
@@ -216,8 +203,7 @@ CLUSTER employees;
    Cluster all tables in the database that have previously been clustered:
 <programlisting>
 CLUSTER;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -232,7 +218,12 @@ CLUSTER;
 <synopsis>
 CLUSTER <replaceable class="PARAMETER">index_name</replaceable> ON <replaceable class="PARAMETER">table_name</replaceable>
 </synopsis>
+<!## PG>
   is also supported for compatibility with pre-8.3 <productname>PostgreSQL</>
+<!## end>
+<!## XC>
+  is also supported for compatibility with pre-8.3 <productname>Postgres-XC</>
+<!## end>
   versions.
   </para>
  </refsect1>

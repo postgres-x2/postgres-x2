@@ -9,7 +9,6 @@
  </indexterm>
 
 &pgnotice;
-
  <para>
   <productname>PostgreSQL</productname> uses a message-based protocol
   for communication between frontends and backends (clients and servers).
@@ -90,7 +89,6 @@
  <sect2 id="protocol-message-concepts">
   <title>Messaging Overview</title>
 
-&pgnotice;
   <para>
    All communication is through a stream of messages.  The first byte of a
    message identifies the message type, and the next four bytes specify the
@@ -124,15 +122,13 @@
   <sect2 id="protocol-query-concepts">
    <title>Extended Query Overview</title>
 
-&pgnotice;
    <para>
     In the extended-query protocol, execution of SQL commands is divided
     into multiple steps.  The state retained between steps is represented
     by two types of objects: <firstterm>prepared statements</> and
     <firstterm>portals</>.  A prepared statement represents the result of
-    parsing, semantic analysis, and (optionally) planning of a textual query
-    string.
-    A prepared statement is not necessarily ready to execute, because it might
+    parsing and semantic analysis of a textual query string.
+    A prepared statement is not in itself ready to execute, because it might
     lack specific values for <firstterm>parameters</>.  A portal represents
     a ready-to-execute or already-partially-executed statement, with any
     missing parameter values filled in.  (For <command>SELECT</> statements,
@@ -168,7 +164,6 @@
   <sect2 id="protocol-format-codes">
    <title>Formats and Format Codes</title>
 
-&pgnotice;
    <para>
     Data of a particular data type might be transmitted in any of several
     different <firstterm>formats</>.  As of <productname>PostgreSQL</> 7.4
@@ -219,7 +214,6 @@
   <sect2>
    <title>Start-up</title>
 
-&pgnotice;
    <para>
     To begin a session, a frontend opens a connection to the server and sends
     a startup message.  This message includes the names of the user and of the
@@ -302,10 +296,15 @@
       <listitem>
        <para>
         The frontend must now send a PasswordMessage containing the
-        password encrypted via MD5, using the 4-character salt
-        specified in the AuthenticationMD5Password message.  If
-        this is the correct password, the server responds with an
-        AuthenticationOk, otherwise it responds with an ErrorResponse.
+        password (with username) encrypted via MD5, then encrypted
+        again using the 4-byte random salt specified in the
+        AuthenticationMD5Password message.  If this is the correct
+        password, the server responds with an AuthenticationOk,
+        otherwise it responds with an ErrorResponse.  The actual
+        PasswordMessage can be computed in SQL as <literal>concat('md5',
+        md5(concat(md5(concat(password, username)), random-salt)))</>.
+        (Keep in mind the <function>md5()</> function returns its
+        result as a hex string.)
        </para>
       </listitem>
      </varlistentry>
@@ -470,7 +469,6 @@
   <sect2>
    <title>Simple Query</title>
 
-&pgnotice;
    <para>
     A simple query cycle is initiated by the frontend sending a Query message
     to the backend.  The message includes an SQL command (or commands)
@@ -644,7 +642,6 @@
   <sect2 id="protocol-flow-ext-query">
    <title>Extended Query</title>
 
-&pgnotice;
    <para>
     The extended query protocol breaks down the above-described simple
     query protocol into multiple steps.  The results of preparatory
@@ -702,7 +699,7 @@
     the unnamed statement as destination is issued.  (Note that a simple
     Query message also destroys the unnamed statement.)  Named prepared
     statements must be explicitly closed before they can be redefined by
-    a Parse message, but this is not required for the unnamed statement.
+    another Parse message, but this is not required for the unnamed statement.
     Named prepared statements can also be created and accessed at the SQL
     command level, using <command>PREPARE</> and <command>EXECUTE</>.
    </para>
@@ -732,35 +729,14 @@
    </note>
 
    <para>
-    Query planning for named prepared-statement objects occurs when the Parse
-    message is processed. If a query will be repeatedly executed with
-    different parameters, it might be beneficial to send a single Parse message
-    containing a parameterized query, followed by multiple Bind
-    and Execute messages. This will avoid replanning the query on each
-    execution.
+    Query planning typically occurs when the Bind message is processed.
+    If the prepared statement has no parameters, or is executed repeatedly,
+    the server might save the created plan and re-use it during subsequent
+    Bind messages for the same prepared statement.  However, it will do so
+    only if it finds that a generic plan can be created that is not much
+    less efficient than a plan that depends on the specific parameter values
+    supplied.  This happens transparently so far as the protocol is concerned.
    </para>
-
-   <para>
-    The unnamed prepared statement is likewise planned during Parse processing
-    if the Parse message defines no parameters.  But if there are parameters,
-    query planning occurs every time Bind parameters are supplied.  This allows the
-    planner to make use of the actual values of the parameters provided by
-    each Bind message, rather than use generic estimates.
-   </para>
-
-   <note>
-    <para>
-     Query plans generated from a parameterized query might be less
-     efficient than query plans generated from an equivalent query with actual
-     parameter values substituted. The query planner cannot make decisions
-     based on actual parameter values (for example, index selectivity) when
-     planning a parameterized query assigned to a named prepared-statement
-     object.  This possible penalty is avoided when using the unnamed
-     statement, since it is not planned until actual parameter values are
-     available.  The cost is that planning must occur afresh for each Bind,
-     even if the query stays the same.
-    </para>
-   </note>
 
    <para>
     If successfully created, a named portal object lasts till the end of the
@@ -768,8 +744,8 @@
     destroyed at the end of the transaction, or as soon as the next Bind
     statement specifying the unnamed portal as destination is issued.  (Note
     that a simple Query message also destroys the unnamed portal.)  Named
-    portals must be explicitly closed before they can be redefined by a Bind
-    message, but this is not required for the unnamed portal.
+    portals must be explicitly closed before they can be redefined by another
+    Bind message, but this is not required for the unnamed portal.
     Named portals can also be created and accessed at the SQL
     command level, using <command>DECLARE CURSOR</> and <command>FETCH</>.
    </para>
@@ -895,7 +871,6 @@
   <sect2>
    <title>Function Call</title>
 
-&pgnotice;
    <para>
     The Function Call sub-protocol allows the client to request a direct
     call of any function that exists in the database's
@@ -974,7 +949,6 @@
   <sect2 id="protocol-copy">
    <title>COPY Operations</title>
 
-&pgnotice;
    <para>
     The <command>COPY</> command allows high-speed bulk data transfer
     to or from the server.  Copy-in and copy-out operations each switch
@@ -1071,7 +1045,6 @@
   <sect2 id="protocol-async">
    <title>Asynchronous Operations</title>
 
-&pgnotice;
    <para>
     There are several cases in which the backend will send messages that
     are not specifically prompted by the frontend's command stream.
@@ -1155,9 +1128,8 @@
   </sect2>
 
   <sect2>
-   <title>Cancelling Requests in Progress</title>
+   <title>Canceling Requests in Progress</title>
 
-&pgnotice;
    <para>
     During the processing of a query, the frontend might request
     cancellation of the query.  The cancel request is not sent
@@ -1222,7 +1194,6 @@
   <sect2>
    <title>Termination</title>
 
-&pgnotice;
    <para>
     The normal, graceful termination procedure is that the frontend
     sends a Terminate message and immediately closes the connection.
@@ -1263,7 +1234,6 @@
   <sect2>
    <title><acronym>SSL</acronym> Session Encryption</title>
 
-&pgnotice;
    <para>
     If <productname>PostgreSQL</> was built with
     <acronym>SSL</acronym> support, frontend/backend communications
@@ -1296,7 +1266,9 @@
     The frontend should also be prepared to handle an ErrorMessage
     response to SSLRequest from the server.  This would only occur if
     the server predates the addition of <acronym>SSL</acronym> support
-    to <productname>PostgreSQL</>.  In this case the connection must
+    to <productname>PostgreSQL</>.  (Such servers are now very ancient,
+    and likely do not exist in the wild anymore.)
+    In this case the connection must
     be closed, but the frontend might choose to open a fresh connection
     and proceed without requesting <acronym>SSL</acronym>.
    </para>
@@ -1493,6 +1465,54 @@ The commands accepted in walsender mode are:
        The receiving process can send replies back to the sender at any time,
        using one of the following message formats (also in the payload of a
        CopyData message):
+     </para>
+
+     <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Primary keepalive message (B)
+      </term>
+      <listitem>
+      <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Byte1('k')
+      </term>
+      <listitem>
+      <para>
+          Identifies the message as a sender keepalive.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The current end of WAL on the server, given in
+          XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The server's system clock at the time of transmission,
+          given in TimestampTz format.
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
      </para>
 
      <para>
@@ -1743,9 +1763,11 @@ The commands accepted in walsender mode are:
       After the second regular result set, one or more CopyResponse results
       will be sent, one for PGDATA and one for each additional tablespace other
       than <literal>pg_default</> and <literal>pg_global</>. The data in
-      the CopyResponse results will be a tar format (using ustar00
-      extensions) dump of the tablespace contents. After the tar data is
-      complete, a final ordinary result set will be sent.
+      the CopyResponse results will be a tar format (following the
+      <quote>ustar interchange format</> specified in the POSIX 1003.1-2008
+      standard) dump of the tablespace contents, except that the two trailing
+      blocks of zeroes specified in the standard are omitted.
+      After the tar data is complete, a final ordinary result set will be sent.
      </para>
 
      <para>
@@ -1761,14 +1783,19 @@ The commands accepted in walsender mode are:
        </listitem>
        <listitem>
         <para>
+         <filename>postmaster.opts</>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
          <filename>pg_xlog</>, including subdirectories. If the backup is run
-         with wal files included, a synthesized version of pg_xlog will be
+         with WAL files included, a synthesized version of <filename>pg_xlog</filename> will be
          included, but it will only contain the files necessary for the
          backup to work, not the rest of the contents.
         </para>
        </listitem>
       </itemizedlist>
-      Owner, group and file mode are set if the underlying filesystem on
+      Owner, group and file mode are set if the underlying file system on
       the server supports it.
      </para>
      <para>

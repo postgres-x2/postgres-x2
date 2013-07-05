@@ -83,6 +83,15 @@
  * joins, however, the selectivity is defined as the fraction of the left-hand
  * side relation's rows that are expected to have a match (ie, at least one
  * row with a TRUE result) in the right-hand side.
+ *
+ * For both oprrest and oprjoin functions, the operator's input collation OID
+ * (if any) is passed using the standard fmgr mechanism, so that the estimator
+ * function can fetch it with PG_GET_COLLATION().  Note, however, that all
+ * statistics in pg_statistic are currently built using the database's default
+ * collation.  Thus, in most cases where we are looking at statistics, we
+ * should ignore the actual operator collation and use DEFAULT_COLLATION_OID.
+ * We expect that the error induced by doing this is usually not large enough
+ * to justify complicating matters.
  *----------
  */
 
@@ -183,7 +192,11 @@ static RelOptInfo *find_join_input_rel(PlannerInfo *root, Relids relids);
 static Selectivity prefix_selectivity(PlannerInfo *root,
 				   VariableStatData *vardata,
 				   Oid vartype, Oid opfamily, Const *prefixcon);
-static Selectivity pattern_selectivity(Const *patt, Pattern_Type ptype);
+static Selectivity like_selectivity(const char *patt, int pattlen,
+									bool case_insensitive);
+static Selectivity regex_selectivity(const char *patt, int pattlen,
+									 bool case_insensitive,
+									 int fixed_prefix_len);
 static Datum string_to_datum(const char *str, Oid datatype);
 static Const *string_to_const(const char *str, Oid datatype);
 static Const *string_to_bytea_const(const char *str, size_t str_len);
@@ -1097,6 +1110,7 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 	Oid			operator = PG_GETARG_OID(1);
 	List	   *args = (List *) PG_GETARG_POINTER(2);
 	int			varRelid = PG_GETARG_INT32(3);
+	Oid			collation = PG_GET_COLLATION();
 	VariableStatData vardata;
 	Node	   *other;
 	bool		varonleft;
@@ -1105,9 +1119,9 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 	Oid			vartype;
 	Oid			opfamily;
 	Pattern_Prefix_Status pstatus;
-	Const	   *patt = NULL;
+	Const	   *patt;
 	Const	   *prefix = NULL;
-	Const	   *rest = NULL;
+	Selectivity	rest_selec = 0;
 	double		result;
 
 	/*
@@ -1197,17 +1211,20 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 	}
 
 	/*
-	 * Divide pattern into fixed prefix and remainder.	XXX we have to assume
-	 * default collation here, because we don't have access to the actual
-	 * input collation for the operator.  FIXME ...
+	 * Pull out any fixed prefix implied by the pattern, and estimate the
+	 * fractional selectivity of the remainder of the pattern.  Unlike many of
+	 * the other functions in this file, we use the pattern operator's actual
+	 * collation for this step.  This is not because we expect the collation
+	 * to make a big difference in the selectivity estimate (it seldom would),
+	 * but because we want to be sure we cache compiled regexps under the
+	 * right cache key, so that they can be re-used at runtime.
 	 */
 	patt = (Const *) other;
-	pstatus = pattern_fixed_prefix(patt, ptype, DEFAULT_COLLATION_OID,
-								   &prefix, &rest);
+	pstatus = pattern_fixed_prefix(patt, ptype, collation,
+								   &prefix, &rest_selec);
 
 	/*
-	 * If necessary, coerce the prefix constant to the right type. (The "rest"
-	 * constant need not be changed.)
+	 * If necessary, coerce the prefix constant to the right type.
 	 */
 	if (prefix && prefix->consttype != vartype)
 	{
@@ -1281,15 +1298,13 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 		{
 			Selectivity heursel;
 			Selectivity prefixsel;
-			Selectivity restsel;
 
 			if (pstatus == Pattern_Prefix_Partial)
 				prefixsel = prefix_selectivity(root, &vardata, vartype,
 											   opfamily, prefix);
 			else
 				prefixsel = 1.0;
-			restsel = pattern_selectivity(rest, ptype);
-			heursel = prefixsel * restsel;
+			heursel = prefixsel * rest_selec;
 
 			if (selec < 0)		/* fewer than 10 histogram entries? */
 				selec = heursel;
@@ -1847,18 +1862,20 @@ scalararraysel(PlannerInfo *root,
 										elem_nulls[i],
 										elmbyval));
 			if (is_join_clause)
-				s2 = DatumGetFloat8(FunctionCall5(&oprselproc,
-												  PointerGetDatum(root),
-												  ObjectIdGetDatum(operator),
-												  PointerGetDatum(args),
-												  Int16GetDatum(jointype),
-												  PointerGetDatum(sjinfo)));
+				s2 = DatumGetFloat8(FunctionCall5Coll(&oprselproc,
+													  clause->inputcollid,
+													  PointerGetDatum(root),
+													  ObjectIdGetDatum(operator),
+													  PointerGetDatum(args),
+													  Int16GetDatum(jointype),
+													  PointerGetDatum(sjinfo)));
 			else
-				s2 = DatumGetFloat8(FunctionCall4(&oprselproc,
-												  PointerGetDatum(root),
-												  ObjectIdGetDatum(operator),
-												  PointerGetDatum(args),
-												  Int32GetDatum(varRelid)));
+				s2 = DatumGetFloat8(FunctionCall4Coll(&oprselproc,
+													  clause->inputcollid,
+													  PointerGetDatum(root),
+													  ObjectIdGetDatum(operator),
+													  PointerGetDatum(args),
+													  Int32GetDatum(varRelid)));
 
 			if (useOr)
 			{
@@ -1912,18 +1929,20 @@ scalararraysel(PlannerInfo *root,
 			 */
 			args = list_make2(leftop, elem);
 			if (is_join_clause)
-				s2 = DatumGetFloat8(FunctionCall5(&oprselproc,
-												  PointerGetDatum(root),
-												  ObjectIdGetDatum(operator),
-												  PointerGetDatum(args),
-												  Int16GetDatum(jointype),
-												  PointerGetDatum(sjinfo)));
+				s2 = DatumGetFloat8(FunctionCall5Coll(&oprselproc,
+													  clause->inputcollid,
+													  PointerGetDatum(root),
+													  ObjectIdGetDatum(operator),
+													  PointerGetDatum(args),
+													  Int16GetDatum(jointype),
+													  PointerGetDatum(sjinfo)));
 			else
-				s2 = DatumGetFloat8(FunctionCall4(&oprselproc,
-												  PointerGetDatum(root),
-												  ObjectIdGetDatum(operator),
-												  PointerGetDatum(args),
-												  Int32GetDatum(varRelid)));
+				s2 = DatumGetFloat8(FunctionCall4Coll(&oprselproc,
+													  clause->inputcollid,
+													  PointerGetDatum(root),
+													  ObjectIdGetDatum(operator),
+													  PointerGetDatum(args),
+													  Int32GetDatum(varRelid)));
 
 			if (useOr)
 			{
@@ -1962,18 +1981,20 @@ scalararraysel(PlannerInfo *root,
 		dummyexpr->collation = clause->inputcollid;
 		args = list_make2(leftop, dummyexpr);
 		if (is_join_clause)
-			s2 = DatumGetFloat8(FunctionCall5(&oprselproc,
-											  PointerGetDatum(root),
-											  ObjectIdGetDatum(operator),
-											  PointerGetDatum(args),
-											  Int16GetDatum(jointype),
-											  PointerGetDatum(sjinfo)));
+			s2 = DatumGetFloat8(FunctionCall5Coll(&oprselproc,
+												  clause->inputcollid,
+												  PointerGetDatum(root),
+												  ObjectIdGetDatum(operator),
+												  PointerGetDatum(args),
+												  Int16GetDatum(jointype),
+												  PointerGetDatum(sjinfo)));
 		else
-			s2 = DatumGetFloat8(FunctionCall4(&oprselproc,
-											  PointerGetDatum(root),
-											  ObjectIdGetDatum(operator),
-											  PointerGetDatum(args),
-											  Int32GetDatum(varRelid)));
+			s2 = DatumGetFloat8(FunctionCall4Coll(&oprselproc,
+												  clause->inputcollid,
+												  PointerGetDatum(root),
+												  ObjectIdGetDatum(operator),
+												  PointerGetDatum(args),
+												  Int32GetDatum(varRelid)));
 		s1 = useOr ? 0.0 : 1.0;
 
 		/*
@@ -2046,6 +2067,7 @@ rowcomparesel(PlannerInfo *root,
 {
 	Selectivity s1;
 	Oid			opno = linitial_oid(clause->opnos);
+	Oid			inputcollid = linitial_oid(clause->inputcollids);
 	List	   *opargs;
 	bool		is_join_clause;
 
@@ -2086,6 +2108,7 @@ rowcomparesel(PlannerInfo *root,
 		/* Estimate selectivity for a join clause. */
 		s1 = join_selectivity(root, opno,
 							  opargs,
+							  inputcollid,
 							  jointype,
 							  sjinfo);
 	}
@@ -2094,6 +2117,7 @@ rowcomparesel(PlannerInfo *root,
 		/* Estimate selectivity for a restriction clause. */
 		s1 = restriction_selectivity(root, opno,
 									 opargs,
+									 inputcollid,
 									 varRelid);
 	}
 
@@ -4493,8 +4517,10 @@ examine_simple_variable(PlannerInfo *root, Var *var,
 		 */
 		rel = find_base_rel(root, var->varno);
 
-		/* Subquery should have been planned already */
-		Assert(rel->subroot && IsA(rel->subroot, PlannerInfo));
+		/* If the subquery hasn't been planned yet, we have to punt */
+		if (rel->subroot == NULL)
+			return;
+		Assert(IsA(rel->subroot, PlannerInfo));
 
 		/*
 		 * Switch our attention to the subquery as mangled by the planner. It
@@ -5116,9 +5142,9 @@ pattern_char_isalpha(char c, bool is_multibyte,
  *
  * *prefix is set to a palloc'd prefix string (in the form of a Const node),
  *	or to NULL if no fixed prefix exists for the pattern.
- * *rest is set to a palloc'd Const representing the remainder of the pattern
- *	after the portion describing the fixed prefix.
- * Each of these has the same type (TEXT or BYTEA) as the given pattern Const.
+ * If rest_selec is not NULL, *rest_selec is set to an estimate of the
+ *	selectivity of the remainder of the pattern (without any fixed prefix).
+ * The prefix Const has the same type (TEXT or BYTEA) as the input pattern.
  *
  * The return value distinguishes no fixed prefix, a partial prefix,
  * or an exact-match-only pattern.
@@ -5126,12 +5152,11 @@ pattern_char_isalpha(char c, bool is_multibyte,
 
 static Pattern_Prefix_Status
 like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
-				  Const **prefix_const, Const **rest_const)
+				  Const **prefix_const, Selectivity *rest_selec)
 {
 	char	   *match;
 	char	   *patt;
 	int			pattlen;
-	char	   *rest;
 	Oid			typeid = patt_const->consttype;
 	int			pos,
 				match_pos;
@@ -5211,18 +5236,15 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 	}
 
 	match[match_pos] = '\0';
-	rest = &patt[pos];
 
 	if (typeid != BYTEAOID)
-	{
 		*prefix_const = string_to_const(match, typeid);
-		*rest_const = string_to_const(rest, typeid);
-	}
 	else
-	{
 		*prefix_const = string_to_bytea_const(match, match_pos);
-		*rest_const = string_to_bytea_const(rest, pattlen - pos);
-	}
+
+	if (rest_selec != NULL)
+		*rest_selec = like_selectivity(&patt[pos], pattlen - pos,
+									   case_insensitive);
 
 	pfree(patt);
 	pfree(match);
@@ -5239,20 +5261,11 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 
 static Pattern_Prefix_Status
 regex_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
-				   Const **prefix_const, Const **rest_const)
+				   Const **prefix_const, Selectivity *rest_selec)
 {
-	char	   *match;
-	int			pos,
-				match_pos,
-				prev_pos,
-				prev_match_pos;
-	bool		have_leading_paren;
-	char	   *patt;
-	char	   *rest;
 	Oid			typeid = patt_const->consttype;
-	bool		is_multibyte = (pg_database_encoding_max_length() > 1);
-	pg_locale_t locale = 0;
-	bool		locale_is_c = false;
+	char	   *prefix;
+	bool		exact;
 
 	/*
 	 * Should be unnecessary, there are no bytea regex operators defined. As
@@ -5264,201 +5277,79 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 		 errmsg("regular-expression matching not supported on type bytea")));
 
-	if (case_insensitive)
+	/* Use the regexp machinery to extract the prefix, if any */
+	prefix = regexp_fixed_prefix(DatumGetTextPP(patt_const->constvalue),
+								 case_insensitive, collation,
+								 &exact);
+
+	if (prefix == NULL)
 	{
-		/* If case-insensitive, we need locale info */
-		if (lc_ctype_is_c(collation))
-			locale_is_c = true;
-		else if (collation != DEFAULT_COLLATION_OID)
+		*prefix_const = NULL;
+
+		if (rest_selec != NULL)
 		{
-			if (!OidIsValid(collation))
-			{
-				/*
-				 * This typically means that the parser could not resolve a
-				 * conflict of implicit collations, so report it that way.
-				 */
-				ereport(ERROR,
-						(errcode(ERRCODE_INDETERMINATE_COLLATION),
-						 errmsg("could not determine which collation to use for regular expression"),
-						 errhint("Use the COLLATE clause to set the collation explicitly.")));
-			}
-			locale = pg_newlocale_from_collation(collation);
+			char   *patt = TextDatumGetCString(patt_const->constvalue);
+
+			*rest_selec = regex_selectivity(patt, strlen(patt),
+											case_insensitive,
+											0);
+			pfree(patt);
 		}
-	}
-
-	/* the right-hand const is type text for all of these */
-	patt = TextDatumGetCString(patt_const->constvalue);
-
-	/*
-	 * Check for ARE director prefix.  It's worth our trouble to recognize
-	 * this because similar_escape() used to use it, and some other code might
-	 * still use it, to force ARE mode.
-	 */
-	pos = 0;
-	if (strncmp(patt, "***:", 4) == 0)
-		pos = 4;
-
-	/* Pattern must be anchored left */
-	if (patt[pos] != '^')
-	{
-		rest = patt;
-
-		*prefix_const = NULL;
-		*rest_const = string_to_const(rest, typeid);
-
-		return Pattern_Prefix_None;
-	}
-	pos++;
-
-	/*
-	 * If '|' is present in pattern, then there may be multiple alternatives
-	 * for the start of the string.  (There are cases where this isn't so, for
-	 * instance if the '|' is inside parens, but detecting that reliably is
-	 * too hard.)
-	 */
-	if (strchr(patt + pos, '|') != NULL)
-	{
-		rest = patt;
-
-		*prefix_const = NULL;
-		*rest_const = string_to_const(rest, typeid);
 
 		return Pattern_Prefix_None;
 	}
 
-	/* OK, allocate space for pattern */
-	match = palloc(strlen(patt) + 1);
-	prev_match_pos = match_pos = 0;
+	*prefix_const = string_to_const(prefix, typeid);
 
-	/*
-	 * We special-case the syntax '^(...)$' because psql uses it.  But beware:
-	 * sequences beginning "(?" are not what they seem, unless they're "(?:".
-	 * (We must recognize that because of similar_escape().)
-	 */
-	have_leading_paren = false;
-	if (patt[pos] == '(' &&
-		(patt[pos + 1] != '?' || patt[pos + 2] == ':'))
+	if (rest_selec != NULL)
 	{
-		have_leading_paren = true;
-		pos += (patt[pos + 1] != '?' ? 1 : 3);
+		if (exact)
+		{
+			/* Exact match, so there's no additional selectivity */
+			*rest_selec = 1.0;
+		}
+		else
+		{
+			char   *patt = TextDatumGetCString(patt_const->constvalue);
+
+			*rest_selec = regex_selectivity(patt, strlen(patt),
+											case_insensitive,
+											strlen(prefix));
+			pfree(patt);
+		}
 	}
 
-	/* Scan remainder of pattern */
-	prev_pos = pos;
-	while (patt[pos])
-	{
-		int			len;
+	pfree(prefix);
 
-		/*
-		 * Check for characters that indicate multiple possible matches here.
-		 * Also, drop out at ')' or '$' so the termination test works right.
-		 */
-		if (patt[pos] == '.' ||
-			patt[pos] == '(' ||
-			patt[pos] == ')' ||
-			patt[pos] == '[' ||
-			patt[pos] == '^' ||
-			patt[pos] == '$')
-			break;
-
-		/* Stop if case-varying character (it's sort of a wildcard) */
-		if (case_insensitive &&
-		  pattern_char_isalpha(patt[pos], is_multibyte, locale, locale_is_c))
-			break;
-
-		/*
-		 * Check for quantifiers.  Except for +, this means the preceding
-		 * character is optional, so we must remove it from the prefix too!
-		 */
-		if (patt[pos] == '*' ||
-			patt[pos] == '?' ||
-			patt[pos] == '{')
-		{
-			match_pos = prev_match_pos;
-			pos = prev_pos;
-			break;
-		}
-		if (patt[pos] == '+')
-		{
-			pos = prev_pos;
-			break;
-		}
-
-		/*
-		 * Normally, backslash quotes the next character.  But in AREs,
-		 * backslash followed by alphanumeric is an escape, not a quoted
-		 * character.  Must treat it as having multiple possible matches.
-		 * Note: since only ASCII alphanumerics are escapes, we don't have to
-		 * be paranoid about multibyte or collations here.
-		 */
-		if (patt[pos] == '\\')
-		{
-			if (isalnum((unsigned char) patt[pos + 1]))
-				break;
-			pos++;
-			if (patt[pos] == '\0')
-				break;
-		}
-		/* save position in case we need to back up on next loop cycle */
-		prev_match_pos = match_pos;
-		prev_pos = pos;
-		/* must use encoding-aware processing here */
-		len = pg_mblen(&patt[pos]);
-		memcpy(&match[match_pos], &patt[pos], len);
-		match_pos += len;
-		pos += len;
-	}
-
-	match[match_pos] = '\0';
-	rest = &patt[pos];
-
-	if (have_leading_paren && patt[pos] == ')')
-		pos++;
-
-	if (patt[pos] == '$' && patt[pos + 1] == '\0')
-	{
-		rest = &patt[pos + 1];
-
-		*prefix_const = string_to_const(match, typeid);
-		*rest_const = string_to_const(rest, typeid);
-
-		pfree(patt);
-		pfree(match);
-
+	if (exact)
 		return Pattern_Prefix_Exact;	/* pattern specifies exact match */
-	}
-
-	*prefix_const = string_to_const(match, typeid);
-	*rest_const = string_to_const(rest, typeid);
-
-	pfree(patt);
-	pfree(match);
-
-	if (match_pos > 0)
+	else
 		return Pattern_Prefix_Partial;
-
-	return Pattern_Prefix_None;
 }
 
 Pattern_Prefix_Status
 pattern_fixed_prefix(Const *patt, Pattern_Type ptype, Oid collation,
-					 Const **prefix, Const **rest)
+					 Const **prefix, Selectivity *rest_selec)
 {
 	Pattern_Prefix_Status result;
 
 	switch (ptype)
 	{
 		case Pattern_Type_Like:
-			result = like_fixed_prefix(patt, false, collation, prefix, rest);
+			result = like_fixed_prefix(patt, false, collation,
+									   prefix, rest_selec);
 			break;
 		case Pattern_Type_Like_IC:
-			result = like_fixed_prefix(patt, true, collation, prefix, rest);
+			result = like_fixed_prefix(patt, true, collation,
+									   prefix, rest_selec);
 			break;
 		case Pattern_Type_Regex:
-			result = regex_fixed_prefix(patt, false, collation, prefix, rest);
+			result = regex_fixed_prefix(patt, false, collation,
+										prefix, rest_selec);
 			break;
 		case Pattern_Type_Regex_IC:
-			result = regex_fixed_prefix(patt, true, collation, prefix, rest);
+			result = regex_fixed_prefix(patt, true, collation,
+										prefix, rest_selec);
 			break;
 		default:
 			elog(ERROR, "unrecognized ptype: %d", (int) ptype);
@@ -5573,7 +5464,8 @@ prefix_selectivity(PlannerInfo *root, VariableStatData *vardata,
 
 /*
  * Estimate the selectivity of a pattern of the specified type.
- * Note that any fixed prefix of the pattern will have been removed already.
+ * Note that any fixed prefix of the pattern will have been removed already,
+ * so actually we may be looking at just a fragment of the pattern.
  *
  * For now, we use a very simplistic approach: fixed characters reduce the
  * selectivity a good deal, character ranges reduce it a little,
@@ -5587,37 +5479,10 @@ prefix_selectivity(PlannerInfo *root, VariableStatData *vardata,
 #define PARTIAL_WILDCARD_SEL 2.0
 
 static Selectivity
-like_selectivity(Const *patt_const, bool case_insensitive)
+like_selectivity(const char *patt, int pattlen, bool case_insensitive)
 {
 	Selectivity sel = 1.0;
 	int			pos;
-	Oid			typeid = patt_const->consttype;
-	char	   *patt;
-	int			pattlen;
-
-	/* the right-hand const is type text or bytea */
-	Assert(typeid == BYTEAOID || typeid == TEXTOID);
-
-	if (typeid == BYTEAOID && case_insensitive)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		   errmsg("case insensitive matching not supported on type bytea")));
-
-	if (typeid != BYTEAOID)
-	{
-		patt = TextDatumGetCString(patt_const->constvalue);
-		pattlen = strlen(patt);
-	}
-	else
-	{
-		bytea	   *bstr = DatumGetByteaP(patt_const->constvalue);
-
-		pattlen = VARSIZE(bstr) - VARHDRSZ;
-		patt = (char *) palloc(pattlen);
-		memcpy(patt, VARDATA(bstr), pattlen);
-		if ((Pointer) bstr != DatumGetPointer(patt_const->constvalue))
-			pfree(bstr);
-	}
 
 	/* Skip any leading wildcard; it's already factored into initial sel */
 	for (pos = 0; pos < pattlen; pos++)
@@ -5647,13 +5512,11 @@ like_selectivity(Const *patt_const, bool case_insensitive)
 	/* Could get sel > 1 if multiple wildcards */
 	if (sel > 1.0)
 		sel = 1.0;
-
-	pfree(patt);
 	return sel;
 }
 
 static Selectivity
-regex_selectivity_sub(char *patt, int pattlen, bool case_insensitive)
+regex_selectivity_sub(const char *patt, int pattlen, bool case_insensitive)
 {
 	Selectivity sel = 1.0;
 	int			paren_depth = 0;
@@ -5746,26 +5609,10 @@ regex_selectivity_sub(char *patt, int pattlen, bool case_insensitive)
 }
 
 static Selectivity
-regex_selectivity(Const *patt_const, bool case_insensitive)
+regex_selectivity(const char *patt, int pattlen, bool case_insensitive,
+				  int fixed_prefix_len)
 {
 	Selectivity sel;
-	char	   *patt;
-	int			pattlen;
-	Oid			typeid = patt_const->consttype;
-
-	/*
-	 * Should be unnecessary, there are no bytea regex operators defined. As
-	 * such, it should be noted that the rest of this function has *not* been
-	 * made safe for binary (possibly NULL containing) strings.
-	 */
-	if (typeid == BYTEAOID)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		 errmsg("regular-expression matching not supported on type bytea")));
-
-	/* the right-hand const is type text for all of these */
-	patt = TextDatumGetCString(patt_const->constvalue);
-	pattlen = strlen(patt);
 
 	/* If patt doesn't end with $, consider it to have a trailing wildcard */
 	if (pattlen > 0 && patt[pattlen - 1] == '$' &&
@@ -5779,37 +5626,15 @@ regex_selectivity(Const *patt_const, bool case_insensitive)
 		/* no trailing $ */
 		sel = regex_selectivity_sub(patt, pattlen, case_insensitive);
 		sel *= FULL_WILDCARD_SEL;
-		if (sel > 1.0)
-			sel = 1.0;
 	}
+
+	/* If there's a fixed prefix, discount its selectivity */
+	if (fixed_prefix_len > 0)
+		sel /= pow(FIXED_CHAR_SEL, fixed_prefix_len);
+
+	/* Make sure result stays in range */
+	CLAMP_PROBABILITY(sel);
 	return sel;
-}
-
-static Selectivity
-pattern_selectivity(Const *patt, Pattern_Type ptype)
-{
-	Selectivity result;
-
-	switch (ptype)
-	{
-		case Pattern_Type_Like:
-			result = like_selectivity(patt, false);
-			break;
-		case Pattern_Type_Like_IC:
-			result = like_selectivity(patt, true);
-			break;
-		case Pattern_Type_Regex:
-			result = regex_selectivity(patt, false);
-			break;
-		case Pattern_Type_Regex_IC:
-			result = regex_selectivity(patt, true);
-			break;
-		default:
-			elog(ERROR, "unrecognized ptype: %d", (int) ptype);
-			result = 1.0;		/* keep compiler quiet */
-			break;
-	}
-	return result;
 }
 
 
@@ -6310,11 +6135,11 @@ genericcostestimate(PlannerInfo *root,
 	 *
 	 * We can deal with this by adding a very small "fudge factor" that
 	 * depends on the index size.  The fudge factor used here is one
-	 * spc_random_page_cost per 10000 index pages, which should be small
+	 * spc_random_page_cost per 100000 index pages, which should be small
 	 * enough to not alter index-vs-seqscan decisions, but will prevent
 	 * indexes of different sizes from looking exactly equally attractive.
 	 */
-	*indexTotalCost += index->pages * spc_random_page_cost / 10000.0;
+	*indexTotalCost += index->pages * spc_random_page_cost / 100000.0;
 
 	/*
 	 * CPU cost: any complex expressions in the indexquals will need to be

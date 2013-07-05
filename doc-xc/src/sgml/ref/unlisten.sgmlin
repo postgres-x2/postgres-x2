@@ -31,12 +31,9 @@ UNLISTEN { <replaceable class="PARAMETER">channel</replaceable> | * }
 <!## XC>
 &xconly;
   <para>
-   <command>UNLISTEN</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
+   <command>UNLISTEN</> statement works only locally to the issued node.
   </para>
 <!## end>
-
-<!## PG>
 
   <para>
    <command>UNLISTEN</command> is used to remove an existing
@@ -131,7 +128,6 @@ NOTIFY virtual;
   <para>
    There is no <command>UNLISTEN</command> command in the SQL standard.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

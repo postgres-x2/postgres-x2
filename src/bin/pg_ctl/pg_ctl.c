@@ -21,6 +21,7 @@
 #include "postgres_fe.h"
 #include "libpq-fe.h"
 
+#include <fcntl.h>
 #include <locale.h>
 #include <signal.h>
 #include <time.h>
@@ -237,6 +238,9 @@ pg_malloc(size_t size)
 {
 	void	   *result;
 
+	/* Avoid unportable behavior of malloc(0) */
+	if (size == 0)
+		size = 1;
 	result = malloc(size);
 	if (!result)
 	{
@@ -311,50 +315,84 @@ get_pgpid(void)
 static char **
 readfile(const char *path)
 {
-	FILE	   *infile;
-	int			maxlength = 1,
-				linelen = 0;
-	int			nlines = 0;
+	int			fd;
+	int			nlines;
 	char	  **result;
 	char	   *buffer;
-	int			c;
+	char	   *linebegin;
+	int			i;
+	int			n;
+	int			len;
+	struct stat	statbuf;
 
-	if ((infile = fopen(path, "r")) == NULL)
+	/*
+	 * Slurp the file into memory.
+	 *
+	 * The file can change concurrently, so we read the whole file into memory
+	 * with a single read() call. That's not guaranteed to get an atomic
+	 * snapshot, but in practice, for a small file, it's close enough for the
+	 * current use.
+	 */
+	fd = open(path, O_RDONLY | PG_BINARY, 0);
+	if (fd < 0)
 		return NULL;
-
-	/* pass over the file twice - the first time to size the result */
-
-	while ((c = fgetc(infile)) != EOF)
+	if (fstat(fd, &statbuf) < 0)
 	{
-		linelen++;
-		if (c == '\n')
-		{
-			nlines++;
-			if (linelen > maxlength)
-				maxlength = linelen;
-			linelen = 0;
-		}
+		close(fd);
+		return NULL;
+	}
+	if (statbuf.st_size == 0)
+	{
+		/* empty file */
+		close(fd);
+		result = (char **) pg_malloc(sizeof(char *));
+		*result = NULL;
+		return result;
+	}
+	buffer = pg_malloc(statbuf.st_size + 1);
+
+	len = read(fd, buffer, statbuf.st_size + 1);
+	close(fd);
+	if (len != statbuf.st_size)
+	{
+		/* oops, the file size changed between fstat and read */
+		free(buffer);
+		return NULL;
 	}
 
-	/* handle last line without a terminating newline (yuck) */
-	if (linelen)
-		nlines++;
-	if (linelen > maxlength)
-		maxlength = linelen;
-
-	/* set up the result and the line buffer */
-	result = (char **) pg_malloc((nlines + 1) * sizeof(char *));
-	buffer = (char *) pg_malloc(maxlength + 1);
-
-	/* now reprocess the file and store the lines */
-	rewind(infile);
+	/*
+	 * Count newlines. We expect there to be a newline after each full line,
+	 * including one at the end of file. If there isn't a newline at the end,
+	 * any characters after the last newline will be ignored.
+	 */
 	nlines = 0;
-	while (fgets(buffer, maxlength + 1, infile) != NULL)
-		result[nlines++] = xstrdup(buffer);
+	for (i = 0; i < len; i++)
+	{
+		if (buffer[i] == '\n')
+			nlines++;
+	}
 
-	fclose(infile);
+	/* set up the result buffer */
+	result = (char **) pg_malloc((nlines + 1) * sizeof(char *));
+
+	/* now split the buffer into lines */
+	linebegin = buffer;
+	n = 0;
+	for (i = 0; i < len; i++)
+	{
+		if (buffer[i] == '\n')
+		{
+			int		slen = &buffer[i] - linebegin + 1;
+			char   *linebuf = pg_malloc(slen + 1);
+			memcpy(linebuf, linebegin, slen);
+			linebuf[slen] = '\0';
+			result[n++] = linebuf;
+			linebegin = &buffer[i + 1];
+		}
+	}
+	result[n] = NULL;
+
 	free(buffer);
-	result[nlines] = NULL;
 
 	return result;
 }
@@ -1789,13 +1827,13 @@ do_help(void)
 	printf(_("  -D, --pgdata=DATADIR   location of the database storage area\n"));
 	printf(_("  -s, --silent           only print errors, no informational messages\n"));
 	printf(_("  -t, --timeout=SECS     seconds to wait when using -w option\n"));
+	printf(_("  -V, --version          output version information, then exit\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
 #ifdef PGXC
 	printf(_("  -Z NODE-TYPE           can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
 #endif
-	printf(_("  --help                 show this help, then exit\n"));
-	printf(_("  --version              output version information, then exit\n"));
+	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 	printf(_("If the -D option is omitted, the environment variable PGDATA is used.\n"));
 
@@ -1963,7 +2001,7 @@ adjust_data_dir(void)
 	fd = popen(cmd, "r");
 	if (fd == NULL || fgets(filename, sizeof(filename), fd) == NULL)
 	{
-		write_stderr(_("%s: could not determine the data directory using \"%s\"\n"), progname, cmd);
+		write_stderr(_("%s: could not determine the data directory using command \"%s\"\n"), progname, cmd);
 		exit(1);
 	}
 	pclose(fd);

@@ -685,8 +685,8 @@ pgstat_report_stat(bool force)
 	int			i;
 
 	/* Don't expend a clock check if nothing to do */
-	if ((pgStatTabList == NULL || pgStatTabList->tsa_used == 0)
-		&& !have_function_stats)
+	if ((pgStatTabList == NULL || pgStatTabList->tsa_used == 0) &&
+		!have_function_stats && !force)
 		return;
 
 	/*
@@ -3020,6 +3020,8 @@ PgstatCollectorMain(int argc, char *argv[])
 	if (setsid() < 0)
 		elog(FATAL, "setsid() failed: %m");
 #endif
+
+	InitializeLatchSupport();		/* needed for latch waits */
 
 	/* Initialize private latch for use by signal handlers */
 	InitLatch(&pgStatLatch);

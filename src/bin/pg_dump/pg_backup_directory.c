@@ -58,6 +58,7 @@ typedef struct
 	char	   *filename;		/* filename excluding the directory (basename) */
 } lclTocEntry;
 
+/* translator: this is a module name */
 static const char *modulename = gettext_noop("directory archiver");
 
 /* prototypes for private functions */
@@ -83,8 +84,6 @@ static void _EndBlobs(ArchiveHandle *AH, TocEntry *te);
 static void _LoadBlobs(ArchiveHandle *AH, RestoreOptions *ropt);
 
 static char *prependDirectory(ArchiveHandle *AH, const char *relativeFilename);
-
-static void createDirectory(const char *dir);
 
 
 /*
@@ -148,8 +147,9 @@ InitArchiveFmt_Directory(ArchiveHandle *AH)
 
 	if (AH->mode == archModeWrite)
 	{
-		/* Create the directory, errors are caught there */
-		createDirectory(ctx->directory);
+		if (mkdir(ctx->directory, 0700) < 0)
+			exit_horribly(modulename, "could not create directory \"%s\": %s\n",
+						  ctx->directory, strerror(errno));
 	}
 	else
 	{							/* Read Mode */
@@ -628,34 +628,6 @@ _EndBlobs(ArchiveHandle *AH, TocEntry *te)
 	ctx->blobsTocFH = NULL;
 }
 
-static void
-createDirectory(const char *dir)
-{
-	struct stat st;
-
-	/* the directory must not exist yet. */
-	if (stat(dir, &st) == 0)
-	{
-		if (S_ISDIR(st.st_mode))
-			exit_horribly(modulename,
-						  "cannot create directory %s, it exists already\n",
-						  dir);
-		else
-			exit_horribly(modulename,
-						  "cannot create directory %s, a file with this name "
-						  "exists already\n", dir);
-	}
-
-	/*
-	 * Now we create the directory. Note that for some race condition we could
-	 * also run into the situation that the directory has been created just
-	 * between our two calls.
-	 */
-	if (mkdir(dir, 0700) < 0)
-		exit_horribly(modulename, "could not create directory %s: %s",
-					  dir, strerror(errno));
-}
-
 
 static char *
 prependDirectory(ArchiveHandle *AH, const char *relativeFilename)
@@ -667,7 +639,7 @@ prependDirectory(ArchiveHandle *AH, const char *relativeFilename)
 	dname = ctx->directory;
 
 	if (strlen(dname) + 1 + strlen(relativeFilename) + 1 > MAXPGPATH)
-		exit_horribly(modulename, "file name too long: \"%s\"", dname);
+		exit_horribly(modulename, "file name too long: \"%s\"\n", dname);
 
 	strcpy(buf, dname);
 	strcat(buf, "/");

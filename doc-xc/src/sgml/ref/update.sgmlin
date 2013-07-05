@@ -23,9 +23,9 @@ PostgreSQL documentation
 <!## PG>
 <synopsis>
 [ WITH [ RECURSIVE ] <replaceable class="parameter">with_query</replaceable> [, ...] ]
-UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <replaceable class="parameter">alias</replaceable> ]
-    SET { <replaceable class="PARAMETER">column</replaceable> = { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } |
-          ( <replaceable class="PARAMETER">column</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) } [, ...]
+UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ [ AS ] <replaceable class="parameter">alias</replaceable> ]
+    SET { <replaceable class="PARAMETER">column_name</replaceable> = { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } |
+          ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) } [, ...]
     [ FROM <replaceable class="PARAMETER">from_list</replaceable> ]
     [ WHERE <replaceable class="PARAMETER">condition</replaceable> | WHERE CURRENT OF <replaceable class="PARAMETER">cursor_name</replaceable> ]
     [ RETURNING * | <replaceable class="parameter">output_expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...] ]
@@ -33,9 +33,9 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
 <!## end>
 <!## XC>
 <synopsis>
-UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <replaceable class="parameter">alias</replaceable> ]
-    SET { <replaceable class="PARAMETER">column</replaceable> = { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } |
-          ( <replaceable class="PARAMETER">column</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) } [, ...]
+UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ [ AS ] <replaceable class="parameter">alias</replaceable> ]
+    SET { <replaceable class="PARAMETER">column_name</replaceable> = { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } |
+          ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) } [, ...]
     [ WHERE <replaceable class="PARAMETER">condition</replaceable> ]
     [ RETURNING * | <replaceable class="parameter">output_expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...] ]
 </synopsis>
@@ -45,20 +45,11 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
  <refsect1>
   <title>Description</title>
 
-&common;
-
   <para>
    <command>UPDATE</command> changes the values of the specified
    columns in all rows that satisfy the condition. Only the columns to
    be modified need be mentioned in the <literal>SET</literal> clause;
    columns not explicitly modified retain their previous values.
-  </para>
-
-  <para>
-   By default, <command>UPDATE</command> will update rows in the
-   specified table and all its subtables. If you wish to only update
-   the specific table mentioned, you must use the <literal>ONLY</>
-   clause.
   </para>
 
   <para>
@@ -106,10 +97,15 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
    </varlistentry>
 
    <varlistentry>
-    <term><replaceable class="PARAMETER">table</replaceable></term>
+    <term><replaceable class="PARAMETER">table_name</replaceable></term>
     <listitem>
      <para>
       The name (optionally schema-qualified) of the table to update.
+      If <literal>ONLY</> is specified before the table name, matching rows
+      are updated in the named table only.  If <literal>ONLY</> is not
+      specified, matching rows are also updated in any tables inheriting from
+      the named table.  Optionally, <literal>*</> can be specified after the
+      table name to explicitly indicate that descendant tables are included.
      </para>
     </listitem>
    </varlistentry>
@@ -128,11 +124,11 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
    </varlistentry>
 
    <varlistentry>
-    <term><replaceable class="PARAMETER">column</replaceable></term>
+    <term><replaceable class="PARAMETER">column_name</replaceable></term>
     <listitem>
      <para>
-      The name of a column in <replaceable
-      class="PARAMETER">table</replaceable>.
+      The name of a column in the table named by <replaceable
+      class="PARAMETER">table_name</replaceable>.
       The column name can be qualified with a subfield name or array
       subscript, if needed.  Do not include the table's name in the
       specification of a target column &mdash; for example,
@@ -218,19 +214,16 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
     <term><replaceable class="PARAMETER">output_expression</replaceable></term>
     <listitem>
      <para>
-<!## PG>
       An expression to be computed and returned by the <command>UPDATE</>
       command after each row is updated.  The expression can use any
-      column names of the <replaceable class="PARAMETER">table</replaceable>
+<!## PG>
+      column names of the table named by <replaceable class="PARAMETER">table_name</replaceable>
       or table(s) listed in <literal>FROM</>.
-      Write <literal>*</> to return all columns.
 <!## end>
 <!## XC>
-      An expression to be computed and returned by the <command>UPDATE</>
-      command after each row is updated.  The expression can use any
-      column names of the <replaceable class="PARAMETER">table</replaceable>.
-      Write <literal>*</> to return all columns.
+      column names of the table named by <replaceable class="PARAMETER">table_name</replaceable>.
 <!## end>
+      Write <literal>*</> to return all columns.
      </para>
     </listitem>
    </varlistentry>
@@ -256,10 +249,12 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
 UPDATE <replaceable class="parameter">count</replaceable>
 </screen>
    The <replaceable class="parameter">count</replaceable> is the number
-   of rows updated.  If <replaceable class="parameter">count</replaceable> is
-   0, no rows matched the <replaceable
-   class="parameter">condition</replaceable> (this is not considered
-   an error).
+   of rows updated, including matched rows whose values did not change.
+   Note that the number may be less than the number of rows that matched
+   the <replaceable class="parameter">condition</replaceable> when
+   updates were suppressed by a <literal>BEFORE UPDATE</> trigger.  If
+   <replaceable class="parameter">count</replaceable> is 0, no rows were
+   updated by the query (this is not considered an error).
   </para>
 
   <para>
@@ -353,6 +348,7 @@ UPDATE employees SET sales_count = sales_count + 1 FROM accounts
   AND employees.id = accounts.sales_person;
 </programlisting>
   </para>
+
 <!## end>
 
 <!## PG>
@@ -394,9 +390,9 @@ COMMIT;
    <literal>c_films</> is currently positioned:
 <programlisting>
 UPDATE films SET kind = 'Dramatic' WHERE CURRENT OF c_films;
-</programlisting>
-  </para>
+</programlisting></para>
 <!## end>
+
  </refsect1>
 
  <refsect1>

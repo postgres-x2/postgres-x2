@@ -26,7 +26,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     [ (<replaceable>column_name</replaceable> [, ...] ) ]
     [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
     [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-    [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+    [ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
     AS <replaceable>query</replaceable>
     [ WITH [ NO ] DATA ]
 </synopsis>
@@ -37,7 +37,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     [ (<replaceable>column_name</replaceable> [, ...] ) ]
     [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
     [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
-    [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
+    [ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
     [ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
     [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
     AS <replaceable>query</replaceable>
@@ -77,9 +77,8 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     <term><literal>GLOBAL</literal> or <literal>LOCAL</literal></term>
     <listitem>
      <para>
-      Ignored for compatibility. Refer to <xref
-      linkend="sql-createtable"> for
-      details.
+      Ignored for compatibility.  Use of these keywords is deprecated;
+      refer to <xref linkend="sql-createtable"> for details.
      </para>
     </listitem>
    </varlistentry>
@@ -120,10 +119,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     <listitem>
      <para>
       The name of a column in the new table.  If column names are not
-      provided, they are taken from the output column names of the
-      query.  If the table is created from an
-      <command>EXECUTE</command> command, a column name list cannot be
-      specified.
+      provided, they are taken from the output column names of the query.
      </para>
     </listitem>
    </varlistentry>
@@ -198,16 +194,15 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
          </para>
         </listitem>
        </varlistentry>
-      </variablelist>
-     </para>
+      </variablelist></para>
     </listitem>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable></literal></term>
+    <term><literal>TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable></literal></term>
     <listitem>
      <para>
-      The <replaceable class="PARAMETER">tablespace</replaceable> is the name
+      The <replaceable class="PARAMETER">tablespace_name</replaceable> is the name
       of the tablespace in which the new table is to be created.
       If not specified,
       <xref linkend="guc-default-tablespace"> is consulted, or
@@ -333,12 +328,11 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     <term><replaceable>query</replaceable></term>
     <listitem>
      <para>
-      A <xref linkend="sql-select"
-     >, <link linkend="sql-table">TABLE</link>,
-      or
-      <xref linkend="sql-values"> command,
-      or an <xref linkend="sql-execute"> command
-      that runs a prepared <command>SELECT</>, <command>TABLE</>, or <command>VALUES</> query.
+      A <xref linkend="sql-select">, <link
+      linkend="sql-table">TABLE</link>, or <xref linkend="sql-values">
+      command, or an <xref linkend="sql-execute"> command that runs a
+      prepared <command>SELECT</>, <command>TABLE</>, or
+      <command>VALUES</> query.
      </para>
     </listitem>
    </varlistentry>
@@ -369,6 +363,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
    by <command>SELECT INTO</command>.
   </para>
 
+<!## PG>
   <para>
    Prior to <productname>PostgreSQL</productname> 8.0, <command>CREATE
    TABLE AS</command> always included OIDs in the table it
@@ -382,8 +377,9 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
    identical to pre-8.0 releases.  Applications that
    require OIDs in the table created by <command>CREATE TABLE
    AS</command> should explicitly specify <literal>WITH (OIDS)</literal>
-   to ensure proper behavior.
+   to ensure desired behavior.
   </para>
+<!## end>
  </refsect1>
 
  <refsect1>
@@ -419,8 +415,7 @@ PREPARE recentfilms(date) AS
   SELECT * FROM films WHERE date_prod &gt; $1;
 CREATE TEMP TABLE films_recent WITH (OIDS) ON COMMIT DROP AS
   EXECUTE recentfilms('2002-01-01');
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>
@@ -434,7 +429,12 @@ CREATE TEMP TABLE films_recent WITH (OIDS) ON COMMIT DROP AS
     <listitem>
      <para>
       The standard requires parentheses around the subquery clause; in
+<!## PG>
       <productname>PostgreSQL</productname>, these parentheses are
+<!## end>
+<!## XC>
+      <productname>Postgres-XC</productname>, these parentheses are
+<!## end>
       optional.
      </para>
     </listitem>
@@ -442,13 +442,22 @@ CREATE TEMP TABLE films_recent WITH (OIDS) ON COMMIT DROP AS
     <listitem>
      <para>
       In the standard, the <literal>WITH [ NO ] DATA</literal> clause
+<!## PG>
       is required; in PostgreSQL it is optional.
+<!## end>
+<!## XC>
+      is required; in Postgres-XC it is optional.
+<!## end>
      </para>
     </listitem>
 
     <listitem>
-     <para>
-      <productname>PostgreSQL</> handles temporary tables in a way
+<!## PG>
+     <para><productname>PostgreSQL</> handles temporary tables in a way
+<!## end>
+<!## XC>
+     <para><productname>Postgres-XC</> handles temporary tables in a way
+<!## end>
       rather different from the standard; see
       <xref linkend="sql-createtable">
       for details.
@@ -464,13 +473,17 @@ CREATE TEMP TABLE films_recent WITH (OIDS) ON COMMIT DROP AS
 
     <listitem>
      <para>
+<!## PG>
       The <productname>PostgreSQL</productname> concept of tablespaces is not
+<!## end>
+<!## XC>
+      The <productname>Postgres-XC</productname> concept of tablespaces is not
+<!## end>
       part of the standard.  Hence, the clause <literal>TABLESPACE</literal>
       is an extension.
      </para>
     </listitem>
-   </itemizedlist>
-  </para>
+   </itemizedlist></para>
  </refsect1>
 
  <refsect1>

@@ -97,6 +97,7 @@ typedef enum
 	DO_OPERATOR,
 	DO_OPCLASS,
 	DO_OPFAMILY,
+	DO_COLLATION,
 	DO_CONVERSION,
 	DO_TABLE,
 	DO_ATTRDEF,
@@ -118,7 +119,8 @@ typedef enum
 	DO_DEFAULT_ACL,
 	DO_BLOB,
 	DO_BLOB_DATA,
-	DO_COLLATION
+	DO_PRE_DATA_BOUNDARY,
+	DO_POST_DATA_BOUNDARY
 } DumpableObjectType;
 
 typedef struct _dumpableObject
@@ -161,6 +163,7 @@ typedef struct _typeInfo
 	 * produce something different than typname
 	 */
 	char	   *rolname;		/* name of owner, or empty string */
+	char	   *typacl;
 	Oid			typelem;
 	Oid			typrelid;
 	char		typrelkind;		/* 'r', 'v', 'c', etc */
@@ -336,6 +339,8 @@ typedef struct _ruleInfo
 	char		ev_enabled;
 	bool		separate;		/* TRUE if must dump as separate item */
 	/* separate is always true for non-ON SELECT rules */
+	char	   *reloptions;		/* options specified by WITH (...) */
+	/* reloptions is only set if we need to dump the options with the rule */
 } RuleInfo;
 
 typedef struct _triggerInfo
@@ -526,7 +531,8 @@ extern bool simple_string_list_member(SimpleStringList *list, const char *val);
 
 extern void parseOidArray(const char *str, Oid *array, int arraysize);
 
-extern void sortDumpableObjects(DumpableObject **objs, int numObjs);
+extern void sortDumpableObjects(DumpableObject **objs, int numObjs,
+					DumpId preBoundaryId, DumpId postBoundaryId);
 extern void sortDumpableObjectsByTypeName(DumpableObject **objs, int numObjs);
 extern void sortDumpableObjectsByTypeOid(DumpableObject **objs, int numObjs);
 

@@ -527,8 +527,8 @@ ExecBuildProjectionInfo(List *targetList,
 	 * We separate the target list elements into simple Var references and
 	 * expressions which require the full ExecTargetList machinery.  To be a
 	 * simple Var, a Var has to be a user attribute and not mismatch the
-	 * inputDesc.  (Note: if there is a type mismatch then ExecEvalVar will
-	 * probably throw an error at runtime, but we leave that to it.)
+	 * inputDesc.  (Note: if there is a type mismatch then ExecEvalScalarVar
+	 * will probably throw an error at runtime, but we leave that to it.)
 	 */
 	exprlist = NIL;
 	numSimpleVars = 0;
@@ -909,6 +909,9 @@ ExecOpenIndices(ResultRelInfo *resultRelInfo)
 	/*
 	 * For each index, open the index relation and save pg_index info. We
 	 * acquire RowExclusiveLock, signifying we will update the index.
+	 *
+	 * Note: we do this even if the index is not IndexIsReady; it's not worth
+	 * the trouble to optimize for the case where it isn't.
 	 */
 	i = 0;
 	foreach(l, indexoidlist)

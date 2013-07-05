@@ -576,6 +576,17 @@ typedef struct GenericExprState
 } GenericExprState;
 
 /* ----------------
+ *		WholeRowVarExprState node
+ * ----------------
+ */
+typedef struct WholeRowVarExprState
+{
+	ExprState	xprstate;
+	struct PlanState *parent;	/* parent PlanState, or NULL if none */
+	JunkFilter *wrv_junkFilter; /* JunkFilter to remove resjunk cols */
+} WholeRowVarExprState;
+
+/* ----------------
  *		AggrefExprState node
  * ----------------
  */
@@ -723,6 +734,7 @@ typedef struct SubPlanState
 	ExprState  *testexpr;		/* state of combining expression */
 	List	   *args;			/* states of argument expression(s) */
 	HeapTuple	curTuple;		/* copy of most recent tuple from subplan */
+	Datum		curArray;		/* most recent array from ARRAY() subplan */
 	/* these are used when hashing the subselect's output: */
 	ProjectionInfo *projLeft;	/* for projecting lefthand exprs */
 	ProjectionInfo *projRight;	/* for projecting subselect output */

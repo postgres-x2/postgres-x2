@@ -143,7 +143,8 @@ PostgreSQL documentation
        <para>
         Output commands to clean (drop)
         database objects prior to outputting the commands for creating them.
-        (Restore might generate some harmless errors.)
+        (Restore might generate some harmless error messages, if any objects
+        were not present in the destination database.)
        </para>
 
        <para>
@@ -161,8 +162,10 @@ PostgreSQL documentation
        <para>
         Begin the output with a command to create the
         database itself and reconnect to the created database.  (With a
-        script of this form, it doesn't matter which database you connect
-        to before running the script.)
+        script of this form, it doesn't matter which database in the
+        destination installation you connect to before running the script.)
+        If <option>--clean</option> is also specified, the script drops and
+        recreates the target database before reconnecting to it.
        </para>
 
        <para>
@@ -710,7 +713,8 @@ PostgreSQL documentation
        <para>
         Do not dump the contents of unlogged tables.  This option has no
         effect on whether or not the table definitions (schema) are dumped;
-        it only suppresses dumping the table data.
+        it only suppresses dumping the table data. Data in unlogged tables
+        is always excluded when dumping from a standby server.
        </para>
       </listitem>
      </varlistentry>
@@ -736,11 +740,11 @@ PostgreSQL documentation
           sections. The default is to dump all sections.
          </para>
          <para>
-          The data section contains actual table data as well as large-object
-          definitions.
-          Post-data items consist of definitions of indexes, triggers, rules
+          The data section contains actual table data, large-object
+          contents, and sequence values.
+          Post-data items include definitions of indexes, triggers, rules,
           and constraints other than validated check constraints.
-          Pre-data items consist of all other data definition items.
+          Pre-data items include all other data definition items.
          </para>
        </listitem>
      </varlistentry>

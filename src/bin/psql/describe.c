@@ -14,6 +14,8 @@
 
 #include <ctype.h>
 
+#include "catalog/pg_default_acl.h"
+
 #include "common.h"
 #include "describe.h"
 #include "dumputils.h"
@@ -780,7 +782,7 @@ permissionsList(const char *pattern)
 /*
  * \ddp
  *
- * List DefaultACLs.  The pattern can match either schema or role name.
+ * List Default ACLs.  The pattern can match either schema or role name.
  */
 bool
 listDefaultACLs(const char *pattern)
@@ -802,13 +804,18 @@ listDefaultACLs(const char *pattern)
 	printfPQExpBuffer(&buf,
 			   "SELECT pg_catalog.pg_get_userbyid(d.defaclrole) AS \"%s\",\n"
 					  "  n.nspname AS \"%s\",\n"
-					  "  CASE d.defaclobjtype WHEN 'r' THEN '%s' WHEN 'S' THEN '%s' WHEN 'f' THEN '%s' END AS \"%s\",\n"
+					  "  CASE d.defaclobjtype WHEN '%c' THEN '%s' WHEN '%c' THEN '%s' WHEN '%c' THEN '%s' WHEN '%c' THEN '%s' END AS \"%s\",\n"
 					  "  ",
 					  gettext_noop("Owner"),
 					  gettext_noop("Schema"),
+					  DEFACLOBJ_RELATION,
 					  gettext_noop("table"),
+					  DEFACLOBJ_SEQUENCE,
 					  gettext_noop("sequence"),
+					  DEFACLOBJ_FUNCTION,
 					  gettext_noop("function"),
+					  DEFACLOBJ_TYPE,
+					  gettext_noop("type"),
 					  gettext_noop("Type"));
 
 	printACLColumn(&buf, "d.defaclacl");
@@ -1243,13 +1250,14 @@ describeOneTableDetails(const char *schemaname,
 	tableinfo.hastriggers = strcmp(PQgetvalue(res, 0, 4), "t") == 0;
 	tableinfo.hasoids = strcmp(PQgetvalue(res, 0, 5), "t") == 0;
 	tableinfo.reloptions = (pset.sversion >= 80200) ?
-		strdup(PQgetvalue(res, 0, 6)) : 0;
+		strdup(PQgetvalue(res, 0, 6)) : NULL;
 	tableinfo.tablespace = (pset.sversion >= 80000) ?
 		atooid(PQgetvalue(res, 0, 7)) : 0;
-	tableinfo.reloftype = (pset.sversion >= 90000 && strcmp(PQgetvalue(res, 0, 8), "") != 0) ?
-		strdup(PQgetvalue(res, 0, 8)) : 0;
-	tableinfo.relpersistence = (pset.sversion >= 90100 && strcmp(PQgetvalue(res, 0, 9), "") != 0) ?
-		PQgetvalue(res, 0, 9)[0] : 0;
+	tableinfo.reloftype = (pset.sversion >= 90000 &&
+						   strcmp(PQgetvalue(res, 0, 8), "") != 0) ?
+		strdup(PQgetvalue(res, 0, 8)) : NULL;
+	tableinfo.relpersistence = (pset.sversion >= 90100) ?
+		*(PQgetvalue(res, 0, 9)) : 0;
 	PQclear(res);
 	res = NULL;
 
@@ -2230,7 +2238,7 @@ describeOneTableDetails(const char *schemaname,
 			printTableAddFooter(&cont, buf.data);
 		}
 
-		/* OIDs and options */
+		/* OIDs, if verbose */
 		if (verbose)
 		{
 			const char *s = _("Has OIDs");
@@ -2238,21 +2246,9 @@ describeOneTableDetails(const char *schemaname,
 			printfPQExpBuffer(&buf, "%s: %s", s,
 							  (tableinfo.hasoids ? _("yes") : _("no")));
 			printTableAddFooter(&cont, buf.data);
-
-			/* print reloptions */
-			if (pset.sversion >= 80200)
-			{
-				if (tableinfo.reloptions && tableinfo.reloptions[0] != '\0')
-				{
-					const char *t = _("Options");
-
-					printfPQExpBuffer(&buf, "%s: %s", t,
-									  tableinfo.reloptions);
-					printTableAddFooter(&cont, buf.data);
-				}
-			}
 		}
 
+		/* Tablespace info */
 		add_tablespace_footer(&cont, tableinfo.relkind, tableinfo.tablespace,
 							  true);
 #ifdef PGXC
@@ -2309,6 +2305,16 @@ describeOneTableDetails(const char *schemaname,
 			}
 		}
 #endif /* PGXC */
+	}
+
+	/* reloptions, if verbose */
+	if (verbose &&
+		tableinfo.reloptions && tableinfo.reloptions[0] != '\0')
+	{
+		const char *t = _("Options");
+
+		printfPQExpBuffer(&buf, "%s: %s", t, tableinfo.reloptions);
+		printTableAddFooter(&cont, buf.data);
 	}
 
 	printTable(&cont, pset.queryFout, pset.logfile);
