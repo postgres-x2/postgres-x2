@@ -14,19 +14,21 @@ extern char GTMControlFile[];
 
 void GTM_WriteRestorePoint(void)
 {
-	FILE *f = fopen(GTMControlFile, "w");
+	FILE *f;
 
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
+	if (!gtm_need_bkup)
+	{
+		GTM_RWLockRelease(&gtm_bkup_lock);
+		return;
+	}
+
+	f = fopen(GTMControlFile, "w");
 	if (f == NULL)
 	{
 		ereport(LOG, (errno,
 					  errmsg("Cannot open control file"),
 					  errhint("%s", strerror(errno))));
-		return;
-	}
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
-	if (!gtm_need_bkup)
-	{
-		GTM_RWLockRelease(&gtm_bkup_lock);
 		return;
 	}
 	gtm_need_bkup = FALSE;
