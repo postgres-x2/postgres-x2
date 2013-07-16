@@ -2877,18 +2877,19 @@ select b.unique1 from
 --
 -- test handling of potential equivalence clauses above outer joins
 --
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
   where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123);
                                       QUERY PLAN                                      
 --------------------------------------------------------------------------------------
- Nested Loop Left Join
+ Hash Left Join
+   Hash Cond: (a.q1 = b.unique2)
    Filter: ((COALESCE(b.thousand, 123) = a.q1) AND (a.q1 = COALESCE(b.hundred, 123)))
-   ->  Seq Scan on int8_tbl a
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (a.q1 = unique2)
-(5 rows)
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(6 rows)
 
 select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
@@ -2897,18 +2898,19 @@ select q1, unique2, thousand, hundred
 ----+---------+----------+---------
 (0 rows)
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
   where (case when unique2 is null then f1 else 0 end) = 0;
                              QUERY PLAN                             
 --------------------------------------------------------------------
- Nested Loop Left Join
+ Hash Left Join
+   Hash Cond: (a.f1 = b.unique2)
    Filter: (CASE WHEN (b.unique2 IS NULL) THEN a.f1 ELSE 0 END = 0)
-   ->  Seq Scan on int4_tbl a
-   ->  Index Only Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = a.f1)
-(5 rows)
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(6 rows)
 
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
@@ -2921,29 +2923,26 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 --
 -- test ability to push constants through outer join clauses
 --
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
   select * from int4_tbl a left join tenk1 b on f1 = unique2 where f1 = 0;
-                   QUERY PLAN                    
--------------------------------------------------
+                       QUERY PLAN                        
+---------------------------------------------------------
  Nested Loop Left Join
    Join Filter: (a.f1 = b.unique2)
-   ->  Seq Scan on int4_tbl a
-         Filter: (f1 = 0)
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = 0)
-(6 rows)
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(4 rows)
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
   select * from tenk1 a full join tenk1 b using(unique2) where unique2 = 42;
-                   QUERY PLAN                    
--------------------------------------------------
- Merge Full Join
-   Merge Cond: (a.unique2 = b.unique2)
-   ->  Index Scan using tenk1_unique2 on tenk1 a
-         Index Cond: (unique2 = 42)
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = 42)
-(6 rows)
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Hash Full Join
+   Hash Cond: (a.unique2 = b.unique2)
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(5 rows)
 
 --
 -- test join removal
