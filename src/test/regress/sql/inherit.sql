@@ -376,7 +376,7 @@ DROP TABLE test_constraints;
 CREATE TABLE test_ex_constraints (
     c circle,
     EXCLUDE USING gist (c WITH &&)
-);
+) DISTRIBUTE BY REPLICATION;
 CREATE TABLE test_ex_constraints_inh () INHERITS (test_ex_constraints);
 \d+ test_ex_constraints
 ALTER TABLE test_ex_constraints DROP CONSTRAINT test_ex_constraints_c_excl;

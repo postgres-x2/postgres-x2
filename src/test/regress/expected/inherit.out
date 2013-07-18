@@ -1544,6 +1544,8 @@ Indexes:
     "test_constraints_val1_val2_key" UNIQUE CONSTRAINT, btree (val1, val2)
 Child tables: test_constraints_inh
 Has OIDs: no
+Distribute By: HASH(val1)
+Location Nodes: ALL DATANODES
 
 ALTER TABLE ONLY test_constraints DROP CONSTRAINT test_constraints_val1_val2_key;
 \d+ test_constraints
@@ -1555,6 +1557,8 @@ ALTER TABLE ONLY test_constraints DROP CONSTRAINT test_constraints_val1_val2_key
  val2   | integer           |           | plain    |              | 
 Child tables: test_constraints_inh
 Has OIDs: no
+Distribute By: HASH(val1)
+Location Nodes: ALL DATANODES
 
 \d+ test_constraints_inh
                       Table "public.test_constraints_inh"
@@ -1565,13 +1569,15 @@ Has OIDs: no
  val2   | integer           |           | plain    |              | 
 Inherits: test_constraints
 Has OIDs: no
+Distribute By: HASH(id)
+Location Nodes: ALL DATANODES
 
 DROP TABLE test_constraints_inh;
 DROP TABLE test_constraints;
 CREATE TABLE test_ex_constraints (
     c circle,
     EXCLUDE USING gist (c WITH &&)
-);
+) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / EXCLUDE will create implicit index "test_ex_constraints_c_excl" for table "test_ex_constraints"
 CREATE TABLE test_ex_constraints_inh () INHERITS (test_ex_constraints);
 \d+ test_ex_constraints
@@ -1583,6 +1589,8 @@ Indexes:
     "test_ex_constraints_c_excl" EXCLUDE USING gist (c WITH &&)
 Child tables: test_ex_constraints_inh
 Has OIDs: no
+Distribute By: REPLICATION
+Location Nodes: ALL DATANODES
 
 ALTER TABLE test_ex_constraints DROP CONSTRAINT test_ex_constraints_c_excl;
 \d+ test_ex_constraints
@@ -1592,6 +1600,8 @@ ALTER TABLE test_ex_constraints DROP CONSTRAINT test_ex_constraints_c_excl;
  c      | circle |           | plain   |              | 
 Child tables: test_ex_constraints_inh
 Has OIDs: no
+Distribute By: REPLICATION
+Location Nodes: ALL DATANODES
 
 \d+ test_ex_constraints_inh
                Table "public.test_ex_constraints_inh"
@@ -1600,6 +1610,8 @@ Has OIDs: no
  c      | circle |           | plain   |              | 
 Inherits: test_ex_constraints
 Has OIDs: no
+Distribute By: ROUND ROBIN
+Location Nodes: ALL DATANODES
 
 DROP TABLE test_ex_constraints_inh;
 DROP TABLE test_ex_constraints;
@@ -1618,6 +1630,8 @@ Indexes:
 Referenced by:
     TABLE "test_foreign_constraints" CONSTRAINT "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
 Has OIDs: no
+Distribute By: HASH(id)
+Location Nodes: ALL DATANODES
 
 \d+ test_foreign_constraints
                Table "public.test_foreign_constraints"
@@ -1628,6 +1642,8 @@ Foreign-key constraints:
     "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
 Child tables: test_foreign_constraints_inh
 Has OIDs: no
+Distribute By: HASH(id1)
+Location Nodes: ALL DATANODES
 
 ALTER TABLE test_foreign_constraints DROP CONSTRAINT test_foreign_constraints_id1_fkey;
 \d+ test_foreign_constraints
@@ -1637,6 +1653,8 @@ ALTER TABLE test_foreign_constraints DROP CONSTRAINT test_foreign_constraints_id
  id1    | integer |           | plain   |              | 
 Child tables: test_foreign_constraints_inh
 Has OIDs: no
+Distribute By: HASH(id1)
+Location Nodes: ALL DATANODES
 
 \d+ test_foreign_constraints_inh
              Table "public.test_foreign_constraints_inh"
@@ -1645,6 +1663,8 @@ Has OIDs: no
  id1    | integer |           | plain   |              | 
 Inherits: test_foreign_constraints
 Has OIDs: no
+Distribute By: HASH(id1)
+Location Nodes: ALL DATANODES
 
 DROP TABLE test_foreign_constraints_inh;
 DROP TABLE test_foreign_constraints;
@@ -1749,7 +1769,7 @@ insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                                           QUERY PLAN                                           
-----------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
  Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
    Sort Key: ((1 - public.matest0.id))
@@ -1785,7 +1805,7 @@ reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                                           QUERY PLAN                                           
-----------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
  Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
    Sort Key: ((1 - public.matest0.id))
