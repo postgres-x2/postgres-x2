@@ -728,6 +728,26 @@ select distinct min(f1), max(f1) from minmaxtest;
   11 |  18
 (1 row)
 
+-- DISTINCT doesn't do anything useful here, but it shouldn't fail
+explain (costs off, num_nodes off, nodes off)
+  select distinct min(f1), max(f1) from minmaxtest;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ HashAggregate
+   ->  Aggregate
+         ->  Append
+               ->  Data Node Scan on minmaxtest "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on minmaxtest1 "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on minmaxtest2 "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on minmaxtest3 "_REMOTE_TABLE_QUERY_"
+(7 rows)
+
+select distinct min(f1), max(f1) from minmaxtest;
+ min | max 
+-----+-----
+  11 |  18
+(1 row)
+
 drop table minmaxtest cascade;
 NOTICE:  drop cascades to 3 other objects
 DETAIL:  drop cascades to table minmaxtest1

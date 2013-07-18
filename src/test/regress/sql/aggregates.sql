@@ -287,7 +287,7 @@ explain (costs off, nodes off)
 select min(f1), max(f1) from minmaxtest;
 
 -- DISTINCT doesn't do anything useful here, but it shouldn't fail
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
   select distinct min(f1), max(f1) from minmaxtest;
 select distinct min(f1), max(f1) from minmaxtest;
 
