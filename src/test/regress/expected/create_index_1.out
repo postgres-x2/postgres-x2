@@ -2161,27 +2161,36 @@ Indexes:
 -- Try some concurrent index drops
 --
 DROP INDEX CONCURRENTLY "concur_index2";				-- works
-ERROR:  index "concur_index2" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY IF EXISTS "concur_index2";		-- notice
-NOTICE:  index "concur_index2" does not exist, skipping
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 -- failures
 DROP INDEX CONCURRENTLY "concur_index2", "concur_index3";
-ERROR:  index "concur_index2" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 BEGIN;
 DROP INDEX CONCURRENTLY "concur_index5";
-ERROR:  DROP INDEX CONCURRENTLY cannot run inside a transaction block
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 ROLLBACK;
 -- successes
 DROP INDEX CONCURRENTLY IF EXISTS "concur_index3";
-ERROR:  index "concur_index3" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY "concur_index4";
-ERROR:  index "concur_index4" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY "concur_index5";
-ERROR:  index "concur_index5" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY "concur_index1";
-ERROR:  index "concur_index1" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY "concur_heap_expr_idx";
-ERROR:  index "concur_heap_expr_idx" does not exist
+ERROR:  PGXC does not support concurrent INDEX yet
+DETAIL:  The feature is not currently supported
 \d concur_heap
 Table "public.concur_heap"
  Column | Type | Modifiers 

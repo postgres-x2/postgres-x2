@@ -903,7 +903,7 @@ SELECT count(*) FROM dupindexcols
 
 vacuum analyze tenk1;		-- ensure we get consistent plans here
 
-explain (costs off)
+EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
 ORDER BY unique1;
@@ -912,7 +912,7 @@ SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
 ORDER BY unique1;
 
-explain (costs off)
+EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;

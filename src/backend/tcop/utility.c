@@ -883,6 +883,15 @@ standard_ProcessUtility(Node *parsetree,
 			switch (((DropStmt *) parsetree)->removeType)
 			{
 				case OBJECT_INDEX:
+#ifdef PGXC
+					if (((DropStmt *) parsetree)->concurrent)
+					{
+						ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("PGXC does not support concurrent INDEX yet"),
+							 errdetail("The feature is not currently supported")));
+					}
+#endif
 					if (((DropStmt *) parsetree)->concurrent)
 						PreventTransactionChain(isTopLevel,
 												"DROP INDEX CONCURRENTLY");
