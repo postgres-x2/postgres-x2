@@ -190,14 +190,14 @@ explain (costs off, verbose on, nodes off)
 select * from tab1_mod left join tab1_rep on (tab1_mod.val < tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
 			where tab1_mod.val >= 5
 			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
--- OUTER side is replicated and inner is distributed, join is not shippable
-select * from tab1_mod right join tab1_rep on (tab1_mod.val > tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
-			where tab1_rep.val >= 5
-			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+-- OUTER side is replicated and inner is distributed, join is not shippable,
+-- just check the EXPLAIN outputs.
 explain (costs off, verbose on, nodes off)
 select * from tab1_mod right join tab1_rep on (tab1_mod.val > tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
-			where tab1_rep.val >= 5
-			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+			where tab1_rep.val >= 5;
+explain (costs off, verbose on, nodes off)
+select * from tab1_rep left join tab1_mod on (tab1_mod.val > tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
+			where tab1_rep.val >= 5;
 -- Any join involving a distributed and replicated node each located on a single
 -- and same node should be shippable
 select * from single_node_rep_tab natural full outer join single_node_mod_tab order by val, val2;

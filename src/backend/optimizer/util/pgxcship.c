@@ -366,8 +366,9 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Shippability_context *sc_context)
 			 * only all the expressions are shippable. Hence assume that the
 			 * targetlists of the joining relations are shippable.
 			 */
-			result_en = pgxc_is_join_shippable(ren, len, join_expr->jointype,
-												false, false, join_expr->quals);
+			result_en = pgxc_is_join_shippable(ren, len, false, false,
+												join_expr->jointype,
+												join_expr->quals);
 			FreeExecNodes(&len);
 			FreeExecNodes(&ren);
 			return result_en;
