@@ -101,8 +101,8 @@ cmd_t *prepare_initDatanodeMaster(char *nodeName)
 	CleanArray(fileList);
 	freeAndReset(fileList);
 	gtmIdx = getEffectiveGtmProxyIdxFromServerName(aval(VAR_datanodeMasterServers)[idx]);
-	gtmHost = (gtmIdx < 0) ? sval(VAR_gtmMasterServer) : aval(VAR_gtmProxyServers)[idx];
-	gtmPort = (gtmIdx < 0) ? sval(VAR_gtmMasterPort) : aval(VAR_gtmProxyPorts)[idx];
+	gtmHost = (gtmIdx < 0) ? sval(VAR_gtmMasterServer) : aval(VAR_gtmProxyServers)[gtmIdx];
+	gtmPort = (gtmIdx < 0) ? sval(VAR_gtmMasterPort) : aval(VAR_gtmProxyPorts)[gtmIdx];
 	fprintf(f,
 			"port = %s\n"
 			"gtm_host = '%s'\n"
@@ -136,7 +136,7 @@ cmd_t *prepare_initDatanodeMaster(char *nodeName)
 		fprintf(f,
 				"wal_level = hot_standby\n"
 				"archive_mode = on\n"
-				"archive_command = 'rsync %%p %s@%s}:%s/%%f'\n"
+				"archive_command = 'rsync %%p %s@%s:%s/%%f'\n"
 				"max_wal_senders = %s\n"
 				"# End of Addition\n",
 				sval(VAR_pgxcUser), aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodeArchLogDirs)[idx],
