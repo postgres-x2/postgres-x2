@@ -328,7 +328,7 @@ cmd_t *prepare_startGtmMaster(void)
 
 	cmdGtmCtl = initCmd(sval(VAR_gtmMasterServer));
 	snprintf(newCommand(cmdGtmCtl), MAXLINE, 
-			 "gtm_ctl stop -Z gtm -D %s"
+			 "gtm_ctl stop -Z gtm -D %s;"
 			 "rm -f %s/register.node;"
 			 "gtm_ctl start -Z gtm -D %s",
 			 sval(VAR_gtmMasterDir), sval(VAR_gtmMasterDir), sval(VAR_gtmMasterDir));
