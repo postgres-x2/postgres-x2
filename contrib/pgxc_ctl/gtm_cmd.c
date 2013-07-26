@@ -1312,7 +1312,7 @@ int show_config_gtmSlave(int flag, char *hostname)
 	char lineBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
 
-	if (isVarYes(VAR_gtmSlave) || is_none(VAR_gtmSlaveServer))
+	if (!isVarYes(VAR_gtmSlave) || is_none(VAR_gtmSlaveServer))
 	{
 		elog(ERROR, "ERROR: gtm slave is not configured.\n");
 		return 0;
