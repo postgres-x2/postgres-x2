@@ -1229,6 +1229,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 			break;
 		case MSG_END_BACKUP:
 			ProcessGTMEndBackup(myport, input_message);
+			break;
 		case MSG_NODE_BEGIN_REPLICATION_INIT:
 		case MSG_NODE_END_REPLICATION_INIT:
 		case MSG_TXN_BEGIN:
@@ -1294,6 +1295,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_BARRIER:
 		case MSG_BKUP_BARRIER:
 			ProcessBarrierCommand(myport, mtype, input_message);
+			break;
 
 		case MSG_BACKEND_DISCONNECT:
 			GTM_RemoveAllTransInfos(proxyhdr.ph_conid);

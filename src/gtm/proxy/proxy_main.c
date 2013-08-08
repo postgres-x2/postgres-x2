@@ -1600,7 +1600,7 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			break;
 		case MSG_BARRIER:
 			ProcessBarrierCommand(conninfo, gtm_conn, mtype, input_message);
-
+			break;
 		default:
 			ereport(FATAL,
 					(EPROTO,
@@ -1932,6 +1932,28 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			ReleaseCmdBackup(cmdinfo);
 			break;
 
+		case MSG_BARRIER:
+			switch (res->gr_status)
+			{
+				case GTM_RESULT_OK:
+					pq_beginmessage(&buf, 'S');
+					pq_sendint(&buf, res->gr_type, 4);
+					pq_sendbytes(&buf, res->gr_proxy_data, res->gr_msglen);
+					pq_endmessage(cmdinfo->ci_conn->con_port, &buf);
+					pq_flush(cmdinfo->ci_conn->con_port);
+					break;
+
+				default:
+					pq_beginmessage(&buf, 'E');
+					pq_sendbytes(&buf, res->gr_proxy_data, res->gr_msglen);
+					pq_endmessage(cmdinfo->ci_conn->con_port, &buf);
+					pq_flush(cmdinfo->ci_conn->con_port);
+					break;
+			}
+			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
+			break;
+			
 		default:
 			ReleaseCmdBackup(cmdinfo);
 			ereport(FATAL,
