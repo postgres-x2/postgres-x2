@@ -609,14 +609,21 @@
 
     <listitem>
      <para>
-      Using complicated statement in <command>PREPARE</command> steatement may not 
-      be supported (depends upon specific statement). 
+      <literal>SERIALIZABLE</literal> and <literal>REPEATABLE READ</literal> transaction isolation modes are not supported.
      </para>
     </listitem>
 
     <listitem>
      <para>
-      GTM restart point backup for <command>BARRIER</command> may not work with GTM_Proxy.
+      Only constraints which can be enforced only locally to a datanode are supported.
+      For example, UNIQUE constraints for non-distribute column is not supported in distributed tables.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Using complicated statement in <command>PREPARE</command> steatement may not 
+      be supported (depends upon specific statement). 
      </para>
     </listitem>
 
