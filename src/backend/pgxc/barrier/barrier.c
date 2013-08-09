@@ -218,7 +218,7 @@ CheckBarrierCommandStatus(PGXCNodeAllHandles *conn_handles, const char *id,
 	int conn;
 	int count = conn_handles->co_conn_count + conn_handles->dn_conn_count;
 
-	elog(DEBUG2, "Check CREATE BARRIER <%s> %s command status", id, command);
+	elog(DEBUG1, "Check CREATE BARRIER <%s> %s command status", id, command);
 
 	for (conn = 0; conn < count; conn++)
 	{
@@ -241,7 +241,7 @@ CheckBarrierCommandStatus(PGXCNodeAllHandles *conn_handles, const char *id,
 						 	"with error %s", handle->error)));
 	}
 
-	elog(DEBUG2, "Successfully completed CREATE BARRIER <%s> %s command on "
+	elog(DEBUG1, "Successfully completed CREATE BARRIER <%s> %s command on "
 				 "all nodes", id, command);
 }
 
@@ -252,7 +252,7 @@ SendBarrierEndRequest(PGXCNodeAllHandles *coord_handles, const char *id)
 	int msglen;
 	int barrier_idlen;
 
-	elog(DEBUG2, "Sending CREATE BARRIER <%s> END command to all Coordinators", id);
+	elog(DEBUG1, "Sending CREATE BARRIER <%s> END command to all Coordinators", id);
 
 	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
 	{
@@ -311,7 +311,7 @@ PrepareBarrier(const char *id)
 {
 	PGXCNodeAllHandles *coord_handles;
 
-	elog(DEBUG2, "Preparing Coordinators for BARRIER");
+	elog(DEBUG1, "Preparing Coordinators for BARRIER");
 
 	/*
 	 * Send a CREATE BARRIER PREPARE message to all the Coordinators. We should
@@ -356,7 +356,7 @@ ExecuteBarrier(const char *id)
 
 	conn_handles = get_handles(barrierDataNodeList, barrierCoordList, false);
 
-	elog(DEBUG2, "Sending CREATE BARRIER <%s> EXECUTE message to "
+	elog(DEBUG1, "Sending CREATE BARRIER <%s> EXECUTE message to "
 				 "Datanodes and Coordinator", id);
 	/*
 	 * Send a CREATE BARRIER request to all the Datanodes and the Coordinators
@@ -446,7 +446,7 @@ RequestBarrier(const char *id, char *completionTag)
 	PGXCNodeAllHandles *prepared_handles;
 	const char *barrier_id;
 
-	elog(DEBUG2, "CREATE BARRIER request received");
+	elog(DEBUG1, "CREATE BARRIER request received");
 	/*
 	 * Ensure that we are a Coordinator and the request is not from another
 	 * coordinator
@@ -466,7 +466,7 @@ RequestBarrier(const char *id, char *completionTag)
 	 */
 	barrier_id = generate_barrier_id(id);
 
-	elog(DEBUG2, "CREATE BARRIER <%s>", barrier_id);
+	elog(DEBUG1, "CREATE BARRIER <%s>", barrier_id);
 
 	/*
 	 * Step One. Prepare all Coordinators for upcoming barrier request
