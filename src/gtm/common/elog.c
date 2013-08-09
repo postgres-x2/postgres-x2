@@ -846,7 +846,7 @@ send_message_to_server_log(ErrorData *edata)
 
 	/* Write to stderr, if enabled */
 	if (Log_destination & LOG_DESTINATION_STDERR)
-		write(fileno(stderr), buf.data, buf.len);
+		buf.len = write(fileno(stderr), buf.data, buf.len);
 
 	pfree(buf.data);
 }

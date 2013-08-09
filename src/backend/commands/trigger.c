@@ -5706,7 +5706,7 @@ pgxc_has_trigger_for_event(int16 tg_event, TriggerDesc *trigdesc)
 int16
 pgxc_get_trigevent(CmdType commandType)
 {
-	int16			ret;
+	int16			ret = 0;
 
 	switch (commandType)
 	{

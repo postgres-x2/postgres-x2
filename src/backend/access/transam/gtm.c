@@ -385,7 +385,7 @@ GetNextValGTM(char *seqname)
 {
 	GTM_Sequence ret = -1;
 	GTM_SequenceKeyData seqkey;
-	int	status;
+	int	status = GTM_RESULT_OK;
 
 	CheckConnection();
 	seqkey.gsk_keylen = strlen(seqname) + 1;
@@ -522,7 +522,7 @@ int
 ReportBarrierGTM(char *barrier_id)
 {
 	if (!gtm_backup_barrier)
-		return;
+		return GTM_RESULT_OK;
 
 	CheckConnection();
 

@@ -158,7 +158,7 @@ void gtm_util_init_nametabs(void)
 			message_max = message_name_tab[ii].type;
 	}
 	message_name = (char **)malloc(sizeof(char *) * (message_max + 1));
-	memset(message_name, sizeof(char *) * (message_max + 1), 0);
+	memset(message_name, 0, sizeof(char *) * (message_max + 1));
 	for (ii = 0; message_name_tab[ii].type >= 0; ii++)
 	{
 		message_name[message_name_tab[ii].type] = message_name_tab[ii].name;
@@ -170,7 +170,7 @@ void gtm_util_init_nametabs(void)
 			result_max = result_name_tab[ii].type;
 	}
 	result_name = (char **)malloc(sizeof(char *) * (result_max + 1));
-	memset(result_name, sizeof(char *) * (result_max + 1), 0);
+	memset(result_name, 0, sizeof(char *) * (result_max + 1));
 	for (ii = 0; result_name_tab[ii].type >= 0; ii++)
 	{
 		result_name[result_name_tab[ii].type] = result_name_tab[ii].name;

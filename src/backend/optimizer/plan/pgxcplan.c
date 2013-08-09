@@ -511,7 +511,7 @@ pgxc_build_shippable_query_recurse(PlannerInfo *root, RemoteQueryPath *rqpath,
 							List **unshippable_quals, List **rep_tlist)
 {
 	RelOptInfo	*parent_rel = rqpath->path.parent;
-	Query		*result_query;
+	Query		*result_query = NULL;
 
 	switch (parent_rel->reloptkind)
 	{
@@ -726,7 +726,7 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	 */
 	if (root->hasPseudoConstantQuals)
 	{
-		List *quals;
+		List *quals = NULL;
 		switch(rel->reloptkind)
 		{
 			case RELOPT_BASEREL:
@@ -2942,7 +2942,7 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 	Node		*rq_limitCount = NULL;
 	RangeTblEntry	*dummy_rte;
 	Query		*query = root->parse;	/* Query being planned */
-	Plan		*temp_plan;
+	Plan		*temp_plan = NULL;
 
 	/* If GUC forbids this optimization, return */
 	if (!enable_remotelimit)

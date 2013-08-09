@@ -350,7 +350,7 @@ ExecDelete(ItemPointer tupleid,
 	TransactionId update_xmax;
 #ifdef PGXC
 	RemoteQueryState  *resultRemoteRel = NULL;
-	TupleTableSlot *slot;
+	TupleTableSlot *slot = NULL;
 #endif
 
 	/*
