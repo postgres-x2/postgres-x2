@@ -1130,6 +1130,7 @@ GTMProxy_ThreadMain(void *argp)
 	int ii, nrfds;
 	char gtm_connect_string[1024];
 	int	first_turn = TRUE;	/* Used only to set longjmp target at the first turn of thread loop */
+	GTMProxy_CommandData cmd_data = {};
 
 	elog(DEBUG3, "Starting the connection helper thread");
 
@@ -1391,7 +1392,6 @@ setjmp_again:
 			/*
 			 * Correction of pending works.
 			 */
-			thrinfo->thr_processed_commands = gtm_NIL;
 			for (ii = 0; ii < MSG_TYPE_COUNT; ii++)
 			{
 				thrinfo->thr_pending_commands[ii] = gtm_NIL;
@@ -1430,7 +1430,8 @@ setjmp_again:
 				 * to the remove_list and cleanup at the end of this round of
 				 * cleanup.
 				 */
-				GTMProxy_HandleDisconnect(thrinfo->thr_conn, thrinfo->thr_gtm_conn);
+				GTMProxy_CommandPending(thrinfo->thr_conn,
+							MSG_BACKEND_DISCONNECT, cmd_data);
 				continue;
 			}
 
@@ -1464,7 +1465,8 @@ setjmp_again:
 						 * to the server to quickly find the backend connection
 						 * while processing proxied messages.
 						 */
-						GTMProxy_HandleDisconnect(thrinfo->thr_conn, thrinfo->thr_gtm_conn);
+						GTMProxy_CommandPending(thrinfo->thr_conn,
+												MSG_BACKEND_DISCONNECT, cmd_data);
 						break;
 					default:
 						/*
@@ -2672,7 +2674,9 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 	{
 		int res_index = 0;
 
-		if (gtm_list_length(thrinfo->thr_pending_commands[ii]) == 0)
+		/* We process backend disconnects last! */
+		if (ii == MSG_BACKEND_DISCONNECT ||
+				gtm_list_length(thrinfo->thr_pending_commands[ii]) == 0)
 			continue;
 
 		/*
@@ -2847,7 +2851,15 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 			default:
 				elog(ERROR, "This message type (%d) can not be grouped together", ii);
 		}
-
+	}
+	/* Process backend disconnect messages now */
+	gtm_foreach (elem, thrinfo->thr_pending_commands[MSG_BACKEND_DISCONNECT])
+	{
+		ereport(COMMERROR,
+				(EPROTO,
+				 errmsg("cleaning up client disconnection")));
+		cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
+		GTMProxy_HandleDisconnect(cmdinfo->ci_conn, gtm_conn);
 	}
 }
 

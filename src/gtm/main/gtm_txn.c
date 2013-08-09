@@ -156,7 +156,12 @@ GTM_GXIDToHandle(GlobalTransactionId gxid)
 	if (gtm_txninfo != NULL)
 		return gtm_txninfo->gti_handle;
 	else
+	{
+		ereport(WARNING,
+				(ERANGE, errmsg("No transaction handle for gxid: %d",
+								gxid)));
 		return InvalidTransactionHandle;
+	}
 }
 
 /*
