@@ -40,6 +40,7 @@ static void init_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo,
 									 GTM_IsolationLevel isolevel,
 									 GTMProxy_ConnID connid,
 									 bool readonly);
+static void clean_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo);
 GTM_Transactions GTMTransactions;
 
 void
@@ -260,21 +261,7 @@ GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 		/*
 		 * Now mark the transaction as aborted and mark the structure as not-in-use
 		 */
-		gtm_txninfo[ii]->gti_state = GTM_TXN_ABORTED;
-		gtm_txninfo[ii]->gti_in_use = false;
-		gtm_txninfo[ii]->gti_snapshot_set = false;
-
-		/* Clean-up also structures that were used for prepared transactions */
-		if (gtm_txninfo[ii]->gti_gid)
-		{
-			pfree(gtm_txninfo[ii]->gti_gid);
-			gtm_txninfo[ii]->gti_gid = NULL;
-		}
-		if (gtm_txninfo[ii]->nodestring)
-		{
-			pfree(gtm_txninfo[ii]->nodestring);
-			gtm_txninfo[ii]->nodestring = NULL;
-		}
+		clean_GTM_TransactionInfo(gtm_txninfo[ii]);
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
@@ -329,20 +316,7 @@ GTM_RemoveAllTransInfos(int backend_id)
 			/*
 			 * Now mark the transaction as aborted and mark the structure as not-in-use
 			 */
-			gtm_txninfo->gti_state = GTM_TXN_ABORTED;
-			gtm_txninfo->gti_in_use = false;
-			gtm_txninfo->gti_snapshot_set = false;
-
-			if (gtm_txninfo->gti_gid)
-			{
-				pfree(gtm_txninfo->gti_gid);
-				gtm_txninfo->gti_gid = NULL;
-			}
-			if (gtm_txninfo->nodestring)
-			{
-				pfree(gtm_txninfo->nodestring);
-				gtm_txninfo->nodestring = NULL;
-			}
+			clean_GTM_TransactionInfo(gtm_txninfo);
 
 			/* move to next cell in the list */
 			if (prev)
@@ -744,7 +718,7 @@ init_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo,
 	gtm_txninfo->gti_gxid = InvalidGlobalTransactionId;
 	gtm_txninfo->gti_xmin = InvalidGlobalTransactionId;
 	gtm_txninfo->gti_state = GTM_TXN_STARTING;
-	gtm_txninfo->gti_coordname = pstrdup(coord_name);
+	gtm_txninfo->gti_coordname = (coord_name ? pstrdup(coord_name) : NULL);
 
 	gtm_txninfo->gti_isolevel = isolevel;
 	gtm_txninfo->gti_readonly = readonly;
@@ -757,6 +731,35 @@ init_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo,
 	gtm_txninfo->gti_handle = txn;
 	gtm_txninfo->gti_vacuum = false;
 	gtm_txninfo->gti_thread_id = pthread_self();
+}
+
+
+/*
+ * Clean up the TransactionInfo slot and pfree all the palloc'ed memory,
+ * except txid array of the snapshot, which is reused.
+ */
+static void
+clean_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo)
+{
+	gtm_txninfo->gti_state = GTM_TXN_ABORTED;
+	gtm_txninfo->gti_in_use = false;
+	gtm_txninfo->gti_snapshot_set = false;
+
+	if (gtm_txninfo->gti_coordname)
+	{
+		pfree(gtm_txninfo->gti_coordname);
+		gtm_txninfo->gti_coordname = NULL;
+	}
+	if (gtm_txninfo->gti_gid)
+	{
+		pfree(gtm_txninfo->gti_gid);
+		gtm_txninfo->gti_gid = NULL;
+	}
+	if (gtm_txninfo->nodestring)
+	{
+		pfree(gtm_txninfo->nodestring);
+		gtm_txninfo->nodestring = NULL;
+	}
 }
 
 
@@ -1447,9 +1450,9 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 	/*
 	 * Start a new transaction
 	 *
-	 * XXX Port should contain Coordinator name - replace "" with that
+	 * XXX Port should contain Coordinator name - replace NULL with that
 	 */
-	count = GTM_BeginTransactionMulti("", txn_isolation_level, txn_read_only, txn_connid,
+	count = GTM_BeginTransactionMulti(NULL, txn_isolation_level, txn_read_only, txn_connid,
 									  txn_count, txn);
 	if (count != txn_count)
 		ereport(ERROR,
