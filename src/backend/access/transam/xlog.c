@@ -5904,7 +5904,11 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 	char		*recordBarrierId = NULL;
 #endif
 	uint8		record_info;
+#ifdef PGXC
+	TimestampTz recordXtime = 0;
+#else
 	TimestampTz recordXtime;
+#endif
 	char		recordRPName[MAXFNAMELEN];
 
 #ifdef PGXC

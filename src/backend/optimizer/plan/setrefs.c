@@ -607,9 +607,9 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 				ModifyTable *splan = (ModifyTable *) plan;
 #ifdef PGXC
 				int n = 0;
-				List	*firstRetList;	/* First returning list required for
-										 * setting up visible plan target list
-										 */
+				List	*firstRetList = NULL;	/* First returning list required for
+												 * setting up visible plan target list
+												 */
 #endif
 
 				Assert(splan->plan.targetlist == NIL);

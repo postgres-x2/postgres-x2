@@ -48,7 +48,7 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
 						JoinType jointype, List *join_restrictlist)
 {
 	RemoteQueryPath	*rqpath = makeNode(RemoteQueryPath);
-	bool			unshippable_quals;
+	bool			unshippable_quals = false;
 
 	if (rel->reloptkind == RELOPT_JOINREL && (!leftpath || !rightpath))
 		elog(ERROR, "a join rel requires both the left path and right path");

@@ -484,7 +484,7 @@ RequestBarrier(const char *id, char *completionTag)
 	 */
 	EndBarrier(prepared_handles, barrier_id);
 	/* Finally report the barrier to GTM to backup its restart point */
-	ReportBarrierGTM(barrier_id);
+	ReportBarrierGTM((char *)barrier_id);
 
 	/* Free the handles */
 	pfree_pgxc_all_handles(prepared_handles);
