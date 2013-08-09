@@ -256,7 +256,7 @@
     <listitem>
      <para>
       Backup gtm restart point when <command>CREATE BARRIER</command> is issued. 
-      Still tested at beta, by Koichi Suzuki.
+      By Koichi Suzuki.  Reviewd by Pavan Deolasee and Nikhin Sontakke.
      </para>
     </listitem>
 
@@ -409,13 +409,13 @@
 
     <listitem>
      <para>
-      Release GTM thread lock before exit, by Andrei Martinchyk.
+      Release GTM thread lock before exit, by Andrei Martsinchyk.
      </para>
     </listitem>
 
     <listitem>
      <para>
-      Block GXID generation on standbys, by Andrei Martinchyk.
+      Block GXID generation on standbys, by Andrei Martsinchyk.
      </para>
     </listitem>
 
@@ -594,7 +594,33 @@
 
     <listitem>
      <para>
-      Fix sequence backup to <application>gtm</application> slave, by Andrei Martinchyk.
+      Fix sequence backup to <application>gtm</application> slave, by Andrei Martsinchyk.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix incorrect disconnect handling in GTM Proxy, by Andrei Martsinchyk.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix message level related to <literal>BARRIER</literal>, by Koichi Suzuki.
+      Reviewd by Michael Paquier and Nikhil Sontakke.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix potential memory leak at coordinator part of GTM, by Andrei Martsinchyk.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix calculation of gxid range in MSG_TXN_BEGIN_GETGXID_MULTI message handling in GTM,
+      by Nikhil Sontakke.
      </para>
     </listitem>
 
