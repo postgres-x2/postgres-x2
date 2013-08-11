@@ -80,26 +80,26 @@ gtm_standby_restore_next_gxid(void)
 int
 gtm_standby_restore_sequence(void)
 {
-	GTM_SeqInfo *seq_list[1024];
+	GTM_SeqInfo *seq_list;
 	int num_seq;
 	int i;
 
 	/*
 	 * Restore sequence data.
 	 */
-	num_seq = get_sequence_list(GTM_ActiveConn, seq_list, 1024);
+	num_seq = get_sequence_list(GTM_ActiveConn, &seq_list);
 
 	for (i = 0; i < num_seq; i++)
 	{
-		GTM_SeqRestore(seq_list[i]->gs_key,
-					   seq_list[i]->gs_increment_by,
-					   seq_list[i]->gs_min_value,
-					   seq_list[i]->gs_max_value,
-					   seq_list[i]->gs_init_value,
-					   seq_list[i]->gs_value,
-					   seq_list[i]->gs_state,
-					   seq_list[i]->gs_cycle,
-					   seq_list[i]->gs_called);
+		GTM_SeqRestore(seq_list[i].gs_key,
+					   seq_list[i].gs_increment_by,
+					   seq_list[i].gs_min_value,
+					   seq_list[i].gs_max_value,
+					   seq_list[i].gs_init_value,
+					   seq_list[i].gs_value,
+					   seq_list[i].gs_state,
+					   seq_list[i].gs_cycle,
+					   seq_list[i].gs_called);
 	}
 
 	elog(LOG, "Restoring sequences done.");

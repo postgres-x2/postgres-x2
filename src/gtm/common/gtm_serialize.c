@@ -965,13 +965,11 @@ gtm_serialize_sequence(GTM_SeqInfo *s, char *buf, size_t buflen)
 /*
  * Return number of deserialized sequence information
  */
-GTM_SeqInfo *
-gtm_deserialize_sequence(const char *buf, size_t buflen)
+size_t
+gtm_deserialize_sequence(GTM_SeqInfo *seq, const char *buf, size_t buflen)
 {
 	size_t len = 0;
-	GTM_SeqInfo *seq;
 
-	seq = (GTM_SeqInfo *)genAlloc0(sizeof(GTM_SeqInfo));
 	seq->gs_key = (GTM_SequenceKeyData *)genAlloc0(sizeof(GTM_SequenceKeyData));
 
 	memcpy(&seq->gs_key->gsk_keylen, buf + len, sizeof(uint32));
@@ -1014,5 +1012,5 @@ gtm_deserialize_sequence(const char *buf, size_t buflen)
 	memcpy(&seq->gs_state, buf + len, sizeof(uint32));
 	len += sizeof(uint32);
 
-	return seq;
+	return len;
 }

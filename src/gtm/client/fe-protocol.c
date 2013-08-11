@@ -570,7 +570,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			}
 
 			result->gr_resdata.grd_seq_list.seq =
-						(GTM_SeqInfo **)malloc(sizeof(GTM_SeqInfo *) *
+						(GTM_SeqInfo **)malloc(sizeof(GTM_SeqInfo) *
 											   result->gr_resdata.grd_seq_list.seq_count);
 
 			for (i = 0 ; i < result->gr_resdata.grd_seq_list.seq_count; i++)
@@ -593,7 +593,8 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 					break;
 				}
 
-				result->gr_resdata.grd_seq_list.seq[i] = gtm_deserialize_sequence(buf, buflen);
+				gtm_deserialize_sequence(result->gr_resdata.grd_seq_list.seq+i,
+										 buf, buflen);
 
 				free(buf);
 			}

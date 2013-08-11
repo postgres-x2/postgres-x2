@@ -349,13 +349,14 @@ send_failed:
  * get_sequence_list()
  *
  * returns a number of sequences on success, -1 on failure.
+ * Returned seq_list is pointing to GTM_Result structure, the data should be
+ * copied before the next call to getResult.
  */
 size_t
-get_sequence_list(GTM_Conn *conn, GTM_SeqInfo **seq_list, size_t seq_max)
+get_sequence_list(GTM_Conn *conn, GTM_SeqInfo **seq_list)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
-	int i;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
@@ -381,15 +382,9 @@ get_sequence_list(GTM_Conn *conn, GTM_SeqInfo **seq_list, size_t seq_max)
 	if (res->gr_status == GTM_RESULT_OK)
 		Assert(res->gr_type == SEQUENCE_LIST_RESULT);
 
-	for (i = 0; i < res->gr_resdata.grd_seq_list.seq_count; i++)
-	{
-		seq_list[i] = res->gr_resdata.grd_seq_list.seq[i];
+	*seq_list = res->gr_resdata.grd_seq_list.seq;
 
-		if ( i >= seq_max )
-			break;
-	}
-
-	return i;
+	return res->gr_resdata.grd_seq_list.seq_count;
 
 receive_failed:
 send_failed:
