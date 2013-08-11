@@ -1048,9 +1048,9 @@ void
 ProcessSequenceListCommand(Port *myport, StringInfo message)
 {
 	StringInfoData buf;
-	int seq_count = 0;
-	MemoryContext oldContext;
-	GTM_SeqInfo *seq_list[1024]; /* FIXME: make it expandable. */
+	int seq_count;
+	int seq_maxcount;
+	GTM_SeqInfo **seq_list;
 	int i;
 
 	if (Recovery_IsStandby())
@@ -1058,39 +1058,57 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 			(EPERM,
 			 errmsg("Operation not permitted under the standby mode.")));
 
-	memset(seq_list, 0, sizeof(GTM_SeqInfo *) * 1024);
-
-	/*
-	 * We must use the TopMostMemoryContext because the sequence information is
-	 * not bound to a thread and can outlive any of the thread specific
-	 * contextes.
-	 */
-	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+	seq_count = 0;
+	seq_maxcount = 1024;
+	seq_list = (GTM_SeqInfo **) palloc(seq_maxcount * sizeof(GTM_SeqInfo *));;
 
 	/*
 	 * Store pointers to all GTM_SeqInfo in the hash buckets into an array.
 	 */
+	for (i = 0 ; i < SEQ_HASH_TABLE_SIZE ; i++)
 	{
 		GTM_SeqInfoHashBucket *b;
 		gtm_ListCell *elem;
 
-		for (i = 0 ; i < SEQ_HASH_TABLE_SIZE ; i++)
+		b = &GTMSequences[i];
+
+		GTM_RWLockAcquire(&b->shb_lock, GTM_LOCKMODE_READ);
+
+		gtm_foreach(elem, b->shb_list)
 		{
-			b = &GTMSequences[i];
-
-			GTM_RWLockAcquire(&b->shb_lock, GTM_LOCKMODE_READ);
-
-			gtm_foreach(elem, b->shb_list)
+			/* Allocate larger array if required */
+			if (seq_count == seq_maxcount)
 			{
-				seq_list[seq_count] = (GTM_SeqInfo *) gtm_lfirst(elem);
-				seq_count++;
+				int 			newcount;
+				GTM_SeqInfo   **newlist;
+
+				newcount = 2 * seq_maxcount;
+				newlist = (GTM_SeqInfo **) repalloc(seq_list, newcount * sizeof(GTM_SeqInfo *));
+				/*
+				 * If failed try to get less. It is unlikely to happen, but
+				 * let's be safe.
+				 */
+				while (newlist == NULL)
+				{
+					newcount = seq_maxcount + (newcount - seq_maxcount) / 2 - 1;
+					if (newcount <= seq_maxcount)
+					{
+						/* give up */
+						ereport(ERROR,
+								(ERANGE,
+								 errmsg("Can not list all the sequences")));
+					}
+					newlist = (GTM_SeqInfo **) repalloc(seq_list, newcount * sizeof(GTM_SeqInfo *));
+				}
+				seq_maxcount = newcount;
+				seq_list = newlist;
 			}
-
-			GTM_RWLockRelease(&b->shb_lock);
+			seq_list[seq_count] = (GTM_SeqInfo *) gtm_lfirst(elem);
+			seq_count++;
 		}
-	}
 
-	MemoryContextSwitchTo(oldContext);
+		GTM_RWLockRelease(&b->shb_lock);
+	}
 
 	pq_getmsgend(message);
 
@@ -1107,22 +1125,33 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 	/* Send a number of sequences */
 	pq_sendint(&buf, seq_count, 4);
 
-	for (i = 0 ; i < seq_count ; i++)
+	/*
+	 * Send sequences from the array
+	 */
 	{
-		char *seq_buf;
-		size_t seq_buflen;
+		/*
+		 * TODO set initial size big enough to fit any sequence, and avoid
+		 * reallocations.
+		 */
+		size_t seq_maxlen = 256;
+		char *seq_buf = (char *) palloc(seq_maxlen);
 
-		seq_buflen = gtm_get_sequence_size(seq_list[i]);
-		seq_buf = (char *)malloc(seq_buflen);
+		for (i = 0 ; i < seq_count ; i++)
+		{
+			size_t seq_buflen = gtm_get_sequence_size(seq_list[i]);
+			if (seq_buflen > seq_maxlen)
+			{
+				seq_maxlen = seq_buflen;
+				seq_buf = (char *)repalloc(seq_buf, seq_maxlen);
+			}
 
-		gtm_serialize_sequence(seq_list[i], seq_buf, seq_buflen);
+			gtm_serialize_sequence(seq_list[i], seq_buf, seq_buflen);
 
-		elog(DEBUG1, "seq_buflen = %ld", seq_buflen);
+			elog(DEBUG1, "seq_buflen = %ld", seq_buflen);
 
-		pq_sendint(&buf, seq_buflen, 4);
-		pq_sendbytes(&buf, seq_buf, seq_buflen);
-
-		free(seq_buf);
+			pq_sendint(&buf, seq_buflen, 4);
+			pq_sendbytes(&buf, seq_buf, seq_buflen);
+		}
 	}
 
 	pq_endmessage(myport, &buf);

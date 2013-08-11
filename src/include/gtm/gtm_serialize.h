@@ -40,7 +40,7 @@ size_t gtm_deserialize_pgxcnodeinfo(GTM_PGXCNodeInfo *, const char *, size_t);
 
 size_t gtm_get_sequence_size(GTM_SeqInfo *);
 size_t gtm_serialize_sequence(GTM_SeqInfo *, char *, size_t);
-GTM_SeqInfo *gtm_deserialize_sequence(const char *, size_t);
+size_t gtm_deserialize_sequence(GTM_SeqInfo *seq, const char *, size_t);
 
 void dump_transactions_elog(GTM_Transactions *, int);
 void dump_transactioninfo_elog(GTM_TransactionInfo *);
