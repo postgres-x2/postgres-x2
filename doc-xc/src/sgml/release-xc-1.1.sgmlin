@@ -624,6 +624,13 @@
      </para>
     </listitem>
 
+    <listitem>
+     <para>
+      Fix 1024 limitation of sequence defined in GTM.
+      By Andrei Martsinchyk.
+     </para>
+    </listitem>
+
    </itemizedlist>
 
   </sect2>
