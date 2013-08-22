@@ -6,7 +6,7 @@
 
   <note>
    <title>Release Date</title>
-   <simpara>2013-07-04</simpara>
+   <simpara>2013-08-22</simpara>
   </note>
 
   <para>
@@ -26,7 +26,7 @@
    <title>Overview</title>
 
    <para>
-    Postgres-XC 1.0 is a symetric (multi-master, read and write-scalable) shared-nothing cluster 
+    Postgres-XC is a symmetric (multi-master, read and write-scalable) shared-nothing cluster 
     based on <productname>PostgreSQL</productname>. 
     This release version is based on <productname>PostgreSQL</productname> 9.2.
    </para>
