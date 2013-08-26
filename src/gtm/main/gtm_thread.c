@@ -291,6 +291,14 @@ GTM_ThreadCleanup(void *argp)
 	 */
 	StreamClose(thrinfo->thr_conn->con_port->sock);
 
+	/* Free the node_name in the port */
+	if (thrinfo->thr_conn->con_port->node_name != NULL)
+		/* 
+		 * We don't have to reset pointer to NULL her because ConnFree() 
+		 * frees this structure next.
+		 */
+		pfree(thrinfo->thr_conn->con_port->node_name);
+
 	/* Free the port */
 	ConnFree(thrinfo->thr_conn->con_port);
 	thrinfo->thr_conn->con_port = NULL;
