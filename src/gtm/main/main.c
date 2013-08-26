@@ -1696,7 +1696,7 @@ static void
 GTM_RegisterPGXCNode(Port *myport, char *PGXCNodeName)
 {
 	elog(DEBUG3, "Registering coordinator with name %s", PGXCNodeName);
-	myport->node_name = strdup(PGXCNodeName);
+	myport->node_name = pstrdup(PGXCNodeName);
 }
 
 /*
