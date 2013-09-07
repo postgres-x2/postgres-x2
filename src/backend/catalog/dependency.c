@@ -436,7 +436,7 @@ performRename(const ObjectAddress *object, const char *oldname, const char *newn
 						 NULL,      /* empty stack */
 						 targetObjects,
 						 NULL,
-						 depRel);
+						 &depRel);
 
 	/* Check Objects one by one to see if some of them have to be renamed on GTM */
 	for (i = 0; i < targetObjects->numrefs; i++)
