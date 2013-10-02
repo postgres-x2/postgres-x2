@@ -367,7 +367,7 @@ clean: clean-man clean-sgml
 clean-man:
 	rm -rf fixedman/ fixed-man-stamp
 
-.PHONY: clean-sgml:
+.PHONY: clean-sgml
 clean-sgml:
 	rm -rf $(ALLSGML)
 
