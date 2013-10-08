@@ -34,10 +34,10 @@
  *         in -I or -E option.  opt can be i (include) or e (exluce).
  *         Default is e.
  *
- * To keep error massages in the following stage easy to track by the line 
+ * To keep error massages in the following stage easy to track by the line
  * number, excluded line will be replaced with brank line.
  *
- *--------------------------------------------------------------------------- 
+ *---------------------------------------------------------------------------
  */
 #include <stdio.h>
 #include <string.h>
@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
 	progname = argv[0];
 	while ((opt = getopt(argc, argv, "i:o:E:I:d:")) != -1)
 	{
-		switch(opt) 
+		switch(opt)
 		{
 			case 'i':
 				if (ifnam)
@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
 				if ((strcmp(optarg, "-") == 0) || (strcmp(optarg, "stdin") == 0))
 					inf = stdin;
 				else
-					ifnam = strndup(optarg, strlen(optarg));
+					ifnam = strdup(optarg);
 				break;
 
 			case 'o':
@@ -114,11 +114,11 @@ int main(int argc, char *argv[])
 				if ((strcmp(optarg, "-") == 0) || (strcmp(optarg, "stdout") == 0))
 					outf = stdout;
 				else
-					ofnam = strndup(optarg, strlen(optarg));
+					ofnam = strdup(optarg);
 				break;
 
 			case 'E':
-				token = strndup(optarg,strlen(optarg));
+				token = strdup(optarg);
 				if (ignoreToks == NULL)
 				{
 					ignoreToks = (tokenlist *)malloc(sizeof(tokenlist));
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
 					ignoreToks->next = NULL;
 					lastIgnoreToken = ignoreToks;
 				}
-				else 
+				else
 				{
 					lastIgnoreToken->next = (tokenlist *)malloc(sizeof(tokenlist));
 					if (lastIgnoreToken->next == NULL)
@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
 				break;
 
 			case 'I':
-				token = strndup(optarg, strlen(optarg));
+				token = strdup(optarg);
 				if (includeToks == NULL)
 				{
 					includeToks = (tokenlist *)malloc(sizeof(tokenlist));
@@ -212,14 +212,14 @@ int my_getline(char *buf)
 		*buf = 0;
 		return EOF;
 	}
-	else 
+	else
 	{
 		ungetc(c, inf);
 	}
 	for (;;)
 	{
 		c = getc(inf);
-		switch(c) 
+		switch(c)
 		{
 			case '\n':
 				*buf++ = c;
@@ -372,8 +372,8 @@ void make_sgml(int writeflag)
 
 static void usage(int exitcode)
 {
-	fprintf(stderr, 
-			"%s -i infile -o outfile [-d i|e ] -D exclude_token -D ... -U include_token -U ...\n", 
+	fprintf(stderr,
+			"%s -i infile -o outfile [-d i|e ] -D exclude_token -D ... -U include_token -U ...\n",
 			progname);
 	exit(exitcode);
 }
