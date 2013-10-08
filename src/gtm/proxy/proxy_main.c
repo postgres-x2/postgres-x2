@@ -1565,8 +1565,6 @@ setjmp_again:
 
 	/* can't get here because the above loop never exits */
 	Assert(false);
-
-	return thrinfo;
 }
 
 /*
@@ -2397,7 +2395,7 @@ ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	 *
 	 * Write the message, but don't flush it just yet.
 	 */
-	return GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
+	GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 }
 
 /*
@@ -3244,7 +3242,7 @@ UnregisterProxy(void)
 	return;
 
 failed:
-	return elog(ERROR, "can not Unregister Proxy on GTM");
+	elog(ERROR, "can not Unregister Proxy on GTM");
 }
 
 /*
@@ -3345,7 +3343,7 @@ failed:
 	{
 		elog(NOTICE, "could not register Proxy on GTM. Trying to unregister myself and then retry.");
 		UnregisterProxy();
-		return RegisterProxy(is_reconnect, true);
+		RegisterProxy(is_reconnect, true);
 	}
 	else
 		elog(ERROR, "can not register Proxy on GTM");
