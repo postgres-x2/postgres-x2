@@ -2574,6 +2574,7 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 	Recovery_PGXCNodeDisconnect(conninfo->con_port);
 
 	 /* Start the message. */
+	proxyhdr.ph_conid = conninfo->con_id;
 	if (gtmpqPutMsgStart('C', true, gtm_conn) ||
 		gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
 		gtmpqPutInt(MSG_BACKEND_DISCONNECT, sizeof (GTM_MessageType), gtm_conn) ||
