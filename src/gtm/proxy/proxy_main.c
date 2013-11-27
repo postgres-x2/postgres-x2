@@ -1471,6 +1471,9 @@ setjmp_again:
 		{
 			GTMProxy_CommandInfo *cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 
+			GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
+			thrinfo->thr_conn = conninfo;
+
 			/*
 			 * If this is a continuation of a multi-part command response, we
 			 * don't need to read another result from the stream. The previous
