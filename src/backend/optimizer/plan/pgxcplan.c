@@ -1688,7 +1688,7 @@ pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr, Index ressortgroupref)
 			 * ressortgroupref, the optimizations will fail, which at least
 			 * doesn't have any correctness issue.
 			 */
-			if (remote_tle->ressortgroupref != ressortgroupref);
+			if (remote_tle->ressortgroupref != ressortgroupref)
 				remote_tle->ressortgroupref = 0;
 		}
 	}
