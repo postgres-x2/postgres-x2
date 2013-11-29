@@ -522,7 +522,6 @@ cmd_t *prepare_killGtmSlave(void)
 		snprintf(newCommand(cmdKill), MAXLINE,
 				 "killall -u %s -9 gtm; rm -rf /tmp/.s.'*'%d'*' %s/gtm.pid",
 				 sval(VAR_pgxcUser), atoi(sval(VAR_gtmSlavePort)), sval(VAR_gtmSlaveDir));
-	cmdKill = initCmd(sval(VAR_gtmSlaveServer));
 	return(cmdKill);
 }
 
@@ -862,6 +861,7 @@ cmd_t *prepare_initGtmProxy(char *nodeName)
 	int idx;
 	FILE *f;
 	char timestamp[MAXTOKEN+1];
+	char **fileList = NULL;
 
 	if ((idx = gtmProxyIdx(nodeName)) < 0)
 	{
@@ -891,15 +891,22 @@ cmd_t *prepare_initGtmProxy(char *nodeName)
 	fprintf(f,
 			"#===========================\n"
 			"# Added at initialization, %s\n"
-			"nodename = '%s'\n"
 			"listen_addresses = '*'\n"
+			"worker_threads = 1\n"
+			"gtm_connect_retry_interval = 1\n",
+			timeStampString(timestamp, MAXTOKEN));;
+	if (!is_none(sval(VAR_gtmPxyExtraConfig)))
+		AddMember(fileList, sval(VAR_gtmPxyExtraConfig));
+	if (!is_none(aval(VAR_gtmPxySpecificExtraConfig)[idx]))
+		AddMember(fileList, aval(VAR_gtmPxySpecificExtraConfig)[idx]);
+	appendFiles(f, fileList);
+	CleanArray(fileList);
+	fprintf(f,			
+			"nodename = '%s'\n"
 			"port = %s\n"
 			"gtm_host = '%s'\n"
 			"gtm_port = %s\n"
-			"worker_threads = 1\n"
-			"gtm_connect_retry_interval = 1\n"
 			"# End of addition\n",
-			timeStampString(timestamp, MAXTOKEN),
 			aval(VAR_gtmProxyNames)[idx],
 			aval(VAR_gtmProxyPorts)[idx],
 			sval(VAR_gtmMasterServer),
