@@ -118,8 +118,10 @@ test: stats
 # ----------
 # This creates functions used by tests xc_misc, xc_FQS and xc_FQS_join
 test: xc_create_function
+# Now xc_misc is used by xc_returning
+test: xc_misc
 # Those ones can be run in parallel
-test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join xc_copy xc_alter_table xc_sequence xc_misc xc_triggers xc_trigship xc_constraints xc_limit xc_sort xc_returning xc_params
+test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join xc_copy xc_alter_table xc_sequence xc_triggers xc_trigship xc_constraints xc_limit xc_sort xc_returning xc_params
 # Cluster setting related test is independant
 test: xc_node
 
