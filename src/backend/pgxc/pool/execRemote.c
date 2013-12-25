@@ -51,6 +51,12 @@
 /* Enforce the use of two-phase commit when temporary objects are used */
 bool EnforceTwoPhaseCommit = true;
 
+/*
+ * Max to begin flushing data to datanodes, max to stop flushing data to datanodes.
+ */
+#define MAX_SIZE_TO_FORCE_FLUSH (2^10 * 64 * 2)
+#define MAX_SIZE_TO_STOP_FLUSH (2^10 * 64)
+
 #define END_QUERY_TIMEOUT	20
 #define ROLLBACK_RESP_LEN	9
 
@@ -175,6 +181,8 @@ stat_statement()
 	total_statements++;
 	current_tran_statements++;
 }
+
+static int flushPGXCNodeHandleData(PGXCNodeHandle *handle);
 
 /*
  * To collect statistics: count a transaction
@@ -2211,6 +2219,13 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 					add_error_message(primary_handle, "failed to send data to Datanode");
 					return EOF;
 				}
+				else if (primary_handle->outEnd > MAX_SIZE_TO_FORCE_FLUSH)
+				{
+					int rv;
+
+					if ((rv = flushPGXCNodeHandleData(primary_handle)) != 0)
+						return EOF;
+				}
 			}
 
 			if (ensure_out_buffer_capacity(bytes_needed, primary_handle) != 0)
@@ -2289,6 +2304,13 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 				{
 					add_error_message(handle, "failed to send data to Datanode");
 					return EOF;
+				}
+				else if (handle->outEnd > MAX_SIZE_TO_FORCE_FLUSH)
+				{
+					int rv;
+
+					if ((rv = flushPGXCNodeHandleData(handle)) != 0)
+						return EOF;
 				}
 			}
 
@@ -4696,4 +4718,45 @@ pgxc_node_report_error(RemoteQueryState *combiner)
 					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
 					errmsg("%s", combiner->errorMessage)));
 	}
+}
+
+/*
+ * Flush PGXCNodeHandle cash to the coordinator until the amount of remaining data
+ * becomes lower than the threshold.
+ *
+ * If datanode is too slow to handle data sent, retry to flush some of the buffered
+ * data.
+ */
+static int flushPGXCNodeHandleData(PGXCNodeHandle *handle)
+{
+	int retry_no = 0;
+	int wait_microsec = 0;
+	size_t remaining;
+
+	while (handle->outEnd > MAX_SIZE_TO_STOP_FLUSH)
+	{
+		remaining = handle->outEnd;
+		if (send_some(handle, handle->outEnd) <0)
+		{
+			add_error_message(handle, "failed to send data to Datanode");
+			return EOF;
+		}
+		if (remaining == handle->outEnd)
+		{
+			/* No data sent */
+			retry_no++;
+			wait_microsec = retry_no < 5 ? 0 : (retry_no < 35 ? 2^(retry_no / 5) : 128) * 1000;
+			if (wait_microsec)
+				pg_usleep(wait_microsec);
+			continue;
+		}
+		else
+		{
+			/* Some data sent */
+			retry_no = 0;
+			wait_microsec = 0;
+			continue;
+		}
+	}
+	return 0;
 }
