@@ -1108,7 +1108,7 @@ send_some(PGXCNodeHandle *handle, int len)
 	}
 
 	/* shift the remaining contents of the buffer */
-	if (remaining > 0)
+	if ((remaining > 0) && (handle->outBuffer != ptr))
 		memmove(handle->outBuffer, ptr, remaining);
 	handle->outEnd = remaining;
 
