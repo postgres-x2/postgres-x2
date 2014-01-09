@@ -1658,7 +1658,9 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	else
 		local_plan->qual = local_qual;
 
-	remote_scan->remote_query->havingQual = (Node *)remote_qual;
+	remote_scan->remote_query->havingQual =
+		(Node *)(remote_qual ? make_ands_explicit(remote_qual) : NULL);
+
 	/*
 	 * Generate the targetlist to be shipped to the datanode, so that we can
 	 * check whether we are able to ship the grouping clauses to the datanode/s.
