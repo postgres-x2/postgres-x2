@@ -13,7 +13,6 @@
  </indexterm>
 
 &common;
-
  <para>
   The <filename>pgcrypto</> module provides cryptographic functions for
   <productname>PostgreSQL</>.
@@ -878,9 +877,9 @@ gpg -a --export-secret-keys KEYID > secret.key
  <sect3>
   <title>Limitations of PGP Code</title>
 
-&common;
   <itemizedlist>
    <listitem>
+&common;
     <para>
     No support for signing.  That also means that it is not checked
     whether the encryption subkey belongs to the master key.
@@ -1176,7 +1175,6 @@ gen_random_bytes(count integer) returns bytea
   <sect3>
    <title>Useful Reading</title>
 
-&common;
    <itemizedlist>
     <listitem>
      <para><ulink url="http://www.gnupg.org/gph/en/manual.html"></ulink></para>
@@ -1208,7 +1206,6 @@ gen_random_bytes(count integer) returns bytea
   <sect3>
    <title>Technical References</title>
 
-&common;
    <itemizedlist>
     <listitem>
      <para><ulink url="http://www.ietf.org/rfc/rfc4880.txt"></ulink></para>
@@ -1253,7 +1250,6 @@ gen_random_bytes(count integer) returns bytea
  <sect2>
   <title>Author</title>
 
-&common;
   <para>
    Marko Kreen <email>markokr@gmail.com</email>
   </para>

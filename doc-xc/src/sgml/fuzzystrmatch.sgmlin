@@ -8,8 +8,6 @@
  </indexterm>
 
 &common;
-
-
  <para>
   The <filename>fuzzystrmatch</> module provides several
   functions to determine similarities and distance between strings.
@@ -27,8 +25,6 @@
   <title>Soundex</title>
 
 &common;
-
-
   <para>
    The Soundex system is a method of matching similar-sounding names
    by converting them to the same code.  It was initially used by the
@@ -84,8 +80,6 @@ SELECT * FROM s WHERE difference(s.nm, 'john') &gt; 2;
   <title>Levenshtein</title>
 
 &common;
-
-
   <para>
    This function calculates the Levenshtein distance between two strings:
   </para>
@@ -145,8 +139,6 @@ test=# SELECT levenshtein_less_equal('extensive', 'exhaustive',4);
   <title>Metaphone</title>
 
 &common;
-
-
   <para>
    Metaphone, like Soundex, is based on the idea of constructing a
    representative code for an input string.  Two strings are then
@@ -185,8 +177,6 @@ test=# SELECT metaphone('GUMBO', 4);
   <title>Double Metaphone</title>
 
 &common;
-
-
   <para>
    The Double Metaphone system computes two <quote>sounds like</> strings
    for a given input string &mdash; a <quote>primary</> and an

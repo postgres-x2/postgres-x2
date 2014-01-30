@@ -6,7 +6,7 @@
  * See also lsyscache.h, which provides convenience routines for
  * common cache-lookup operations.
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -17,7 +17,9 @@
 #ifndef SYSCACHE_H
 #define SYSCACHE_H
 
-#include "utils/catcache.h"
+#include "access/attnum.h"
+#include "access/htup.h"
+/* we purposedly do not include utils/catcache.h here */
 
 /*
  *		SysCache identifiers.
@@ -55,6 +57,8 @@ enum SysCacheIdentifier
 	DEFACLROLENSPOBJ,
 	ENUMOID,
 	ENUMTYPOIDNAME,
+	EVENTTRIGGERNAME,
+	EVENTTRIGGEROID,
 	FOREIGNDATAWRAPPERNAME,
 	FOREIGNDATAWRAPPEROID,
 	FOREIGNSERVERNAME,
@@ -126,6 +130,7 @@ extern uint32 GetSysCacheHashValue(int cacheId,
 					 Datum key1, Datum key2, Datum key3, Datum key4);
 
 /* list-search interface.  Users of this must import catcache.h too */
+struct catclist;
 extern struct catclist *SearchSysCacheList(int cacheId, int nkeys,
 				   Datum key1, Datum key2, Datum key3, Datum key4);
 

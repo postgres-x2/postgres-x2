@@ -351,7 +351,7 @@
         <entry><type>bigint</></entry>
         <entry>8 bytes</entry>
         <entry>large-range integer</entry>
-        <entry>-9223372036854775808 to 9223372036854775807</entry>
+        <entry>-9223372036854775808 to +9223372036854775807</entry>
        </row>
 
        <row>
@@ -453,18 +453,8 @@
      The type <type>integer</type> is the common choice, as it offers
      the best balance between range, storage size, and performance.
      The <type>smallint</type> type is generally only used if disk
-     space is at a premium.  The <type>bigint</type> type should only
-     be used if the range of the <type>integer</type> type is insufficient,
-     because the latter is definitely faster.
-    </para>
-
-    <para>
-     On very minimal operating systems the <type>bigint</type> type
-     might not function correctly, because it relies on compiler support
-     for eight-byte integers.  On such machines, <type>bigint</type>
-     acts the same as <type>integer</type>, but still takes up eight
-     bytes of storage.  (We are not aware of any modern
-     platform where this is the case.)
+     space is at a premium.  The <type>bigint</type> type is designed to be
+     used when the range of the <type>integer</type> type is insufficient.
     </para>
 
     <para>
@@ -828,6 +818,20 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
      not automatic.)  Lastly, the sequence is marked as <quote>owned by</>
      the column, so that it will be dropped if the column or table is dropped.
     </para>
+
+    <note>
+      <para>
+        Because <type>smallserial</type>, <type>serial</type> and
+        <type>bigserial</type> are implemented using sequences, there may
+        be "holes" or gaps in the sequence of values which appears in the
+        column, even if no rows are ever deleted.  A value allocated
+        from the sequence is still "used up" even if a row containing that
+        value is never successfully inserted into the table column.  This
+        may happen, for example, if the inserting transaction rolls back.
+        See <literal>nextval()</literal> in <xref linkend="functions-sequence">
+        for details.
+      </para>
+    </note>
 
     <note>
      <para>
@@ -3592,7 +3596,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
      as the canonical form for MAC addresses, and specifies the first
      form (with colons) as the bit-reversed notation, so that
      08-00-2b-01-02-03 = 01:00:4D:08:04:0C.  This convention is widely
-     ignored nowadays, and it is only relevant for obsolete network
+     ignored nowadays, and it is relevant only for obsolete network
      protocols (such as Token Ring).  PostgreSQL makes no provisions
      for bit reversal, and all accepted formats use the canonical LSB
      order.
@@ -4094,7 +4098,7 @@ SET xmloption TO { DOCUMENT | CONTENT };
     representations of XML values, such as in the above examples.
     This would ordinarily mean that encoding declarations contained in
     XML data can become invalid as the character data is converted
-    to other encodings while travelling between client and server,
+    to other encodings while traveling between client and server,
     because the embedded encoding declaration is not changed.  To cope
     with this behavior, encoding declarations contained in
     character strings presented for input to the <type>xml</type> type
@@ -4182,10 +4186,13 @@ SET xmloption TO { DOCUMENT | CONTENT };
    </indexterm>
 
    <para>
-    The <type>json</type> data type can be used to store JSON data.  Such
+    The <type>json</type> data type can be used to store JSON (JavaScript
+    Object Notation) data, as specified in <ulink
+    url="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</ulink>.  Such
     data can also be stored as <type>text</type>, but the
     <type>json</type> data type has the advantage of checking that each
-    stored value is a valid JSON value.
+    stored value is a valid JSON value.  There are also related support
+    functions available; see <xref linkend="functions-json">.
    </para>
 
    <para>

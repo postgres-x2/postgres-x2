@@ -2077,13 +2077,16 @@ pgxc_node_remote_abort(void)
 
 /*
  * Begin COPY command
- * The copy_connections array must have room for NumDataNodes items
+ * The copy_connections array must have room for requested number of items.
+ * The function can not deal with mix of coordinators and datanodes.
  */
 PGXCNodeHandle**
-DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
+pgxcNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, char node_type)
 {
 	int i;
-	int conn_count = list_length(nodelist) == 0 ? NumDataNodes : list_length(nodelist);
+	int default_node_count = (node_type == PGXC_NODE_DATANODE) ?
+									NumDataNodes : NumCoords;
+	int conn_count = list_length(nodelist) == 0 ? default_node_count : list_length(nodelist);
 	struct timeval *timeout = NULL;
 	PGXCNodeAllHandles *pgxc_handles;
 	PGXCNodeHandle **connections;
@@ -2093,12 +2096,22 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	GlobalTransactionId gxid;
 	RemoteQueryState *combiner;
 
+	Assert(node_type == PGXC_NODE_DATANODE || node_type == PGXC_NODE_COORDINATOR);
+
 	if (conn_count == 0)
 		return NULL;
 
 	/* Get needed Datanode connections */
-	pgxc_handles = get_handles(nodelist, NULL, false);
-	connections = pgxc_handles->datanode_handles;
+	if (node_type == PGXC_NODE_DATANODE)
+	{
+		pgxc_handles = get_handles(nodelist, NULL, false);
+		connections = pgxc_handles->datanode_handles;
+	}
+	else
+	{
+		pgxc_handles = get_handles(NULL, nodelist, true);
+		connections = pgxc_handles->coord_handles;
+	}
 
 	if (!connections)
 		return NULL;
@@ -2117,7 +2130,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	 * So store connections in an array where index is node-1.
 	 * Unused items in the array should be NULL
 	 */
-	copy_connections = (PGXCNodeHandle **) palloc0(NumDataNodes * sizeof(PGXCNodeHandle *));
+	copy_connections = (PGXCNodeHandle **) palloc0(default_node_count * sizeof(PGXCNodeHandle *));
 	i = 0;
 	foreach(nodeitem, nodelist)
 		copy_connections[lfirst_int(nodeitem)] = connections[i++];
@@ -2132,7 +2145,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	}
 
 	/* Start transaction on connections where it is not started */
-	if (pgxc_node_begin(conn_count, connections, gxid, need_tran_block, false, PGXC_NODE_DATANODE))
+	if (pgxc_node_begin(conn_count, connections, gxid, need_tran_block, false, node_type))
 	{
 		pfree_pgxc_all_handles(pgxc_handles);
 		pfree(copy_connections);
@@ -2172,7 +2185,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	if (pgxc_node_receive_responses(conn_count, connections, timeout, combiner)
 			|| !ValidateAndCloseCombiner(combiner))
 	{
-		DataNodeCopyFinish(connections, -1, COMBINE_TYPE_NONE);
+		pgxcNodeCopyFinish(connections, -1, COMBINE_TYPE_NONE, PGXC_NODE_DATANODE);
 		pfree(connections);
 		pfree(copy_connections);
 		return NULL;
@@ -2416,17 +2429,21 @@ DataNodeCopyOut(ExecNodes *exec_nodes,
  * Finish copy process on all connections
  */
 void
-DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index, CombineType combine_type)
+pgxcNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index,
+					CombineType combine_type, char node_type)
 {
 	int		i;
 	RemoteQueryState *combiner = NULL;
 	bool 		error = false;
 	struct timeval *timeout = NULL; /* wait forever */
-	PGXCNodeHandle *connections[NumDataNodes];
+	int		default_conn_count = (node_type == PGXC_NODE_DATANODE) ? NumDataNodes : NumCoords;
+	PGXCNodeHandle **connections = palloc0(sizeof(PGXCNodeHandle *) * default_conn_count);
 	PGXCNodeHandle *primary_handle = NULL;
 	int 		conn_count = 0;
 
-	for (i = 0; i < NumDataNodes; i++)
+	Assert(node_type == PGXC_NODE_DATANODE || node_type == PGXC_NODE_COORDINATOR);
+
+	for (i = 0; i < default_conn_count; i++)
 	{
 		PGXCNodeHandle *handle = copy_connections[i];
 

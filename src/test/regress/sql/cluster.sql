@@ -3,7 +3,7 @@
 --
 
 CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY,
-	b INT);
+	b INT) distribute by replication;
 
 CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY,
 	b INT,
@@ -160,7 +160,7 @@ ORDER BY 1;
 -- Test MVCC-safety of cluster. There isn't much we can do to verify the
 -- results with a single backend...
 
-CREATE TABLE clustertest (key int PRIMARY KEY);
+CREATE TABLE clustertest (key int PRIMARY KEY) distribute by replication;
 
 INSERT INTO clustertest VALUES (10);
 INSERT INTO clustertest VALUES (20);

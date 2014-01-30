@@ -143,11 +143,13 @@ extern bool	PGXCNodeRollbackPrepared(char *gid);
 extern void PGXCNodeCommitPrepared(char *gid);
 
 /* Copy command just involves Datanodes */
-extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot);
+extern PGXCNodeHandle** pgxcNodeCopyBegin(const char *query, List *nodelist,
+											Snapshot snapshot, char node_type);
 extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections);
 extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, TupleDesc tupleDesc,
 							  FILE* copy_file, Tuplestorestate *store, RemoteCopyType remoteCopyType);
-extern void DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index, CombineType combine_type);
+extern void pgxcNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index,
+								CombineType combine_type, char node_type);
 extern bool DataNodeCopyEnd(PGXCNodeHandle *handle, bool is_error);
 extern int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections);
 

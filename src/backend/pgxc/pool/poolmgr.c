@@ -56,7 +56,7 @@
 #include "pgxc/poolutils.h"
 #include "../interfaces/libpq/libpq-fe.h"
 #include "../interfaces/libpq/libpq-int.h"
-#include "postmaster/postmaster.h"		/* For UnixSocketDir */
+#include "postmaster/postmaster.h"		/* For Unix_socket_directories */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -343,7 +343,7 @@ GetPoolManagerHandle(void)
 	int			fdsock;
 
 	/* Connect to the pooler */
-	fdsock = pool_connect(PoolerPort, UnixSocketDir);
+	fdsock = pool_connect(PoolerPort, Unix_socket_directories);
 	if (fdsock < 0)
 	{
 		int			saved_errno = errno;
@@ -2328,7 +2328,7 @@ PoolerLoop(void)
 {
 	StringInfoData input_message;
 
-	server_fd = pool_listen(PoolerPort, UnixSocketDir);
+	server_fd = pool_listen(PoolerPort, Unix_socket_directories);
 	if (server_fd == -1)
 	{
 		/* log error */

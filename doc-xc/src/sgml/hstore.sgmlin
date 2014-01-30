@@ -6,7 +6,8 @@
  <indexterm zone="hstore">
   <primary>hstore</primary>
  </indexterm>
-&pgonly;
+
+&common;
  <para>
   This module implements the <type>hstore</> data type for storing sets of
   key/value pairs within a single <productname>PostgreSQL</> value.
@@ -18,9 +19,7 @@
  <sect2>
   <title><type>hstore</> External Representation</title>
 
-&pgonly;
-
-
+&common;
   <para>
 
    The text representation of an <type>hstore</>, used for input and output,
@@ -87,9 +86,8 @@ key =&gt; NULL
 
  <sect2>
   <title><type>hstore</> Operators and Functions</title>
-&pgonly;
 
-
+&common;
   <para>
    The operators provided by the <literal>hstore</literal> module are
    shown in <xref linkend="hstore-op-table">, the functions
@@ -122,13 +120,6 @@ key =&gt; NULL
       <entry>get values for keys (<literal>NULL</> if not present)</entry>
       <entry><literal>'a=&gt;x, b=&gt;y, c=&gt;z'::hstore -&gt; ARRAY['c','a']</literal></entry>
       <entry><literal>{"z","x"}</literal></entry>
-     </row>
-
-     <row>
-      <entry><type>text</> <literal>=&gt;</> <type>text</></entry>
-      <entry>make single-pair <type>hstore</></entry>
-      <entry><literal>'a' =&gt; 'b'</literal></entry>
-      <entry><literal>"a"=&gt;"b"</literal></entry>
      </row>
 
      <row>
@@ -226,14 +217,6 @@ key =&gt; NULL
    respectively. These names are still available, but are deprecated and will
    eventually be removed. Notice that the old names are reversed from the
    convention formerly followed by the core geometric data types!
-   </para>
-  </note>
-
-  <note>
-  <para>
-   The <literal>=&gt;</> operator is deprecated and may be removed in a
-   future release.  Use the <literal>hstore(text, text)</literal> function
-   instead.
    </para>
   </note>
 
@@ -343,6 +326,22 @@ b
      </row>
 
      <row>
+      <entry><function>hstore_to_json(hstore)</function></entry>
+      <entry><type>json</type></entry>
+      <entry>get <type>hstore</type> as a <type>json</type> value</entry>
+      <entry><literal>hstore_to_json('"a key"=&gt;1, b=&gt;t, c=&gt;null, d=&gt;12345, e=&gt;012345, f=&gt;1.234, g=&gt;2.345e+4')</literal></entry>
+      <entry><literal>{"a key": "1", "b": "t", "c": null, "d": "12345", "e": "012345", "f": "1.234", "g": "2.345e+4"}</literal></entry>
+     </row>
+
+     <row>
+      <entry><function>hstore_to_json_loose(hstore)</function></entry>
+      <entry><type>json</type></entry>
+      <entry>get <type>hstore</type> as a <type>json</type> value, but attempting to distinguish numerical and Boolean values so they are unquoted in the JSON</entry>
+      <entry><literal>hstore_to_json_loose('"a key"=&gt;1, b=&gt;t, c=&gt;null, d=&gt;12345, e=&gt;012345, f=&gt;1.234, g=&gt;2.345e+4')</literal></entry>
+      <entry><literal>{"a key": 1, "b": true, "c": null, "d": 12345, "e": "012345", "f": 1.234, "g": 2.345e+4}</literal></entry>
+     </row>
+
+     <row>
       <entry><function>slice(hstore, text[])</function></entry>
       <entry><type>hstore</type></entry>
       <entry>extract a subset of an <type>hstore</></entry>
@@ -418,6 +417,13 @@ b
 
   <note>
    <para>
+     The function <function>hstore_to_json</function> is used when an <type>hstore</type>
+     value is cast to <type>json</type>.
+   </para>
+  </note>
+
+  <note>
+   <para>
     The function <function>populate_record</function> is actually declared
     with <type>anyelement</>, not <type>record</>, as its first argument,
     but it will reject non-record types with a run-time error.
@@ -428,9 +434,7 @@ b
  <sect2>
   <title>Indexes</title>
 
-&pgonly;
-
-
+&common;
   <para>
    <type>hstore</> has GiST and GIN index support for the <literal>@&gt;</>,
    <literal>?</>, <literal>?&amp;</> and <literal>?|</> operators. For example:
@@ -460,13 +464,11 @@ CREATE INDEX hidx ON testhstore USING HASH (h);
  <sect2>
   <title>Examples</title>
 
-&pgonly;
-
-
+&common;
   <para>
    Add a key, or update an existing key with a new value:
 <programlisting>
-UPDATE tab SET h = h || ('c' =&gt; '3');
+UPDATE tab SET h = h || hstore('c', '3');
 </programlisting>
   </para>
 
@@ -523,9 +525,7 @@ SELECT (r).* FROM (SELECT t #= '"col3"=&gt;"baz"' AS r FROM test t) s;
  <sect2>
   <title>Statistics</title>
 
-&pgonly;
-
-
+&common;
   <para>
    The <type>hstore</> type, because of its intrinsic liberality, could
    contain a lot of different keys. Checking for valid keys is the task of the
@@ -573,9 +573,7 @@ SELECT key, count(*) FROM
  <sect2>
   <title>Compatibility</title>
 
-&pgonly;
-
-
+&common;
   <para>
    As of PostgreSQL 9.0, <type>hstore</> uses a different internal
    representation than previous versions. This presents no obstacle for
@@ -608,6 +606,7 @@ ALTER TABLE tablename ALTER hstorecol TYPE hstore USING hstorecol || '';
  <sect2>
   <title>Authors</title>
 
+&common;
   <para>
    Oleg Bartunov <email>oleg@sai.msu.su</email>, Moscow, Moscow University, Russia
   </para>

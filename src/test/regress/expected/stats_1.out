@@ -109,7 +109,7 @@ SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages,
  WHERE st.relname='tenk2' AND cl.relname='tenk2';
  ?column? | ?column? 
 ----------+----------
- t        | f
+ t        | t
 (1 row)
 
 -- End of Stats Test

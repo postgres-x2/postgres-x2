@@ -4,7 +4,7 @@
  *	  prototypes for planner.c.
  *
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/planner.h
@@ -35,9 +35,14 @@ extern Plan *subquery_planner(PlannerGlobal *glob, Query *parse,
 				 bool hasRecursion, double tuple_fraction,
 				 PlannerInfo **subroot);
 
+extern void add_tlist_costs_to_plan(PlannerInfo *root, Plan *plan,
+						List *tlist);
+
 extern bool is_dummy_plan(Plan *plan);
 
 extern Expr *expression_planner(Expr *expr);
+
+extern Expr *preprocess_phv_expression(PlannerInfo *root, Expr *expr);
 
 extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 

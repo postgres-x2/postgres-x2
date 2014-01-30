@@ -532,3 +532,27 @@ select select_data_from(2);
 set enable_fast_query_shipping=true;
 DROP FUNCTION select_data_from( int);
 drop table rr;
+------------------------------------------------------------------------------
+-- Check that the partition column updation check works fine
+------------------------------------------------------------------------------
+-- Updation of a view
+CREATE TABLE pcu_base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified');
+INSERT INTO pcu_base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) g(i);
+CREATE VIEW rw_view1 AS SELECT * FROM pcu_base_tbl WHERE a>0;
+INSERT INTO rw_view1 VALUES (3, 'Row 3');
+INSERT INTO rw_view1 (a) VALUES (4);
+UPDATE rw_view1 SET a=5 WHERE a=4;
+ERROR:  Partition column can't be updated in current version
+UPDATE rw_view1 SET a=a WHERE a=4;
+UPDATE rw_view1 SET b = lower(b);
+CREATE TABLE pcu_base_tbl2 (a int, b int) distribute by hash(a);
+INSERT INTO pcu_base_tbl2 VALUES (1,2), (4,5), (3,-3);
+-- check a few join cases
+UPDATE pcu_base_tbl set a = pcu_base_tbl2.a from pcu_base_tbl2 where pcu_base_tbl.a=pcu_base_tbl2.b;
+ERROR:  Partition column can't be updated in current version
+UPDATE pcu_base_tbl set a = pcu_base_tbl.a from pcu_base_tbl2 where pcu_base_tbl.a=pcu_base_tbl2.b;
+UPDATE pcu_base_tbl set a = pcu_base_tbl.a, b=pcu_base_tbl2.b from pcu_base_tbl2 where pcu_base_tbl.a=pcu_base_tbl2.b;
+-- Drop tables
+drop table pcu_base_tbl cascade;
+NOTICE:  drop cascades to view rw_view1
+drop table pcu_base_tbl2 cascade;

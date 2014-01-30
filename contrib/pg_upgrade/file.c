@@ -3,11 +3,11 @@
  *
  *	file system operations
  *
- *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/file.c
  */
 
-#include "postgres.h"
+#include "postgres_fe.h"
 
 #include "pg_upgrade.h"
 
@@ -103,10 +103,10 @@ copyAndUpdateFile(pageCnvCtx *pageConverter,
 /*
  * linkAndUpdateFile()
  *
- * Creates a symbolic link between the given relation files. We use
+ * Creates a hard link between the given relation files. We use
  * this function to perform a true in-place update. If the on-disk
  * format of the new cluster is bit-for-bit compatible with the on-disk
- * format of the old cluster, we can simply symlink each relation
+ * format of the old cluster, we can simply link each relation
  * instead of copying the data from the old cluster to the new cluster.
  */
 const char *
@@ -127,12 +127,13 @@ linkAndUpdateFile(pageCnvCtx *pageConverter,
 static int
 copy_file(const char *srcfile, const char *dstfile, bool force)
 {
-
 #define COPY_BUF_SIZE (50 * BLCKSZ)
 
 	int			src_fd;
 	int			dest_fd;
 	char	   *buffer;
+	int			ret = 0;
+	int			save_errno = 0;
 
 	if ((srcfile == NULL) || (dstfile == NULL))
 		return -1;
@@ -148,18 +149,7 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 		return -1;
 	}
 
-	buffer = (char *) malloc(COPY_BUF_SIZE);
-
-	if (buffer == NULL)
-	{
-		if (src_fd != 0)
-			close(src_fd);
-
-		if (dest_fd != 0)
-			close(dest_fd);
-
-		return -1;
-	}
+	buffer = (char *) pg_malloc(COPY_BUF_SIZE);
 
 	/* perform data copying i.e read src source, write to destination */
 	while (true)
@@ -168,19 +158,9 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 
 		if (nbytes < 0)
 		{
-			int			save_errno = errno;
-
-			if (buffer != NULL)
-				free(buffer);
-
-			if (src_fd != 0)
-				close(src_fd);
-
-			if (dest_fd != 0)
-				close(dest_fd);
-
-			errno = save_errno;
-			return -1;
+			save_errno = errno;
+			ret = -1;
+			break;
 		}
 
 		if (nbytes == 0)
@@ -190,25 +170,13 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 
 		if (write(dest_fd, buffer, nbytes) != nbytes)
 		{
-			/* if write didn't set errno, assume problem is no disk space */
-			int			save_errno = errno ? errno : ENOSPC;
-
-			if (buffer != NULL)
-				free(buffer);
-
-			if (src_fd != 0)
-				close(src_fd);
-
-			if (dest_fd != 0)
-				close(dest_fd);
-
-			errno = save_errno;
-			return -1;
+			save_errno = errno;
+			ret = -1;
+			break;
 		}
 	}
 
-	if (buffer != NULL)
-		free(buffer);
+	pg_free(buffer);
 
 	if (src_fd != 0)
 		close(src_fd);
@@ -216,69 +184,12 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 	if (dest_fd != 0)
 		close(dest_fd);
 
-	return 1;
+	if (save_errno != 0)
+		errno = save_errno;
+
+	return ret;
 }
 #endif
-
-
-/*
- * load_directory()
- *
- * Returns count of files that meet the selection criteria coded in
- * the function pointed to by selector.  Creates an array of pointers
- * to dirent structures.  Address of array returned in namelist.
- *
- * Note that the number of dirent structures needed is dynamically
- * allocated using realloc.  Realloc can be inefficient if invoked a
- * large number of times.
- */
-int
-load_directory(const char *dirname, struct dirent *** namelist)
-{
-	DIR		   *dirdesc;
-	struct dirent *direntry;
-	int			count = 0;
-	int			name_num = 0;
-	size_t		entrysize;
-
-	if ((dirdesc = opendir(dirname)) == NULL)
-		pg_log(PG_FATAL, "could not open directory \"%s\": %s\n", dirname, getErrorText(errno));
-
-	*namelist = NULL;
-
-	while ((direntry = readdir(dirdesc)) != NULL)
-	{
-		count++;
-
-		*namelist = (struct dirent **) realloc((void *) (*namelist),
-						(size_t) ((name_num + 1) * sizeof(struct dirent *)));
-
-		if (*namelist == NULL)
-		{
-			closedir(dirdesc);
-			return -1;
-		}
-
-		entrysize = sizeof(struct dirent) - sizeof(direntry->d_name) +
-			strlen(direntry->d_name) + 1;
-
-		(*namelist)[name_num] = (struct dirent *) malloc(entrysize);
-
-		if ((*namelist)[name_num] == NULL)
-		{
-			closedir(dirdesc);
-			return -1;
-		}
-
-		memcpy((*namelist)[name_num], direntry, entrysize);
-
-		name_num++;
-	}
-
-	closedir(dirdesc);
-
-	return count;
-}
 
 
 void

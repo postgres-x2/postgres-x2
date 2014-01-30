@@ -18,9 +18,11 @@ objfiles.txt
 *.gcov.out
 lcov.info
 *.vcproj
+*.vcxproj
 win32ver.rc
 *.exe
 lib*dll.def
+lib*.pc
 
 # Local excludes in root directory
 /GNUmakefile

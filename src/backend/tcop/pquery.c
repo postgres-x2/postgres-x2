@@ -3,7 +3,7 @@
  * pquery.c
  *	  POSTGRES process query command code
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -513,18 +513,17 @@ FetchStatementTargetList(Node *stmt)
  * currently only honored for PORTAL_ONE_SELECT portals).  Most callers
  * should simply pass zero.
  *
- * The use_active_snapshot parameter is currently used only for
- * PORTAL_ONE_SELECT portals.  If it is true, the active snapshot will
- * be used when starting up the executor; if false, a new snapshot will
- * be taken.  This is used both for cursors and to avoid taking an entirely
- * new snapshot when it isn't necessary.
+ * The caller can optionally pass a snapshot to be used; pass InvalidSnapshot
+ * for the normal behavior of setting a new snapshot.  This parameter is
+ * presently ignored for non-PORTAL_ONE_SELECT portals (it's only intended
+ * to be used for cursors).
  *
  * On return, portal is ready to accept PortalRun() calls, and the result
  * tupdesc (if any) is known.
  */
 void
 PortalStart(Portal portal, ParamListInfo params,
-			int eflags, bool use_active_snapshot)
+			int eflags, Snapshot snapshot)
 {
 	Portal		saveActivePortal;
 	ResourceOwner saveResourceOwner;
@@ -545,7 +544,8 @@ PortalStart(Portal portal, ParamListInfo params,
 	PG_TRY();
 	{
 		ActivePortal = portal;
-		CurrentResourceOwner = portal->resowner;
+		if (portal->resowner)
+			CurrentResourceOwner = portal->resowner;
 		PortalContext = PortalGetHeapMemory(portal);
 
 		oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
@@ -566,8 +566,8 @@ PortalStart(Portal portal, ParamListInfo params,
 			case PORTAL_ONE_SELECT:
 
 				/* Must set snapshot before starting executor. */
-				if (use_active_snapshot)
-					PushActiveSnapshot(GetActiveSnapshot());
+				if (snapshot)
+					PushActiveSnapshot(snapshot);
 				else
 					PushActiveSnapshot(GetTransactionSnapshot());
 
@@ -829,7 +829,8 @@ PortalRun(Portal portal, long count, bool isTopLevel,
 	PG_TRY();
 	{
 		ActivePortal = portal;
-		CurrentResourceOwner = portal->resowner;
+		if (portal->resowner)
+			CurrentResourceOwner = portal->resowner;
 		PortalContext = PortalGetHeapMemory(portal);
 
 		MemoryContextSwitchTo(PortalContext);
@@ -1283,8 +1284,8 @@ PortalRunUtility(Portal portal, Node *utilityStmt, bool isTopLevel,
 
 	ProcessUtility(utilityStmt,
 				   portal->sourceText,
+			   isTopLevel ? PROCESS_UTILITY_TOPLEVEL : PROCESS_UTILITY_QUERY,
 				   portal->portalParams,
-				   isTopLevel,
 				   dest,
 #ifdef PGXC
 				   false,
@@ -1532,7 +1533,8 @@ PortalRunFetch(Portal portal,
 	PG_TRY();
 	{
 		ActivePortal = portal;
-		CurrentResourceOwner = portal->resowner;
+		if (portal->resowner)
+			CurrentResourceOwner = portal->resowner;
 		PortalContext = PortalGetHeapMemory(portal);
 
 		oldContext = MemoryContextSwitchTo(PortalContext);
@@ -1723,7 +1725,7 @@ DoPortalRunFetch(Portal portal,
 	forward = (fdirection == FETCH_FORWARD);
 
 	/*
-	 * Zero count means to re-fetch the current row, if any (per SQL92)
+	 * Zero count means to re-fetch the current row, if any (per SQL)
 	 */
 	if (count == 0)
 	{

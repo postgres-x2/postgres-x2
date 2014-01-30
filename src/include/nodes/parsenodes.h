@@ -10,7 +10,7 @@
  * the location.
  *
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -79,7 +79,7 @@ typedef uint32 AclMode;			/* a bitmask of privilege bits */
 #define ACL_CONNECT		(1<<11) /* for databases */
 #define N_ACL_RIGHTS	12		/* 1 plus the last 1<<x */
 #define ACL_NO_RIGHTS	0
-/* Currently, SELECT ... FOR UPDATE/FOR SHARE requires UPDATE privileges */
+/* Currently, SELECT ... FOR [KEY] UPDATE/SHARE requires UPDATE privileges */
 #define ACL_SELECT_FOR_UPDATE	ACL_UPDATE
 
 
@@ -124,7 +124,7 @@ typedef struct Query
 	bool		hasDistinctOn;	/* distinctClause is from DISTINCT ON */
 	bool		hasRecursive;	/* WITH RECURSIVE was specified */
 	bool		hasModifyingCTE;	/* has INSERT/UPDATE/DELETE in WITH */
-	bool		hasForUpdate;	/* FOR UPDATE or FOR SHARE was specified */
+	bool		hasForUpdate;	/* FOR [KEY] UPDATE/SHARE was specified */
 
 	List	   *cteList;		/* WITH list (of CommonTableExpr's) */
 
@@ -467,6 +467,7 @@ typedef struct WindowDef
 typedef struct RangeSubselect
 {
 	NodeTag		type;
+	bool		lateral;		/* does it have LATERAL prefix? */
 	Node	   *subquery;		/* the untransformed sub-select clause */
 	Alias	   *alias;			/* table alias & optional column aliases */
 } RangeSubselect;
@@ -477,6 +478,7 @@ typedef struct RangeSubselect
 typedef struct RangeFunction
 {
 	NodeTag		type;
+	bool		lateral;		/* does it have LATERAL prefix? */
 	Node	   *funccallnode;	/* untransformed function call tree */
 	Alias	   *alias;			/* table alias & optional column aliases */
 	List	   *coldeflist;		/* list of ColumnDef nodes to describe result
@@ -586,18 +588,28 @@ typedef struct DefElem
 } DefElem;
 
 /*
- * LockingClause - raw representation of FOR UPDATE/SHARE options
+ * LockingClause - raw representation of FOR [NO KEY] UPDATE/[KEY] SHARE
+ *		options
  *
  * Note: lockedRels == NIL means "all relations in query".	Otherwise it
  * is a list of RangeVar nodes.  (We use RangeVar mainly because it carries
  * a location field --- currently, parse analysis insists on unqualified
  * names in LockingClause.)
  */
+typedef enum LockClauseStrength
+{
+	/* order is important -- see applyLockingClause */
+	LCS_FORKEYSHARE,
+	LCS_FORSHARE,
+	LCS_FORNOKEYUPDATE,
+	LCS_FORUPDATE
+} LockClauseStrength;
+
 typedef struct LockingClause
 {
 	NodeTag		type;
-	List	   *lockedRels;		/* FOR UPDATE or FOR SHARE relations */
-	bool		forUpdate;		/* true = FOR UPDATE, false = FOR SHARE */
+	List	   *lockedRels;		/* FOR [KEY] UPDATE/SHARE relations */
+	LockClauseStrength strength;
 	bool		noWait;			/* NOWAIT option */
 } LockingClause;
 
@@ -729,7 +741,7 @@ typedef struct RangeTblEntry
 	 * Fields valid for a subquery RTE (else NULL):
 	 */
 	Query	   *subquery;		/* the sub-query */
-	bool		security_barrier;		/* subquery from security_barrier view */
+	bool		security_barrier;		/* is from security_barrier view? */
 
 	/*
 	 * Fields valid for a join RTE (else NULL/zero):
@@ -779,6 +791,7 @@ typedef struct RangeTblEntry
 	 */
 	Alias	   *alias;			/* user-written alias clause, if any */
 	Alias	   *eref;			/* expanded reference names */
+	bool		lateral;		/* subquery, function, or values is LATERAL? */
 	bool		inh;			/* inheritance requested? */
 	bool		inFromCl;		/* present in FROM clause? */
 	AclMode		requiredPerms;	/* bitmask of required access permissions */
@@ -885,21 +898,21 @@ typedef struct WindowClause
 
 /*
  * RowMarkClause -
- *	   parser output representation of FOR UPDATE/SHARE clauses
+ *	   parser output representation of FOR [KEY] UPDATE/SHARE clauses
  *
  * Query.rowMarks contains a separate RowMarkClause node for each relation
- * identified as a FOR UPDATE/SHARE target.  If FOR UPDATE/SHARE is applied
- * to a subquery, we generate RowMarkClauses for all normal and subquery rels
- * in the subquery, but they are marked pushedDown = true to distinguish them
- * from clauses that were explicitly written at this query level.  Also,
- * Query.hasForUpdate tells whether there were explicit FOR UPDATE/SHARE
- * clauses in the current query level.
+ * identified as a FOR [KEY] UPDATE/SHARE target.  If one of these clauses
+ * is applied to a subquery, we generate RowMarkClauses for all normal and
+ * subquery rels in the subquery, but they are marked pushedDown = true to
+ * distinguish them from clauses that were explicitly written at this query
+ * level.  Also, Query.hasForUpdate tells whether there were explicit FOR
+ * UPDATE/SHARE/KEY SHARE clauses in the current query level.
  */
 typedef struct RowMarkClause
 {
 	NodeTag		type;
 	Index		rti;			/* range table index of target relation */
-	bool		forUpdate;		/* true = FOR UPDATE, false = FOR SHARE */
+	LockClauseStrength strength;
 	bool		noWait;			/* NOWAIT option */
 	bool		pushedDown;		/* pushed down from higher query level? */
 } RowMarkClause;
@@ -1039,7 +1052,6 @@ typedef struct SelectStmt
 	List	   *groupClause;	/* GROUP BY clauses */
 	Node	   *havingClause;	/* HAVING conditional-expression */
 	List	   *windowClause;	/* WINDOW window_name AS (...), ... */
-	WithClause *withClause;		/* WITH clause */
 
 	/*
 	 * In a "leaf" node representing a VALUES list, the above fields are all
@@ -1059,6 +1071,7 @@ typedef struct SelectStmt
 	Node	   *limitOffset;	/* # of result tuples to skip */
 	Node	   *limitCount;		/* # of result tuples to return */
 	List	   *lockingClause;	/* FOR UPDATE (list of LockingClause's) */
+	WithClause *withClause;		/* WITH clause */
 
 	/*
 	 * These fields are used only in upper-level SelectStmts.
@@ -1136,6 +1149,7 @@ typedef enum ObjectType
 	OBJECT_CONVERSION,
 	OBJECT_DATABASE,
 	OBJECT_DOMAIN,
+	OBJECT_EVENT_TRIGGER,
 	OBJECT_EXTENSION,
 	OBJECT_FDW,
 	OBJECT_FOREIGN_SERVER,
@@ -1144,6 +1158,7 @@ typedef enum ObjectType
 	OBJECT_INDEX,
 	OBJECT_LANGUAGE,
 	OBJECT_LARGEOBJECT,
+	OBJECT_MATVIEW,
 	OBJECT_OPCLASS,
 	OBJECT_OPERATOR,
 	OBJECT_OPFAMILY,
@@ -1176,6 +1191,7 @@ typedef struct CreateSchemaStmt
 	char	   *schemaname;		/* the name of the schema to create */
 	char	   *authid;			/* the owner of the created schema */
 	List	   *schemaElts;		/* schema components (list of parsenodes) */
+	bool		if_not_exists;	/* just do nothing if schema already exists? */
 } CreateSchemaStmt;
 
 typedef enum DropBehavior
@@ -1215,6 +1231,7 @@ typedef enum AlterTableType
 	AT_ReAddIndex,				/* internal to commands/tablecmds.c */
 	AT_AddConstraint,			/* add constraint */
 	AT_AddConstraintRecurse,	/* internal to commands/tablecmds.c */
+	AT_ReAddConstraint,			/* internal to commands/tablecmds.c */
 	AT_ValidateConstraint,		/* validate constraint */
 	AT_ValidateConstraintRecurse,		/* internal to commands/tablecmds.c */
 	AT_ProcessedConstraint,		/* pre-processed add constraint (local in
@@ -1420,6 +1437,7 @@ typedef struct CopyStmt
 	List	   *attlist;		/* List of column names (as Strings), or NIL
 								 * for all columns */
 	bool		is_from;		/* TO or FROM */
+	bool		is_program;		/* is 'filename' a program to popen? */
 	char	   *filename;		/* filename, or NULL for STDIN/STDOUT */
 	List	   *options;		/* List of DefElem nodes */
 } CopyStmt;
@@ -1523,7 +1541,8 @@ typedef struct CreateStmt
 
 typedef enum ConstrType			/* types of constraints */
 {
-	CONSTR_NULL,				/* not SQL92, but a lot of people expect it */
+	CONSTR_NULL,				/* not standard SQL, but a lot of people
+								 * expect it */
 	CONSTR_NOTNULL,
 	CONSTR_DEFAULT,
 	CONSTR_CHECK,
@@ -1547,7 +1566,7 @@ typedef enum ConstrType			/* types of constraints */
 /* Foreign key matchtype codes */
 #define FKCONSTR_MATCH_FULL			'f'
 #define FKCONSTR_MATCH_PARTIAL		'p'
-#define FKCONSTR_MATCH_UNSPECIFIED	'u'
+#define FKCONSTR_MATCH_SIMPLE		's'
 
 typedef struct Constraint
 {
@@ -1583,7 +1602,7 @@ typedef struct Constraint
 	RangeVar   *pktable;		/* Primary key table */
 	List	   *fk_attrs;		/* Attributes of foreign key */
 	List	   *pk_attrs;		/* Corresponding attrs in PK table */
-	char		fk_matchtype;	/* FULL, PARTIAL, UNSPECIFIED */
+	char		fk_matchtype;	/* FULL, PARTIAL, SIMPLE */
 	char		fk_upd_action;	/* ON UPDATE action */
 	char		fk_del_action;	/* ON DELETE action */
 	List	   *old_conpfeqop;	/* pg_constraint.conpfeqop of my former self */
@@ -1764,6 +1783,32 @@ typedef struct CreateTrigStmt
 } CreateTrigStmt;
 
 /* ----------------------
+ *		Create EVENT TRIGGER Statement
+ * ----------------------
+ */
+typedef struct CreateEventTrigStmt
+{
+	NodeTag		type;
+	char	   *trigname;		/* TRIGGER's name */
+	char	   *eventname;		/* event's identifier */
+	List	   *whenclause;		/* list of DefElems indicating filtering */
+	List	   *funcname;		/* qual. name of function to call */
+} CreateEventTrigStmt;
+
+/* ----------------------
+ *		Alter EVENT TRIGGER Statement
+ * ----------------------
+ */
+typedef struct AlterEventTrigStmt
+{
+	NodeTag		type;
+	char	   *trigname;		/* TRIGGER's name */
+	char		tgenabled;		/* trigger's firing configuration WRT
+								 * session_replication_role */
+} AlterEventTrigStmt;
+
+/* ----------------------
+ *		Create/Drop PROCEDURAL LANGUAGE Statements
  *		Create PROCEDURAL LANGUAGE Statements
  * ----------------------
  */
@@ -2057,10 +2102,11 @@ typedef struct FetchStmt
  *		Create Index Statement
  *
  * This represents creation of an index and/or an associated constraint.
- * If indexOid isn't InvalidOid, we are not creating an index, just a
- * UNIQUE/PKEY constraint using an existing index.	isconstraint must always
- * be true in this case, and the fields describing the index properties are
- * empty.
+ * If isconstraint is true, we should create a pg_constraint entry along
+ * with the index.	But if indexOid isn't InvalidOid, we are not creating an
+ * index, just a UNIQUE/PKEY constraint using an existing index.  isconstraint
+ * must always be true in this case, and the fields describing the index
+ * properties are empty.
  * ----------------------
  */
 typedef struct IndexStmt
@@ -2070,15 +2116,16 @@ typedef struct IndexStmt
 	RangeVar   *relation;		/* relation to build index on */
 	char	   *accessMethod;	/* name of access method (eg. btree) */
 	char	   *tableSpace;		/* tablespace, or NULL for default */
-	List	   *indexParams;	/* a list of IndexElem */
-	List	   *options;		/* options from WITH clause */
+	List	   *indexParams;	/* columns to index: a list of IndexElem */
+	List	   *options;		/* WITH clause options: a list of DefElem */
 	Node	   *whereClause;	/* qualification (partial-index predicate) */
 	List	   *excludeOpNames; /* exclusion operator names, or NIL if none */
+	char	   *idxcomment;		/* comment to apply to index, or NULL */
 	Oid			indexOid;		/* OID of an existing index, if any */
-	Oid			oldNode;		/* relfilenode of my former self */
+	Oid			oldNode;		/* relfilenode of existing storage, if any */
 	bool		unique;			/* is index unique? */
-	bool		primary;		/* is index on primary key? */
-	bool		isconstraint;	/* is it from a CONSTRAINT clause? */
+	bool		primary;		/* is index a primary key? */
+	bool		isconstraint;	/* is it for a pkey/unique constraint? */
 	bool		deferrable;		/* is the constraint DEFERRABLE? */
 	bool		initdeferred;	/* is the constraint INITIALLY DEFERRED? */
 	bool		concurrent;		/* should this be a concurrent index build? */
@@ -2175,7 +2222,6 @@ typedef struct AlterObjectSchemaStmt
 	RangeVar   *relation;		/* in case it's a table */
 	List	   *object;			/* in case it's some other object */
 	List	   *objarg;			/* argument types, if applicable */
-	char	   *addname;		/* additional name if needed */
 	char	   *newschema;		/* the new schema */
 	bool		missing_ok;		/* skip error if missing? */
 } AlterObjectSchemaStmt;
@@ -2191,7 +2237,6 @@ typedef struct AlterOwnerStmt
 	RangeVar   *relation;		/* in case it's a table */
 	List	   *object;			/* in case it's some other object */
 	List	   *objarg;			/* argument types, if applicable */
-	char	   *addname;		/* additional name if needed */
 	char	   *newowner;		/* the new owner */
 } AlterOwnerStmt;
 
@@ -2313,6 +2358,7 @@ typedef struct AlterEnumStmt
 	char	   *newVal;			/* new enum value's name */
 	char	   *newValNeighbor; /* neighboring enum value, if specified */
 	bool		newValIsAfter;	/* place new enum value after neighbor? */
+	bool		skipIfExists;	/* no error if label already exists */
 } AlterEnumStmt;
 
 /* ----------------------
@@ -2507,6 +2553,8 @@ typedef struct ExplainStmt
  * A query written as CREATE TABLE AS will produce this node type natively.
  * A query written as SELECT ... INTO will be transformed to this form during
  * parse analysis.
+ * A query written as CREATE MATERIALIZED view will produce this node type,
+ * during parse analysis, since it needs all the same data.
  *
  * The "query" field is handled similarly to EXPLAIN, though note that it
  * can be a SELECT or an EXECUTE, but not other DML statements.
@@ -2517,8 +2565,20 @@ typedef struct CreateTableAsStmt
 	NodeTag		type;
 	Node	   *query;			/* the query (see comments above) */
 	IntoClause *into;			/* destination table */
+	ObjectType	relkind;		/* OBJECT_TABLE or OBJECT_MATVIEW */
 	bool		is_select_into; /* it was written as SELECT INTO */
 } CreateTableAsStmt;
+
+/* ----------------------
+ *		REFRESH MATERIALIZED VIEW Statement
+ * ----------------------
+ */
+typedef struct RefreshMatViewStmt
+{
+	NodeTag		type;
+	bool		skipData;		/* true for WITH NO DATA */
+	RangeVar   *relation;		/* relation to insert into */
+} RefreshMatViewStmt;
 
 /* ----------------------
  * Checkpoint Statement
@@ -2577,7 +2637,7 @@ typedef struct ConstraintsSetStmt
 typedef struct ReindexStmt
 {
 	NodeTag		type;
-	ObjectType	kind;			/* OBJECT_INDEX, OBJECT_TABLE, OBJECT_DATABASE */
+	ObjectType	kind;			/* OBJECT_INDEX, OBJECT_TABLE, etc. */
 	RangeVar   *relation;		/* Table or index to reindex */
 	const char *name;			/* name of database to reindex */
 	bool		do_system;		/* include system tables in database case */

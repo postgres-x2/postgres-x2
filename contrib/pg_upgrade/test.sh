@@ -6,14 +6,26 @@
 # runs the regression tests (to put in some data), runs pg_dumpall,
 # runs pg_upgrade, runs pg_dumpall again, compares the dumps.
 #
-# Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 
 set -e
 
 : ${MAKE=make}
-: ${PGPORT=50432}
-export PGPORT
+
+# Guard against parallel make issues (see comments in pg_regress.c)
+unset MAKEFLAGS
+unset MAKELEVEL
+
+# Set listen_addresses desirably
+testhost=`uname -s`
+
+case $testhost in
+	MINGW*)	LISTEN_ADDRESSES="localhost" ;;
+	*)		LISTEN_ADDRESSES="" ;;
+esac
+
+POSTMASTER_OPTS="-F -c listen_addresses=$LISTEN_ADDRESSES"
 
 temp_root=$PWD/tmp_check
 
@@ -38,8 +50,9 @@ if [ "$1" = '--install' ]; then
 	# We need to make it use psql from our temporary installation,
 	# because otherwise the installcheck run below would try to
 	# use psql from the proper installation directory, which might
-	# be outdated or missing.
-	EXTRA_REGRESS_OPTS=--psqldir=$bindir
+	# be outdated or missing. But don't override anything else that's
+	# already in EXTRA_REGRESS_OPTS.
+	EXTRA_REGRESS_OPTS="$EXTRA_REGRESS_OPTS --psqldir=$bindir"
 	export EXTRA_REGRESS_OPTS
 fi
 
@@ -52,20 +65,55 @@ newsrc=`cd ../.. && pwd`
 PATH=$bindir:$PATH
 export PATH
 
-PGDATA=$temp_root/data
+BASE_PGDATA=$temp_root/data
+PGDATA="$BASE_PGDATA.old"
 export PGDATA
-rm -rf "$PGDATA" "$PGDATA".old
+rm -rf "$BASE_PGDATA" "$PGDATA"
 
 logdir=$PWD/log
 rm -rf "$logdir"
 mkdir "$logdir"
 
+# Clear out any environment vars that might cause libpq to connect to
+# the wrong postmaster (cf pg_regress.c)
+unset PGDATABASE
+unset PGUSER
+unset PGSERVICE
+unset PGSSLMODE
+unset PGREQUIRESSL
+unset PGCONNECT_TIMEOUT
+unset PGHOST
+unset PGHOSTADDR
+
+# Select a non-conflicting port number, similarly to pg_regress.c
+PG_VERSION_NUM=`grep '#define PG_VERSION_NUM' $newsrc/src/include/pg_config.h | awk '{print $3}'`
+PGPORT=`expr $PG_VERSION_NUM % 16384 + 49152`
+export PGPORT
+
+i=0
+while psql -X postgres </dev/null 2>/dev/null
+do
+	i=`expr $i + 1`
+	if [ $i -eq 16 ]
+	then
+		echo port $PGPORT apparently in use
+		exit 1
+	fi
+	PGPORT=`expr $PGPORT + 1`
+	export PGPORT
+done
+
+# buildfarm may try to override port via EXTRA_REGRESS_OPTS ...
+EXTRA_REGRESS_OPTS="$EXTRA_REGRESS_OPTS --port=$PGPORT"
+export EXTRA_REGRESS_OPTS
+
+# enable echo so the user can see what is being executed
 set -x
 
-$oldbindir/initdb
-$oldbindir/pg_ctl start -l "$logdir/postmaster1.log" -w
+$oldbindir/initdb -N
+$oldbindir/pg_ctl start -l "$logdir/postmaster1.log" -o "$POSTMASTER_OPTS" -w
 if "$MAKE" -C "$oldsrc" installcheck; then
-	pg_dumpall >"$temp_root"/dump1.sql || pg_dumpall1_status=$?
+	pg_dumpall -f "$temp_root"/dump1.sql || pg_dumpall1_status=$?
 	if [ "$newsrc" != "$oldsrc" ]; then
 		oldpgversion=`psql -A -t -d regression -c "SHOW server_version_num"`
 		fix_sql=""
@@ -100,19 +148,35 @@ if [ -n "$pg_dumpall1_status" ]; then
 	exit 1
 fi
 
-mv "${PGDATA}" "${PGDATA}.old"
+PGDATA=$BASE_PGDATA
 
-initdb
+initdb -N
 
-pg_upgrade -d "${PGDATA}.old" -D "${PGDATA}" -b "$oldbindir" -B "$bindir"
+pg_upgrade -d "${PGDATA}.old" -D "${PGDATA}" -b "$oldbindir" -B "$bindir" -p "$PGPORT" -P "$PGPORT"
 
-pg_ctl start -l "$logdir/postmaster2.log" -w
-pg_dumpall >"$temp_root"/dump2.sql || pg_dumpall2_status=$?
+pg_ctl start -l "$logdir/postmaster2.log" -o "$POSTMASTER_OPTS" -w
+
+case $testhost in
+	MINGW*)	cmd /c analyze_new_cluster.bat ;;
+	*)		sh ./analyze_new_cluster.sh ;;
+esac
+
+pg_dumpall -f "$temp_root"/dump2.sql || pg_dumpall2_status=$?
 pg_ctl -m fast stop
+
+# no need to echo commands anymore
+set +x
+echo
+
 if [ -n "$pg_dumpall2_status" ]; then
 	echo "pg_dumpall of post-upgrade database cluster failed"
 	exit 1
 fi
+
+case $testhost in
+	MINGW*)	cmd /c delete_old_cluster.bat ;;
+	*)	    sh ./delete_old_cluster.sh ;;
+esac
 
 if diff -q "$temp_root"/dump1.sql "$temp_root"/dump2.sql; then
 	echo PASSED

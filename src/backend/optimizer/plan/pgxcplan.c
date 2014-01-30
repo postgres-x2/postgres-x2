@@ -38,6 +38,7 @@
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
+#include "optimizer/pathnode.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_oper.h"
@@ -54,6 +55,7 @@
 #include "utils/syscache.h"
 #include "utils/fmgroids.h"
 #include "utils/tqual.h"
+#include "access/htup_details.h"
 
 /* Context for collecting range tables in a Query tree */
 typedef struct
@@ -256,6 +258,14 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 	scan_clauses = pgxc_order_qual_clauses(root, baserel->baserestrictinfo);
 	scan_clauses = list_concat(extract_actual_clauses(scan_clauses, false),
 								extract_actual_clauses(scan_clauses, true));
+
+	/* Replace any outer-relation variables with nestloop params */
+	if (rqpath->path.param_info)
+	{
+		scan_clauses = (List *)
+			pgxc_replace_nestloop_params(root, (Node *) scan_clauses);
+	}
+
 	shippable_quals = pgxc_separate_quals(scan_clauses, unshippable_quals, false);
 	shippable_quals = copyObject(shippable_quals);
 
@@ -264,6 +274,10 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 * start with.
 	 */
 	tlist = pgxc_build_relation_tlist(baserel);
+	/* Take care of parameterization in the target list */
+	if (rqpath->path.param_info)
+		tlist = (List *) pgxc_replace_nestloop_params(root, (Node *) tlist);
+
 	tlist = pull_var_clause((Node *)tlist, PVC_REJECT_AGGREGATES,
 										PVC_RECURSE_PLACEHOLDERS);
 	tlist = list_concat(tlist, pull_var_clause((Node *)*unshippable_quals,
@@ -353,6 +367,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	List			*join_clauses;
 	List			*other_clauses;
 	List			*varlist;
+	RangeTblEntry	*join_rte;
 	/* Variables for the left side of the JOIN */
 	Query			*left_query;
 	List			*left_us_quals;
@@ -365,6 +380,8 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 										 * tree
 										 */
 	RangeTblRef		*left_rtr;
+	List			*left_colvars;
+
 	/* Variables for the right side of the JOIN */
 	Query			*right_query;
 	List			*right_us_quals;
@@ -374,6 +391,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	List			*right_colnames;
 	char			*right_aname = "r";
 	RangeTblRef		*right_rtr;
+	List			*right_colvars;
 	/* Miscellaneous variables */
 	ListCell		*lcell;
 
@@ -389,7 +407,13 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 													&left_rep_tlist);
 	left_colnames = pgxc_generate_colnames("a", list_length(left_rep_tlist));
 	left_alias = makeAlias(left_aname, left_colnames);
-	left_rte = addRangeTableEntryForSubquery(NULL, left_query, left_alias, true);
+	/*
+	 * As of now (1st Nov. 2013) we do not expect a LATERAL query to be shipped
+	 * through this function. See notes in prologue of
+	 * create_remotequery_path().
+	 */
+	left_rte = addRangeTableEntryForSubquery(NULL, left_query, left_alias,
+												false, false);
 	rtable = lappend(rtable, left_rte);
 	left_rtr = makeNode(RangeTblRef);
 	left_rtr->rtindex = list_length(rtable);
@@ -402,8 +426,13 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 													&right_rep_tlist);
 	right_colnames = pgxc_generate_colnames("a", list_length(right_rep_tlist));
 	right_alias = makeAlias(right_aname, right_colnames);
+	/*
+	 * As of now (1st Nov. 2013) we do not expect a LATERAL query to be shipped
+	 * through this function. See notes in prologue of
+	 * create_remotequery_path().
+	 */
 	right_rte = addRangeTableEntryForSubquery(NULL, right_query, right_alias,
-												true);
+											  false, false);
 	rtable = lappend(rtable, right_rte);
 	right_rtr = makeNode(RangeTblRef);
 	right_rtr->rtindex = list_length(rtable);
@@ -418,15 +447,28 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 */
 	extract_actual_join_clauses(rqpath->join_restrictlist, &join_clauses,
 									&other_clauses);
-	if (!pgxc_is_expr_shippable((Expr *)join_clauses, NULL))
-		elog(ERROR, "join with unshippable join clauses can not be shipped");
 	join_clauses = copyObject(join_clauses);
 	other_clauses = list_concat(other_clauses,
 								extract_actual_clauses(rqpath->join_restrictlist,
 														true));
+	/*
+	 * Replace any outer-relation variables with nestloop params.
+	 * Do this before separating shippable and unshippable quals.
+	 * The quals with nested loop parameters are not shippable.
+	 */
+	if (rqpath->path.param_info)
+	{
+		join_clauses = (List *)
+			pgxc_replace_nestloop_params(root, (Node *) join_clauses);
+		other_clauses = (List *)
+			pgxc_replace_nestloop_params(root, (Node *) other_clauses);
+	}
 	other_clauses = pgxc_separate_quals(other_clauses, unshippable_quals, false);
 	other_clauses = copyObject(other_clauses);
 
+	/* Assert what we checked back in pgxc_is_join_shippable() */
+	if (!pgxc_is_expr_shippable((Expr *)join_clauses, NULL))
+		elog(ERROR, "join with unshippable join clauses can not be shipped");
 	/*
 	 * Build the targetlist for this relation and also the targetlist
 	 * representing the query targetlist. The representative target list is in
@@ -485,6 +527,20 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	join_expr->larg = (Node *)left_rtr;
 	join_expr->rarg = (Node *)right_rtr;
 	join_expr->quals = (Node *)make_ands_explicit(join_clauses);
+
+	/* Build the RTE for JOIN query being created and add it to the rtable */
+	/* We need to construct joinaliasvars from the joining RTEs */
+	expandRTE(left_rte, left_rtr->rtindex, 0, -1, false, NULL, &left_colvars);
+	expandRTE(right_rte, right_rtr->rtindex, 0, -1, false, NULL, &right_colvars);
+	join_rte = addRangeTableEntryForJoin(NULL,
+										list_concat(copyObject(left_colnames),
+													copyObject(right_colnames)),
+										rqpath->jointype,
+										list_concat(left_colvars, right_colvars),
+										NULL, false);
+	rtable = lappend(rtable, join_rte);
+	/* Put the index of this RTE in Join expression */
+	join_expr->rtindex = list_length(rtable);
 
 	/* Build the From clause of the JOIN query */
 	from_expr = makeNode(FromExpr);
@@ -668,6 +724,9 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 
 	/* Get the target list required from this plan */
 	tlist = pgxc_build_relation_tlist(rel);
+	/* Replace the lateral refrences if any */
+	if (best_path->path.param_info)
+		tlist = (List *)pgxc_replace_nestloop_params(root, (Node *)tlist);
 	result_node = makeNode(RemoteQuery);
 	result_node->scan.plan.targetlist = tlist;
 	pgxc_build_shippable_query(root, best_path, result_node);
@@ -811,6 +870,24 @@ pgxc_add_returning_list(RemoteQuery *rq, List *ret_list, int rel_index)
 		if (var->varno == rel_index)
 			shipableReturningList = add_to_flat_tlist(shipableReturningList,
 														list_make1(var));
+	}
+
+	/*
+	 * If the user query had RETURNING clause and here we find that
+	 * none of the items in the returning list are shippable
+	 * we intend to send RETURNING NULL to the datanodes
+	 * Otherwise no rows will be returned from the datanodes
+	 * and no rows will be projected to the upper nodes in the
+	 * execution tree.
+	 */
+	if ((shipableReturningList == NIL ||
+		list_length(shipableReturningList) <= 0) &&
+		list_length(ret_list) > 0)
+	{
+		Expr *null_const = (Expr *)makeNullConst(INT4OID, -1, InvalidOid);
+
+		shipableReturningList = add_to_flat_tlist(shipableReturningList,
+												list_make1(null_const));
 	}
 
 	/*
@@ -995,6 +1072,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	bool			node_id_found = false;
 	int				col_att = 0;
 	int				ctid_param_num;
+	ListCell		*lc;
 
 	/* Make sure we are dealing with DMLs */
 	if (cmdtype != CMD_UPDATE &&
@@ -1012,25 +1090,44 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	query_to_deparse->commandType = cmdtype;
 	query_to_deparse->resultRelation = resultRelationIndex;
 
-	/* We will modify the RTE, so make a copy */
-	query_to_deparse->rtable = list_copy(root->parse->rtable);
+	/*
+	 * While copying the range table to the query to deparse make sure we do
+	 * not copy RTE's of type RTE_JOIN because set_deparse_for_query
+	 * function expects that each RTE_JOIN is accompanied by a JoinExpr in
+	 * Query's jointree, which is not true in case of XC's DML planning.
+	 * We therefore fill the RTE's of type RTE_JOIN with dummy RTE entries.
+	 * If each RTE of type RTE_JOIN is not accompanied by a corresponding
+	 * JoinExpr in Query's jointree then set_deparse_for_query crashes
+	 * when trying to set_join_column_names, because set_using_names did not
+	 * call identify_join_columns to put valid values in
+	 * deparse_columns::leftrti & deparse_columns::rightrti
+	 * Instead of putting a check in set_join_column_names to return in case
+	 * of invalid values in leftrti or rightrti, it is preferable to change
+	 * code here and skip RTE's of type RTE_JOIN while copying
+	 */
+	foreach(lc, root->parse->rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
+
+		if (rte->rtekind == RTE_JOIN)
+		{
+			RangeTblEntry	*dummy_rte;
+			char			*rte_name;
+
+			rte_name = "_DUMMY_RTE_";
+			dummy_rte = make_dummy_remote_rte(rte_name,
+									makeAlias("_DUMMY_RTE_", NIL));
+
+			query_to_deparse->rtable = lappend(query_to_deparse->rtable, dummy_rte);
+		}
+		else
+		{
+			query_to_deparse->rtable = lappend(query_to_deparse->rtable, rte);
+		}
+	}
 
 	res_rel = rt_fetch(resultRelationIndex, query_to_deparse->rtable);
 	Assert(res_rel->rtekind == RTE_RELATION);
-	/*
-	 * If this is RTE for an inherited table, we will have
-	 * res_rel->eref->aliasname set to the name of the parent table.
-	 * Query deparsing logic fully qualifies such relation names while
-	 * generating strings for Var nodes. To avoid this, set the alias
-	 * node to the eref node temporarily. See code in get_variable for ref.
-	 * PGXC_TODO: if get_variable() starts correctly using the aliasname set in
-	 * inherited tables, we don't need this hack here.
-	 * Similarly we do not need schema qualification for temp tables
-	 */
-	if (IsTempTable(res_rel->relid) ||
-		(!res_rel->alias && res_rel->eref && res_rel->eref->aliasname &&
-		strcmp(res_rel->eref->aliasname, get_rel_name(res_rel->relid)) != 0))
-		res_rel->alias = res_rel->eref;
 
 	/* This RTE should appear in FROM clause of the SQL statement constructed */
 	res_rel->inFromCl = true;
@@ -1095,75 +1192,38 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	}
 
 	/*
-	 * For UPDATEs the targetList will specify the SET clause
-	 * The number of entries will be the same as the number
-	 * of enries in the target list of original query,
-	 * however their form has to be changed to col_name = $4
-	 * The query deparsing logic obtains the column names from
-	 * TargetEntry::resno, where as the parameter number is
-	 * set to be the same as its position in target table
+	 * In XC we will update *all* the table attributes to reduce code
+	 * complexity in finding the columns being updated, it works whether
+	 * we have before row triggers defined on the table or not.
+	 * The code complexity arises for the case of a table with child tables,
+	 * where columns are added to parent using ALTER TABLE. The attribute
+	 * number of the added column is different in parnet and child table.
+	 * In this case we first have to use TargetEntry::resno to find the name
+	 * of the column being updated in parent table, and then find the attribute
+	 * number of that particular column in the child. This makes code complex.
+	 * In comaprison if we choose to update all the columns of the table
+	 * irrespective of the columns being updated, the code becomes simple
+	 * and easy to read.
+	 * Performance comparison between the two approaches (updating all columns
+	 * and updating only the columns that were in the target list) shows that
+	 * both the approaches give similar TPS in hour long runs of DBT1.
+	 * In XC UPDATE will look like :
+	 * UPDATE ... SET att1 = $1, att1 = $2, .... attn = $n WHERE ctid = $(n+1)
 	 */
 	if (cmdtype == CMD_UPDATE)
 	{
 		int			natts = get_relnatts(res_rel->relid);
-		Relation	rel = relation_open(res_rel->relid, AccessShareLock);
-		bool		br_triggers = pgxc_should_exec_br_trigger(rel,
-										pgxc_get_trigevent(cmdtype));
+		int			attnum;
 
-		relation_close(rel, AccessShareLock);
-
-		/*
-		 * If we are going to execute BR triggers on coordinator, we need to
-		 * update *all* the table attributes because the trigger execution might
-		 * have changed any of the tuple attributes. So the UPDATE will look
-		 * like :
-		 * UPDATE ... SET att1 = $1, att1 = $2, .... attn = $n WHERE ctid = $(n+1)
-		 */
-		if (br_triggers)
+		for (attnum = 1; attnum <= natts; attnum++)
 		{
-			int attnum;
-			for (attnum = 1; attnum <= natts; attnum++)
-			{
-				pgxc_add_param_as_tle(query_to_deparse, attnum,
-			                      get_atttype(res_rel->relid, attnum),
-			                      get_attname(res_rel->relid, attnum));
-			}
-		}
-		else
-		{
-			foreach(elt, root->parse->targetList)
-			{
-				TargetEntry	*qtle = lfirst(elt);
-				AttrNumber	param_num = -1;
-		
-				/*
-				 * The entries of the SET clause will have resjusk false
-				 * and will have a valid resname
-				 */
-				if (qtle->resjunk || qtle->resname == NULL)
-					continue;
+			/* Make sure the column has not been dropped */
+			if (get_rte_attribute_is_dropped(res_rel, attnum))
+				continue;
 
-				/*
-				 * Assume all attributes will be there in the source target list
-				 * and in the same order as the attributes exist in the table
-				 * The paramter number for the set caluse would therefore
-				 * be same as its attribute number
-				 */
-				param_num = get_attnum(res_rel->relid, qtle->resname);
-				if (param_num == InvalidAttrNumber)
-				{
-					elog(ERROR, "cache lookup failed for attribute %s of relation %u",
-						qtle->resname, res_rel->relid);
-					return;
-				}
-
-				/*
-				 * Create the parameter using the parameter number found earlier
-				 * and add it to the target list of the query to deparse
-				 */
-				pgxc_add_param_as_tle(query_to_deparse, param_num,
-									exprType((Node *) qtle->expr), qtle->resname);
-			}
+			pgxc_add_param_as_tle(query_to_deparse, attnum,
+								get_atttype(res_rel->relid, attnum),
+								get_attname(res_rel->relid, attnum));
 		}
 
 		/*
@@ -1173,7 +1233,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		 * we know that the ctid has to be n + 1.
 		 */
 		ctid_param_num = natts + 1;
-	} 
+	}
 	else if (cmdtype == CMD_DELETE)
 	{
 		/*
@@ -2210,7 +2270,7 @@ fetch_ctid_of(Plan *subtree, Query *query)
 			TargetEntry		*te2;
 
 			/* create a function expression */
-			func_expr = makeFuncExpr(funcid, rettype, NULL, InvalidOid, InvalidOid, COERCE_DONTCARE);
+			func_expr = makeFuncExpr(funcid, rettype, NULL, InvalidOid, InvalidOid, COERCION_IMPLICIT); /* Just a tentative fix.  Need Ashutosh's review. K.Suzuki */
 			/* make a target entry for function call */
 			te2 = makeTargetEntry((Expr *)func_expr, resno+2, NULL, false);
 			/* add the target entry to the query target list */
@@ -2311,6 +2371,14 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 
 			result->planTree = (Plan *)pgxc_FQS_create_remote_plan(query, NULL, true);
 			result->rtable = query->rtable;
+
+			/*
+			 * Make a flattened version of the rangetable for faster access (this is
+			 * OK because the rangetable won't change any more), and set up an empty
+			 * array for indexing base relations.
+			 */
+			setup_simple_rel_arrays(root);
+
 			/*
 			 * We need to save plan dependencies, so that dropping objects will
 			 * invalidate the cached plan if it depends on those objects. Table
@@ -2425,6 +2493,20 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		if (!ExecSupportsBackwardScan(top_plan))
 			top_plan = materialize_finished_plan(top_plan);
 	}
+
+	/*
+	 * Make a flattened version of the rangetable for faster access (this is
+	 * OK because the rangetable won't change any more), and set up an empty
+	 * array for indexing base relations.
+	 * setup_simple_rel_arrays() function does not check whether the array has
+	 * been already setup or not. If it's already setup, there will be wastage
+	 * of memory. We might call standard_planner() after calling
+	 * pgxc_FQS_planner() in case the later fails.
+	 * In such case, there might be a possibility that setup_simple_rel_arrays()
+	 * gets called twice. Therefore we call this function only after we have
+	 * decided that there will be FQS plan for given query.
+	 */
+	setup_simple_rel_arrays(root);
 
 	/*
 	 * Just before creating the PlannedStmt, do some final cleanup
@@ -2627,13 +2709,34 @@ validate_part_col_updatable(const Query *query)
 				continue;
 
 			/*
-			 * See if we have a constant expression comparing against the
-			 * designated partitioned column
+			 * The TargetEntry::resno is the same as the attribute number
+			 * of the column being updated, if the attribute number of the
+			 * column being updated and the attribute on which the table is
+			 * distributed is same means this set clause entry is updating the
+			 * distribution column of the target table.
 			 */
-			if (strcmp(tle->resname, GetRelationDistribColumn(rel_loc_info)) == 0)
+			if (rel_loc_info->partAttrNum == tle->resno)
+			{
+				/*
+				 * The TargetEntry::expr contains the RHS of the SET clause
+				 * i.e. the expression that the target column should get
+				 * updated to. If that expression is such that it is not
+				 * changing the target column e.g. in case of a statement
+				 * UPDATE tab set dist_col = dist_col;
+				 * then this UPDATE should be allowed.
+				 */
+				if (IsA(tle->expr, Var))
+				{
+					Var *v = (Var *)tle->expr;
+					if (v->varno == query->resultRelation &&
+						v->varattno == tle->resno)
+						return;
+				}
+
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						(errmsg("Partition column can't be updated in current version"))));
+			}
 		}
 	}
 }

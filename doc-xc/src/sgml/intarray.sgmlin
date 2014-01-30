@@ -8,8 +8,6 @@
  </indexterm>
 
 &common;
-
-
  <para>
   The <filename>intarray</> module provides a number of useful functions
   and operators for manipulating null-free arrays of integers.
@@ -63,7 +61,6 @@
      <row>
       <entry><function>sort(int[], text dir)</function></entry>
       <entry><type>int[]</type></entry>
-
       <entry>sort array &mdash; <parameter>dir</> must be <literal>asc</> or <literal>desc</></entry>
       <entry><literal>sort('{1,2,3}'::int[], 'desc')</literal></entry>
       <entry><literal>{3,2,1}</literal></entry>
@@ -313,7 +310,6 @@ SELECT message.mid FROM message WHERE message.sections @@ '1&amp;2'::query_int;
  <sect2>
   <title>Benchmark</title>
 
-&common;
   <para>
    The source directory <filename>contrib/intarray/bench</> contains a
    benchmark test suite.  To run:

@@ -286,7 +286,16 @@ explain (costs off, nodes off)
   select min(f1), max(f1) from minmaxtest;
 select min(f1), max(f1) from minmaxtest;
 
+-- DISTINCT doesn't do anything useful here, but it shouldn't fail
+explain (costs off, nodes off)
+  select distinct min(f1), max(f1) from minmaxtest;
+select distinct min(f1), max(f1) from minmaxtest;
+
 drop table minmaxtest cascade;
+
+-- check for correct detection of nested-aggregate errors
+select max(min(unique1)) from tenk1;
+select (select max(min(unique1)) from int8_tbl) from tenk1;
 
 --
 -- Test combinations of DISTINCT and/or ORDER BY

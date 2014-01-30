@@ -7,8 +7,7 @@
   <primary>uuid-ossp</primary>
  </indexterm>
 
-&pgnotice;
-
+&common;
  <para>
   The <filename>uuid-ossp</> module provides functions to generate universally
   unique identifiers (UUIDs) using one of several standard algorithms.  There
@@ -23,7 +22,7 @@
  <sect2>
   <title><literal>uuid-ossp</literal> Functions</title>
 
-&pgnotice;
+&common;
   <para>
    <xref linkend="uuid-ossp-functions"> shows the functions available to
    generate UUIDs.

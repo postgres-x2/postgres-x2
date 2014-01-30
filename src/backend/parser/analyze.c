@@ -14,7 +14,7 @@
  * contain optimizable statements, which we should transform.
  *
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/parser/analyze.c
@@ -33,6 +33,7 @@
 #include "utils/tqual.h"
 #endif
 #include "catalog/pg_type.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/var.h"
@@ -63,7 +64,12 @@
 #include "access/xact.h"
 #endif
 #include "utils/rel.h"
-
+/* Added these header file to resolve conflicts, K.Suzuki */
+#include "access/genam.h"
+#include "access/heapam.h"
+#include "access/htup_details.h"
+#include "miscadmin.h"
+/* End of addition */
 
 /* Hook for plugins to get control at end of parse analysis */
 post_parse_analyze_hook_type post_parse_analyze_hook = NULL;
@@ -217,6 +223,7 @@ transformTopLevelStmt(ParseState *pstate, Node *parseTree)
 
 			ctas->query = parseTree;
 			ctas->into = stmt->intoClause;
+			ctas->relkind = OBJECT_TABLE;
 			ctas->is_select_into = true;
 
 			/*
@@ -457,7 +464,8 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 	 */
 	transformFromClause(pstate, stmt->usingClause);
 
-	qual = transformWhereClause(pstate, stmt->whereClause, "WHERE");
+	qual = transformWhereClause(pstate, stmt->whereClause,
+								EXPR_KIND_WHERE, "WHERE");
 
 	qry->returningList = transformReturningList(pstate, stmt->returningList);
 
@@ -467,8 +475,6 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
 	qry->hasWindowFuncs = pstate->p_hasWindowFuncs;
-	if (pstate->p_hasWindowFuncs)
-		parseCheckWindowFuncs(pstate, qry);
 	qry->hasAggs = pstate->p_hasAggs;
 	if (pstate->p_hasAggs)
 		parseCheckAggregates(pstate, qry);
@@ -490,8 +496,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	List	   *exprList = NIL;
 	bool		isGeneralSelect;
 	List	   *sub_rtable;
-	List	   *sub_relnamespace;
-	List	   *sub_varnamespace;
+	List	   *sub_namespace;
 	List	   *icolumns;
 	List	   *attrnos;
 	RangeTblEntry *rte;
@@ -543,16 +548,13 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	{
 		sub_rtable = pstate->p_rtable;
 		pstate->p_rtable = NIL;
-		sub_relnamespace = pstate->p_relnamespace;
-		pstate->p_relnamespace = NIL;
-		sub_varnamespace = pstate->p_varnamespace;
-		pstate->p_varnamespace = NIL;
+		sub_namespace = pstate->p_namespace;
+		pstate->p_namespace = NIL;
 	}
 	else
 	{
 		sub_rtable = NIL;		/* not used, but keep compiler quiet */
-		sub_relnamespace = NIL;
-		sub_varnamespace = NIL;
+		sub_namespace = NIL;
 	}
 
 	/*
@@ -605,8 +607,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		 */
 		sub_pstate->p_rtable = sub_rtable;
 		sub_pstate->p_joinexprs = NIL;	/* sub_rtable has no joins */
-		sub_pstate->p_relnamespace = sub_relnamespace;
-		sub_pstate->p_varnamespace = sub_varnamespace;
+		sub_pstate->p_namespace = sub_namespace;
 
 		selectQuery = transformStmt(sub_pstate, stmt->selectStmt);
 
@@ -625,6 +626,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		rte = addRangeTableEntryForSubquery(pstate,
 											selectQuery,
 											makeAlias("*SELECT*", NIL),
+											false,
 											false);
 #ifdef PGXC
 		/*
@@ -700,6 +702,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		List	   *exprsLists = NIL;
 		List	   *collations = NIL;
 		int			sublist_length = -1;
+		bool		lateral = false;
 		int			i;
 
 		Assert(selectStmt->intoClause == NULL);
@@ -709,7 +712,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 			List	   *sublist = (List *) lfirst(lc);
 
 			/* Do basic expression transformation (same as a ROW() expr) */
-			sublist = transformExpressionList(pstate, sublist);
+			sublist = transformExpressionList(pstate, sublist, EXPR_KIND_VALUES);
 
 			/*
 			 * All the sublists must be the same length, *after*
@@ -760,37 +763,20 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 			collations = lappend_oid(collations, InvalidOid);
 
 		/*
-		 * There mustn't have been any table references in the expressions,
-		 * else strange things would happen, like Cartesian products of those
-		 * tables with the VALUES list ...
-		 */
-		if (pstate->p_joinlist != NIL)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("VALUES must not contain table references"),
-					 parser_errposition(pstate,
-							  locate_var_of_level((Node *) exprsLists, 0))));
-
-		/*
-		 * Another thing we can't currently support is NEW/OLD references in
-		 * rules --- seems we'd need something like SQL99's LATERAL construct
-		 * to ensure that the values would be available while evaluating the
-		 * VALUES RTE.	This is a shame.  FIXME
+		 * Ordinarily there can't be any current-level Vars in the expression
+		 * lists, because the namespace was empty ... but if we're inside
+		 * CREATE RULE, then NEW/OLD references might appear.  In that case we
+		 * have to mark the VALUES RTE as LATERAL.
 		 */
 		if (list_length(pstate->p_rtable) != 1 &&
 			contain_vars_of_level((Node *) exprsLists, 0))
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("VALUES must not contain OLD or NEW references"),
-					 errhint("Use SELECT ... UNION ALL ... instead."),
-					 parser_errposition(pstate,
-							  locate_var_of_level((Node *) exprsLists, 0))));
+			lateral = true;
 
 		/*
 		 * Generate the VALUES RTE
 		 */
 		rte = addRangeTableEntryForValues(pstate, exprsLists, collations,
-										  NULL, true);
+										  NULL, lateral, true);
 		rtr = makeNode(RangeTblRef);
 		/* assume new rte is at end */
 		rtr->rtindex = list_length(pstate->p_rtable);
@@ -804,16 +790,11 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	}
 	else
 	{
-		/*----------
-		 * Process INSERT ... VALUES with a single VALUES sublist.
-		 * We treat this separately for efficiency and for historical
-		 * compatibility --- specifically, allowing table references,
-		 * such as
-		 *			INSERT INTO foo VALUES(bar.*)
-		 *
-		 * The sublist is just computed directly as the Query's targetlist,
-		 * with no VALUES RTE.	So it works just like SELECT without FROM.
-		 *----------
+		/*
+		 * Process INSERT ... VALUES with a single VALUES sublist.	We treat
+		 * this case separately for efficiency.  The sublist is just computed
+		 * directly as the Query's targetlist, with no VALUES RTE.  So it
+		 * works just like a SELECT without any FROM.
 		 */
 		List	   *valuesLists = selectStmt->valuesLists;
 
@@ -822,7 +803,8 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 		/* Do basic expression transformation (same as a ROW() expr) */
 		exprList = transformExpressionList(pstate,
-										   (List *) linitial(valuesLists));
+										   (List *) linitial(valuesLists),
+										   EXPR_KIND_VALUES);
 
 		/* Prepare row for assignment to target table */
 		exprList = transformInsertRow(pstate, exprList,
@@ -870,8 +852,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	 */
 	if (stmt->returningList)
 	{
-		pstate->p_relnamespace = NIL;
-		pstate->p_varnamespace = NIL;
+		pstate->p_namespace = NIL;
 		addRTEtoQuery(pstate, pstate->p_target_rangetblentry,
 					  false, true, true);
 		qry->returningList = transformReturningList(pstate,
@@ -883,19 +864,6 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
-	/* aggregates not allowed (but subselects are okay) */
-	if (pstate->p_hasAggs)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg("cannot use aggregate function in VALUES"),
-				 parser_errposition(pstate,
-									locate_agg_of_level((Node *) qry, 0))));
-	if (pstate->p_hasWindowFuncs)
-		ereport(ERROR,
-				(errcode(ERRCODE_WINDOWING_ERROR),
-				 errmsg("cannot use window function in VALUES"),
-				 parser_errposition(pstate,
-									locate_windowfunc((Node *) qry))));
 
 	assign_query_collations(pstate, qry);
 
@@ -970,6 +938,7 @@ transformInsertRow(ParseState *pstate, List *exprlist,
 		Assert(IsA(col, ResTarget));
 
 		expr = transformAssignedExpr(pstate, expr,
+									 EXPR_KIND_INSERT_TARGET,
 									 col->name,
 									 lfirst_int(attnos),
 									 col->indirection,
@@ -1070,19 +1039,19 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	transformFromClause(pstate, stmt->fromClause);
 
 	/* transform targetlist */
-	qry->targetList = transformTargetList(pstate, stmt->targetList);
+	qry->targetList = transformTargetList(pstate, stmt->targetList,
+										  EXPR_KIND_SELECT_TARGET);
 
 	/* mark column origins */
 	markTargetListOrigins(pstate, qry->targetList);
 
 	/* transform WHERE */
-	qual = transformWhereClause(pstate, stmt->whereClause, "WHERE");
+	qual = transformWhereClause(pstate, stmt->whereClause,
+								EXPR_KIND_WHERE, "WHERE");
 
-	/*
-	 * Initial processing of HAVING clause is just like WHERE clause.
-	 */
+	/* initial processing of HAVING clause is much like WHERE clause */
 	qry->havingQual = transformWhereClause(pstate, stmt->havingClause,
-										   "HAVING");
+										   EXPR_KIND_HAVING, "HAVING");
 
 	/*
 	 * Transform sorting/grouping stuff.  Do ORDER BY first because both
@@ -1093,6 +1062,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	qry->sortClause = transformSortClause(pstate,
 										  stmt->sortClause,
 										  &qry->targetList,
+										  EXPR_KIND_ORDER_BY,
 										  true /* fix unknowns */ ,
 										  false /* allow SQL92 rules */ );
 
@@ -1100,6 +1070,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 											stmt->groupClause,
 											&qry->targetList,
 											qry->sortClause,
+											EXPR_KIND_GROUP_BY,
 											false /* allow SQL92 rules */ );
 
 	if (stmt->distinctClause == NIL)
@@ -1128,9 +1099,9 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/* transform LIMIT */
 	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
-											"OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET");
 	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
-										   "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT");
 
 	/* transform window clauses after we have seen all window functions */
 	qry->windowClause = transformWindowDefinitions(pstate,
@@ -1142,8 +1113,6 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
 	qry->hasWindowFuncs = pstate->p_hasWindowFuncs;
-	if (pstate->p_hasWindowFuncs)
-		parseCheckWindowFuncs(pstate, qry);
 	qry->hasAggs = pstate->p_hasAggs;
 	if (pstate->p_hasAggs || qry->groupClause || qry->havingQual)
 		parseCheckAggregates(pstate, qry);
@@ -1174,8 +1143,9 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	List	   *collations;
 	List	  **colexprs = NULL;
 	int			sublist_length = -1;
+	bool		lateral = false;
 	RangeTblEntry *rte;
-	RangeTblRef *rtr;
+	int			rtindex;
 	ListCell   *lc;
 	ListCell   *lc2;
 	int			i;
@@ -1215,7 +1185,7 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 		List	   *sublist = (List *) lfirst(lc);
 
 		/* Do basic expression transformation (same as a ROW() expr) */
-		sublist = transformExpressionList(pstate, sublist);
+		sublist = transformExpressionList(pstate, sublist, EXPR_KIND_VALUES);
 
 		/*
 		 * All the sublists must be the same length, *after* transformation
@@ -1319,23 +1289,31 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	}
 
 	/*
+	 * Ordinarily there can't be any current-level Vars in the expression
+	 * lists, because the namespace was empty ... but if we're inside CREATE
+	 * RULE, then NEW/OLD references might appear.	In that case we have to
+	 * mark the VALUES RTE as LATERAL.
+	 */
+	if (pstate->p_rtable != NIL &&
+		contain_vars_of_level((Node *) exprsLists, 0))
+		lateral = true;
+
+	/*
 	 * Generate the VALUES RTE
 	 */
 	rte = addRangeTableEntryForValues(pstate, exprsLists, collations,
-									  NULL, true);
-	rtr = makeNode(RangeTblRef);
+									  NULL, lateral, true);
+	addRTEtoQuery(pstate, rte, true, true, true);
+
 	/* assume new rte is at end */
-	rtr->rtindex = list_length(pstate->p_rtable);
-	Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
-	pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
-	pstate->p_relnamespace = lappend(pstate->p_relnamespace, rte);
-	pstate->p_varnamespace = lappend(pstate->p_varnamespace, rte);
+	rtindex = list_length(pstate->p_rtable);
+	Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
 
 	/*
 	 * Generate a targetlist as though expanding "*"
 	 */
 	Assert(pstate->p_next_resno == 1);
-	qry->targetList = expandRelAttrs(pstate, rte, rtr->rtindex, 0, -1);
+	qry->targetList = expandRelAttrs(pstate, rte, rtindex, 0, -1);
 
 	/*
 	 * The grammar allows attaching ORDER BY, LIMIT, and FOR UPDATE to a
@@ -1344,64 +1322,24 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	qry->sortClause = transformSortClause(pstate,
 										  stmt->sortClause,
 										  &qry->targetList,
+										  EXPR_KIND_ORDER_BY,
 										  true /* fix unknowns */ ,
 										  false /* allow SQL92 rules */ );
 
 	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
-											"OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET");
 	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
-										   "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT");
 
 	if (stmt->lockingClause)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			 errmsg("SELECT FOR UPDATE/SHARE cannot be applied to VALUES")));
 
-	/*
-	 * There mustn't have been any table references in the expressions, else
-	 * strange things would happen, like Cartesian products of those tables
-	 * with the VALUES list.  We have to check this after parsing ORDER BY et
-	 * al since those could insert more junk.
-	 */
-	if (list_length(pstate->p_joinlist) != 1)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("VALUES must not contain table references"),
-				 parser_errposition(pstate,
-							  locate_var_of_level((Node *) exprsLists, 0))));
-
-	/*
-	 * Another thing we can't currently support is NEW/OLD references in rules
-	 * --- seems we'd need something like SQL99's LATERAL construct to ensure
-	 * that the values would be available while evaluating the VALUES RTE.
-	 * This is a shame.  FIXME
-	 */
-	if (list_length(pstate->p_rtable) != 1 &&
-		contain_vars_of_level((Node *) exprsLists, 0))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("VALUES must not contain OLD or NEW references"),
-				 errhint("Use SELECT ... UNION ALL ... instead."),
-				 parser_errposition(pstate,
-							  locate_var_of_level((Node *) exprsLists, 0))));
-
 	qry->rtable = pstate->p_rtable;
 	qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
-	/* aggregates not allowed (but subselects are okay) */
-	if (pstate->p_hasAggs)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg("cannot use aggregate function in VALUES"),
-				 parser_errposition(pstate,
-							  locate_agg_of_level((Node *) exprsLists, 0))));
-	if (pstate->p_hasWindowFuncs)
-		ereport(ERROR,
-				(errcode(ERRCODE_WINDOWING_ERROR),
-				 errmsg("cannot use window function in VALUES"),
-				 parser_errposition(pstate,
-									locate_windowfunc((Node *) exprsLists))));
 
 	assign_query_collations(pstate, qry);
 
@@ -1430,6 +1368,7 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	Node	   *limitOffset;
 	Node	   *limitCount;
 	List	   *lockingClause;
+	WithClause *withClause;
 	Node	   *node;
 	ListCell   *left_tlist,
 			   *lct,
@@ -1438,21 +1377,12 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 			   *l;
 	List	   *targetvars,
 			   *targetnames,
-			   *sv_relnamespace,
-			   *sv_varnamespace;
+			   *sv_namespace;
 	int			sv_rtable_length;
 	RangeTblEntry *jrte;
 	int			tllen;
 
 	qry->commandType = CMD_SELECT;
-
-	/* process the WITH clause independently of all else */
-	if (stmt->withClause)
-	{
-		qry->hasRecursive = stmt->withClause->recursive;
-		qry->cteList = transformWithClause(pstate, stmt->withClause);
-		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
-	}
 
 	/*
 	 * Find leftmost leaf SelectStmt.  We currently only need to do this in
@@ -1483,17 +1413,27 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	limitOffset = stmt->limitOffset;
 	limitCount = stmt->limitCount;
 	lockingClause = stmt->lockingClause;
+	withClause = stmt->withClause;
 
 	stmt->sortClause = NIL;
 	stmt->limitOffset = NULL;
 	stmt->limitCount = NULL;
 	stmt->lockingClause = NIL;
+	stmt->withClause = NULL;
 
 	/* We don't support FOR UPDATE/SHARE with set ops at the moment. */
 	if (lockingClause)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with UNION/INTERSECT/EXCEPT")));
+
+	/* Process the WITH clause independently of all else */
+	if (withClause)
+	{
+		qry->hasRecursive = withClause->recursive;
+		qry->cteList = transformWithClause(pstate, withClause);
+		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
+	}
 
 	/*
 	 * Recursively transform the components of the tree.
@@ -1564,7 +1504,7 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/*
 	 * As a first step towards supporting sort clauses that are expressions
-	 * using the output columns, generate a varnamespace entry that makes the
+	 * using the output columns, generate a namespace entry that makes the
 	 * output columns visible.	A Join RTE node is handy for this, since we
 	 * can easily control the Vars generated upon matches.
 	 *
@@ -1581,11 +1521,11 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 									 NULL,
 									 false);
 
-	sv_relnamespace = pstate->p_relnamespace;
-	pstate->p_relnamespace = NIL;		/* no qualified names allowed */
+	sv_namespace = pstate->p_namespace;
+	pstate->p_namespace = NIL;
 
-	sv_varnamespace = pstate->p_varnamespace;
-	pstate->p_varnamespace = list_make1(jrte);
+	/* add jrte to column namespace only */
+	addRTEtoQuery(pstate, jrte, false, false, true);
 
 	/*
 	 * For now, we don't support resjunk sort clauses on the output of a
@@ -1598,12 +1538,13 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	qry->sortClause = transformSortClause(pstate,
 										  sortClause,
 										  &qry->targetList,
+										  EXPR_KIND_ORDER_BY,
 										  false /* no unknowns expected */ ,
 										  false /* allow SQL92 rules */ );
 
+	/* restore namespace, remove jrte from rtable */
+	pstate->p_namespace = sv_namespace;
 	pstate->p_rtable = list_truncate(pstate->p_rtable, sv_rtable_length);
-	pstate->p_relnamespace = sv_relnamespace;
-	pstate->p_varnamespace = sv_varnamespace;
 
 	if (tllen != list_length(qry->targetList))
 		ereport(ERROR,
@@ -1615,17 +1556,15 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 						   exprLocation(list_nth(qry->targetList, tllen)))));
 
 	qry->limitOffset = transformLimitClause(pstate, limitOffset,
-											"OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET");
 	qry->limitCount = transformLimitClause(pstate, limitCount,
-										   "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT");
 
 	qry->rtable = pstate->p_rtable;
 	qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
 	qry->hasWindowFuncs = pstate->p_hasWindowFuncs;
-	if (pstate->p_hasWindowFuncs)
-		parseCheckWindowFuncs(pstate, qry);
 	qry->hasAggs = pstate->p_hasAggs;
 	if (pstate->p_hasAggs || qry->groupClause || qry->havingQual)
 		parseCheckAggregates(pstate, qry);
@@ -1663,6 +1602,9 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 
 	Assert(stmt && IsA(stmt, SelectStmt));
 
+	/* Guard against stack overflow due to overly complex set-expressions */
+	check_stack_depth();
+
 	/*
 	 * Validity-check both leaf and internal SELECTs for disallowed ops.
 	 */
@@ -1680,10 +1622,10 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with UNION/INTERSECT/EXCEPT")));
 
 	/*
-	 * If an internal node of a set-op tree has ORDER BY, LIMIT, or FOR UPDATE
-	 * clauses attached, we need to treat it like a leaf node to generate an
-	 * independent sub-Query tree.	Otherwise, it can be represented by a
-	 * SetOperationStmt node underneath the parent Query.
+	 * If an internal node of a set-op tree has ORDER BY, LIMIT, FOR UPDATE,
+	 * or WITH clauses attached, we need to treat it like a leaf node to
+	 * generate an independent sub-Query tree.	Otherwise, it can be
+	 * represented by a SetOperationStmt node underneath the parent Query.
 	 */
 	if (stmt->op == SETOP_NONE)
 	{
@@ -1694,7 +1636,7 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 	{
 		Assert(stmt->larg != NULL && stmt->rarg != NULL);
 		if (stmt->sortClause || stmt->limitOffset || stmt->limitCount ||
-			stmt->lockingClause)
+			stmt->lockingClause || stmt->withClause)
 			isLeaf = true;
 		else
 			isLeaf = false;
@@ -1724,7 +1666,7 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		 * because the namespace will be empty, but it could happen if we are
 		 * inside a rule.
 		 */
-		if (pstate->p_relnamespace || pstate->p_varnamespace)
+		if (pstate->p_namespace)
 		{
 			if (contain_vars_of_level((Node *) selectQuery, 1))
 				ereport(ERROR,
@@ -1757,6 +1699,7 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		rte = addRangeTableEntryForSubquery(pstate,
 											selectQuery,
 											makeAlias(selectName, NIL),
+											false,
 											false);
 
 		/*
@@ -2110,9 +2053,11 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	 */
 	transformFromClause(pstate, stmt->fromClause);
 
-	qry->targetList = transformTargetList(pstate, stmt->targetList);
+	qry->targetList = transformTargetList(pstate, stmt->targetList,
+										  EXPR_KIND_UPDATE_SOURCE);
 
-	qual = transformWhereClause(pstate, stmt->whereClause, "WHERE");
+	qual = transformWhereClause(pstate, stmt->whereClause,
+								EXPR_KIND_WHERE, "WHERE");
 
 	qry->returningList = transformReturningList(pstate, stmt->returningList);
 
@@ -2120,24 +2065,6 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	qry->jointree = makeFromExpr(pstate->p_joinlist, qual);
 
 	qry->hasSubLinks = pstate->p_hasSubLinks;
-
-	/*
-	 * Top-level aggregates are simply disallowed in UPDATE, per spec. (From
-	 * an implementation point of view, this is forced because the implicit
-	 * ctid reference would otherwise be an ungrouped variable.)
-	 */
-	if (pstate->p_hasAggs)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg("cannot use aggregate function in UPDATE"),
-				 parser_errposition(pstate,
-									locate_agg_of_level((Node *) qry, 0))));
-	if (pstate->p_hasWindowFuncs)
-		ereport(ERROR,
-				(errcode(ERRCODE_WINDOWING_ERROR),
-				 errmsg("cannot use window function in UPDATE"),
-				 parser_errposition(pstate,
-									locate_windowfunc((Node *) qry))));
 
 	/*
 	 * Now we are done with SELECT-like processing, and can get on with
@@ -2213,9 +2140,6 @@ transformReturningList(ParseState *pstate, List *returningList)
 {
 	List	   *rlist;
 	int			save_next_resno;
-	bool		save_hasAggs;
-	bool		save_hasWindowFuncs;
-	int			length_rtable;
 
 	if (returningList == NIL)
 		return NIL;				/* nothing to do */
@@ -2228,58 +2152,14 @@ transformReturningList(ParseState *pstate, List *returningList)
 	save_next_resno = pstate->p_next_resno;
 	pstate->p_next_resno = 1;
 
-	/* save other state so that we can detect disallowed stuff */
-	save_hasAggs = pstate->p_hasAggs;
-	pstate->p_hasAggs = false;
-	save_hasWindowFuncs = pstate->p_hasWindowFuncs;
-	pstate->p_hasWindowFuncs = false;
-	length_rtable = list_length(pstate->p_rtable);
-
 	/* transform RETURNING identically to a SELECT targetlist */
-	rlist = transformTargetList(pstate, returningList);
-
-	/* check for disallowed stuff */
-
-	/* aggregates not allowed (but subselects are okay) */
-	if (pstate->p_hasAggs)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg("cannot use aggregate function in RETURNING"),
-				 parser_errposition(pstate,
-									locate_agg_of_level((Node *) rlist, 0))));
-	if (pstate->p_hasWindowFuncs)
-		ereport(ERROR,
-				(errcode(ERRCODE_WINDOWING_ERROR),
-				 errmsg("cannot use window function in RETURNING"),
-				 parser_errposition(pstate,
-									locate_windowfunc((Node *) rlist))));
-
-	/* no new relation references please */
-	if (list_length(pstate->p_rtable) != length_rtable)
-	{
-		int			vlocation = -1;
-		int			relid;
-
-		/* try to locate such a reference to point to */
-		for (relid = length_rtable + 1; relid <= list_length(pstate->p_rtable); relid++)
-		{
-			vlocation = locate_var_of_relation((Node *) rlist, relid, 0);
-			if (vlocation >= 0)
-				break;
-		}
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			errmsg("RETURNING cannot contain references to other relations"),
-				 parser_errposition(pstate, vlocation)));
-	}
+	rlist = transformTargetList(pstate, returningList, EXPR_KIND_RETURNING);
 
 	/* mark column origins */
 	markTargetListOrigins(pstate, rlist);
 
 	/* restore state */
 	pstate->p_next_resno = save_next_resno;
-	pstate->p_hasAggs = save_hasAggs;
-	pstate->p_hasWindowFuncs = save_hasWindowFuncs;
 
 	return rlist;
 }
@@ -2387,7 +2267,8 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 
 /*
  * transformCreateTableAsStmt -
- *	transform a CREATE TABLE AS (or SELECT ... INTO) Statement
+ *	transform a CREATE TABLE AS, SELECT ... INTO, or CREATE MATERIALIZED VIEW
+ *	Statement
  *
  * As with EXPLAIN, transform the contained statement now.
  */
@@ -2395,9 +2276,65 @@ static Query *
 transformCreateTableAsStmt(ParseState *pstate, CreateTableAsStmt *stmt)
 {
 	Query	   *result;
+	Query	   *query;
 
 	/* transform contained query */
-	stmt->query = (Node *) transformStmt(pstate, stmt->query);
+	query = transformStmt(pstate, stmt->query);
+	stmt->query = (Node *) query;
+
+	/* additional work needed for CREATE MATERIALIZED VIEW */
+	if (stmt->relkind == OBJECT_MATVIEW)
+	{
+		/*
+		 * Prohibit a data-modifying CTE in the query used to create a
+		 * materialized view. It's not sufficiently clear what the user would
+		 * want to happen if the MV is refreshed or incrementally maintained.
+		 */
+		if (query->hasModifyingCTE)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("materialized views must not use data-modifying statements in WITH")));
+
+		/*
+		 * Check whether any temporary database objects are used in the
+		 * creation query. It would be hard to refresh data or incrementally
+		 * maintain it if a source disappeared.
+		 */
+		if (isQueryUsingTempRelation(query))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("materialized views must not use temporary tables or views")));
+
+		/*
+		 * A materialized view would either need to save parameters for use in
+		 * maintaining/loading the data or prohibit them entirely.	The latter
+		 * seems safer and more sane.
+		 */
+		if (query_contains_extern_params(query))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("materialized views may not be defined using bound parameters")));
+
+		/*
+		 * For now, we disallow unlogged materialized views, because it seems
+		 * like a bad idea for them to just go to empty after a crash. (If we
+		 * could mark them as unpopulated, that would be better, but that
+		 * requires catalog changes which crash recovery can't presently
+		 * handle.)
+		 */
+		if (stmt->into->rel->relpersistence == RELPERSISTENCE_UNLOGGED)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("materialized views cannot be UNLOGGED")));
+
+		/*
+		 * At runtime, we'll need a copy of the parsed-but-not-rewritten Query
+		 * for purposes of creating the view's ON SELECT rule.  We stash that
+		 * in the IntoClause because that's where intorel_startup() can
+		 * conveniently get it from.
+		 */
+		stmt->into->viewQuery = copyObject(query);
+	}
 
 	/* represent the command as a utility Query */
 	result = makeNode(Query);
@@ -2696,7 +2633,7 @@ is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
 #endif
 
 /*
- * Check for features that are not supported together with FOR UPDATE/SHARE.
+ * Check for features that are not supported with FOR [KEY] UPDATE/SHARE.
  *
  * exported so planner can check again after rewriting, query pullup, etc
  */
@@ -2706,35 +2643,35 @@ CheckSelectLocking(Query *qry)
 	if (qry->setOperations)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with UNION/INTERSECT/EXCEPT")));
+				 errmsg("row-level locks are not allowed with UNION/INTERSECT/EXCEPT")));
 	if (qry->distinctClause != NIL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with DISTINCT clause")));
+			errmsg("row-level locks are not allowed with DISTINCT clause")));
 	if (qry->groupClause != NIL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with GROUP BY clause")));
+			errmsg("row-level locks are not allowed with GROUP BY clause")));
 	if (qry->havingQual != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		errmsg("SELECT FOR UPDATE/SHARE is not allowed with HAVING clause")));
+			  errmsg("row-level locks are not allowed with HAVING clause")));
 	if (qry->hasAggs)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with aggregate functions")));
+		errmsg("row-level locks are not allowed with aggregate functions")));
 	if (qry->hasWindowFuncs)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with window functions")));
+		   errmsg("row-level locks are not allowed with window functions")));
 	if (expression_returns_set((Node *) qry->targetList))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SELECT FOR UPDATE/SHARE is not allowed with set-returning functions in the target list")));
+				 errmsg("row-level locks are not allowed with set-returning functions in the target list")));
 }
 
 /*
- * Transform a FOR UPDATE/SHARE clause
+ * Transform a FOR [KEY] UPDATE/SHARE clause
  *
  * This basically involves replacing names by integer relids.
  *
@@ -2756,7 +2693,7 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 	/* make a clause we can pass down to subqueries to select all rels */
 	allrels = makeNode(LockingClause);
 	allrels->lockedRels = NIL;	/* indicates all rels */
-	allrels->forUpdate = lc->forUpdate;
+	allrels->strength = lc->strength;
 	allrels->noWait = lc->noWait;
 
 	if (lockedRels == NIL)
@@ -2771,16 +2708,13 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 			switch (rte->rtekind)
 			{
 				case RTE_RELATION:
-					/* ignore foreign tables */
-					if (rte->relkind == RELKIND_FOREIGN_TABLE)
-						break;
 					applyLockingClause(qry, i,
-									   lc->forUpdate, lc->noWait, pushedDown);
+									   lc->strength, lc->noWait, pushedDown);
 					rte->requiredPerms |= ACL_SELECT_FOR_UPDATE;
 					break;
 				case RTE_SUBQUERY:
 					applyLockingClause(qry, i,
-									   lc->forUpdate, lc->noWait, pushedDown);
+									   lc->strength, lc->noWait, pushedDown);
 
 					/*
 					 * FOR UPDATE/SHARE of subquery is propagated to all of
@@ -2809,7 +2743,7 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 			if (thisrel->catalogname || thisrel->schemaname)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("SELECT FOR UPDATE/SHARE must specify unqualified relation names"),
+						 errmsg("row-level locks must specify unqualified relation names"),
 						 parser_errposition(pstate, thisrel->location)));
 
 			i = 0;
@@ -2823,20 +2757,14 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 					switch (rte->rtekind)
 					{
 						case RTE_RELATION:
-							if (rte->relkind == RELKIND_FOREIGN_TABLE)
-								ereport(ERROR,
-									 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									  errmsg("SELECT FOR UPDATE/SHARE cannot be used with foreign table \"%s\"",
-											 rte->eref->aliasname),
-									  parser_errposition(pstate, thisrel->location)));
 							applyLockingClause(qry, i,
-											   lc->forUpdate, lc->noWait,
+											   lc->strength, lc->noWait,
 											   pushedDown);
 							rte->requiredPerms |= ACL_SELECT_FOR_UPDATE;
 							break;
 						case RTE_SUBQUERY:
 							applyLockingClause(qry, i,
-											   lc->forUpdate, lc->noWait,
+											   lc->strength, lc->noWait,
 											   pushedDown);
 							/* see comment above */
 							transformLockingClause(pstate, rte->subquery,
@@ -2845,25 +2773,25 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 						case RTE_JOIN:
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("SELECT FOR UPDATE/SHARE cannot be applied to a join"),
+									 errmsg("row-level locks cannot be applied to a join"),
 							 parser_errposition(pstate, thisrel->location)));
 							break;
 						case RTE_FUNCTION:
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("SELECT FOR UPDATE/SHARE cannot be applied to a function"),
+									 errmsg("row-level locks cannot be applied to a function"),
 							 parser_errposition(pstate, thisrel->location)));
 							break;
 						case RTE_VALUES:
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("SELECT FOR UPDATE/SHARE cannot be applied to VALUES"),
+									 errmsg("row-level locks cannot be applied to VALUES"),
 							 parser_errposition(pstate, thisrel->location)));
 							break;
 						case RTE_CTE:
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("SELECT FOR UPDATE/SHARE cannot be applied to a WITH query"),
+									 errmsg("row-level locks cannot be applied to a WITH query"),
 							 parser_errposition(pstate, thisrel->location)));
 							break;
 						default:
@@ -2877,7 +2805,7 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 			if (rt == NULL)
 				ereport(ERROR,
 						(errcode(ERRCODE_UNDEFINED_TABLE),
-						 errmsg("relation \"%s\" in FOR UPDATE/SHARE clause not found in FROM clause",
+						 errmsg("relation \"%s\" in row-level lock clause not found in FROM clause",
 								thisrel->relname),
 						 parser_errposition(pstate, thisrel->location)));
 		}
@@ -2889,7 +2817,7 @@ transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
  */
 void
 applyLockingClause(Query *qry, Index rtindex,
-				   bool forUpdate, bool noWait, bool pushedDown)
+				   LockClauseStrength strength, bool noWait, bool pushedDown)
 {
 	RowMarkClause *rc;
 
@@ -2901,10 +2829,10 @@ applyLockingClause(Query *qry, Index rtindex,
 	if ((rc = get_parse_rowmark(qry, rtindex)) != NULL)
 	{
 		/*
-		 * If the same RTE is specified both FOR UPDATE and FOR SHARE, treat
-		 * it as FOR UPDATE.  (Reasonable, since you can't take both a shared
-		 * and exclusive lock at the same time; it'll end up being exclusive
-		 * anyway.)
+		 * If the same RTE is specified for more than one locking strength,
+		 * treat is as the strongest.  (Reasonable, since you can't take both
+		 * a shared and exclusive lock at the same time; it'll end up being
+		 * exclusive anyway.)
 		 *
 		 * We also consider that NOWAIT wins if it's specified both ways. This
 		 * is a bit more debatable but raising an error doesn't seem helpful.
@@ -2913,7 +2841,7 @@ applyLockingClause(Query *qry, Index rtindex,
 		 *
 		 * And of course pushedDown becomes false if any clause is explicit.
 		 */
-		rc->forUpdate |= forUpdate;
+		rc->strength = Max(rc->strength, strength);
 		rc->noWait |= noWait;
 		rc->pushedDown &= pushedDown;
 		return;
@@ -2922,7 +2850,7 @@ applyLockingClause(Query *qry, Index rtindex,
 	/* Make a new RowMarkClause */
 	rc = makeNode(RowMarkClause);
 	rc->rti = rtindex;
-	rc->forUpdate = forUpdate;
+	rc->strength = strength;
 	rc->noWait = noWait;
 	rc->pushedDown = pushedDown;
 	qry->rowMarks = lappend(qry->rowMarks, rc);

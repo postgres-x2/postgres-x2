@@ -3,11 +3,11 @@
  *
  *	Postgres-version-specific routines
  *
- *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/version_old_8_3.c
  */
 
-#include "postgres.h"
+#include "postgres_fe.h"
 
 #include "pg_upgrade.h"
 
@@ -145,6 +145,7 @@ old_8_3_check_for_tsquery_usage(ClusterInfo *cluster)
 								"FROM	pg_catalog.pg_class c, "
 								"		pg_catalog.pg_namespace n, "
 								"		pg_catalog.pg_attribute a "
+		/* materialized views didn't exist in 8.3, so no need to check 'm' */
 								"WHERE	c.relkind = 'r' AND "
 								"		c.oid = a.attrelid AND "
 								"		NOT a.attisdropped AND "
@@ -323,6 +324,7 @@ old_8_3_rebuild_tsvector_tables(ClusterInfo *cluster, bool check_mode)
 								"FROM	pg_catalog.pg_class c, "
 								"		pg_catalog.pg_namespace n, "
 								"		pg_catalog.pg_attribute a "
+		/* materialized views didn't exist in 8.3, so no need to check 'm' */
 								"WHERE	c.relkind = 'r' AND "
 								"		c.oid = a.attrelid AND "
 								"		NOT a.attisdropped AND "
@@ -343,6 +345,7 @@ old_8_3_rebuild_tsvector_tables(ClusterInfo *cluster, bool check_mode)
 								"FROM	pg_catalog.pg_class c, "		\
 								"		pg_catalog.pg_namespace n, "	\
 								"		pg_catalog.pg_attribute a "		\
+		/* materialized views didn't exist in 8.3, so no need to check 'm' */ \
 								"WHERE	c.relkind = 'r' AND "			\
 								"		c.oid = a.attrelid AND "		\
 								"		NOT a.attisdropped AND "		\

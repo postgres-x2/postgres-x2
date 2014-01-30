@@ -8,7 +8,6 @@
  </indexterm>
 
 &pgnotice;
-
  <para>
   The <filename>sslinfo</> module provides information about the SSL
   certificate that the current client provided when connecting to
@@ -23,6 +22,7 @@
 
  <sect2>
   <title>Functions Provided</title>
+
 &pgnotice;
   <variablelist>
    <varlistentry>

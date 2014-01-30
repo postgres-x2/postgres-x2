@@ -7,8 +7,7 @@
   <primary>tablefunc</primary>
  </indexterm>
 
-&pgonly;
-
+&pgnotice;
  <para>
   The <filename>tablefunc</> module includes various functions that return
   tables (that is, multiple rows).  These functions are useful both in their

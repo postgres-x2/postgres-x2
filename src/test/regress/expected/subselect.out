@@ -17,6 +17,61 @@ SELECT 1 AS zero WHERE 1 IN (SELECT 2);
 ------
 (0 rows)
 
+-- Check grammar's handling of extra parens in assorted contexts
+SELECT * FROM (SELECT 1 AS x) ss;
+ x 
+---
+ 1
+(1 row)
+
+SELECT * FROM ((SELECT 1 AS x)) ss;
+ x 
+---
+ 1
+(1 row)
+
+(SELECT 2) UNION SELECT 2;
+ ?column? 
+----------
+        2
+(1 row)
+
+((SELECT 2)) UNION SELECT 2;
+ ?column? 
+----------
+        2
+(1 row)
+
+SELECT ((SELECT 2) UNION SELECT 2);
+ ?column? 
+----------
+        2
+(1 row)
+
+SELECT (((SELECT 2)) UNION SELECT 2);
+ ?column? 
+----------
+        2
+(1 row)
+
+SELECT (SELECT ARRAY[1,2,3])[1];
+ array 
+-------
+     1
+(1 row)
+
+SELECT ((SELECT ARRAY[1,2,3]))[2];
+ array 
+-------
+     2
+(1 row)
+
+SELECT (((SELECT ARRAY[1,2,3])))[3];
+ array 
+-------
+     3
+(1 row)
+
 -- Set up some simple test tables
 CREATE TABLE SUBSELECT_TBL (
   f1 integer,
@@ -456,17 +511,14 @@ select * from numeric_table
 -- Test case for bug #4290: bogus calculation of subplan param sets
 --
 create temp table ta (id int primary key, val int);
-NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "ta_pkey" for table "ta"
 insert into ta values(1,1);
 insert into ta values(2,2);
 create temp table tb (id int primary key, aval int);
-NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "tb_pkey" for table "tb"
 insert into tb values(1,1);
 insert into tb values(2,1);
 insert into tb values(3,2);
 insert into tb values(4,2);
 create temp table tc (id int primary key, aid int);
-NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "tc_pkey" for table "tc"
 insert into tc values(1,1);
 insert into tc values(2,2);
 select
@@ -523,6 +575,31 @@ select (select (a.*)::text) from view_a a;
 (1 row)
 
 --
+-- Check that whole-row Vars reading the result of a subselect don't include
+-- any junk columns therein
+--
+select q from (select max(f1) from int4_tbl group by f1 order by f1) q;
+       q       
+---------------
+ (-2147483647)
+ (-123456)
+ (0)
+ (123456)
+ (2147483647)
+(5 rows)
+
+with q as (select max(f1) from int4_tbl group by f1 order by f1)
+  select q from q;
+       q       
+---------------
+ (-2147483647)
+ (-123456)
+ (0)
+ (123456)
+ (2147483647)
+(5 rows)
+
+--
 -- Test case for sublinks pushed down into subselects via join alias expansion
 --
 select
@@ -535,6 +612,23 @@ from
  qq1 
 -----
 (0 rows)
+
+--
+-- Test case for cross-type partial matching in hashed subplan (bug #7597)
+--
+create temp table outer_7597 (f1 int4, f2 int4);
+insert into outer_7597 values (0, 0);
+insert into outer_7597 values (1, 0);
+insert into outer_7597 values (0, null);
+insert into outer_7597 values (1, null);
+create temp table inner_7597(c1 int8, c2 int8);
+insert into inner_7597 values(0, null);
+select * from outer_7597 where (f1, f2) not in (select * from inner_7597);
+ f1 | f2 
+----+----
+  1 |  0
+  1 |   
+(2 rows)
 
 --
 -- Test case for premature memory release during hashing of subplan output

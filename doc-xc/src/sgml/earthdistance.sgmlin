@@ -8,7 +8,6 @@
  </indexterm>
 
 &pgnotice;
-
  <para>
   The <filename>earthdistance</> module provides two different approaches to
   calculating great circle distances on the surface of the Earth. The one
@@ -29,8 +28,6 @@
   <title>Cube-based Earth Distances</title>
 
 &pgnotice;
-
-
   <para>
    Data is stored in cubes that are points (both corners are the same) using 3
    coordinates representing the x, y, and z distance from the center of the
@@ -84,7 +81,7 @@
       <entry><function>sec_to_gc(float8)</function></entry>
       <entry><type>float8</type></entry>
       <entry>Converts the normal straight line
-       (secant) distance between between two points on the surface of the Earth
+       (secant) distance between two points on the surface of the Earth
        to the great circle distance between them.
       </entry>
      </row>
@@ -145,8 +142,6 @@
   <title>Point-based Earth Distances</title>
 
 &pgnotice;
-
-
   <para>
    The second part of the module relies on representing Earth locations as
    values of type <type>point</>, in which the first component is taken to
