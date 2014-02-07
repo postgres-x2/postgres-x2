@@ -2035,8 +2035,8 @@ _copyLateralJoinInfo(const LateralJoinInfo *from)
 {
 	LateralJoinInfo *newnode = makeNode(LateralJoinInfo);
 
-	COPY_SCALAR_FIELD(lateral_rhs);
 	COPY_BITMAPSET_FIELD(lateral_lhs);
+	COPY_BITMAPSET_FIELD(lateral_rhs);
 
 	return newnode;
 }
@@ -2070,8 +2070,8 @@ _copyPlaceHolderInfo(const PlaceHolderInfo *from)
 	COPY_SCALAR_FIELD(phid);
 	COPY_NODE_FIELD(ph_var);
 	COPY_BITMAPSET_FIELD(ph_eval_at);
+	COPY_BITMAPSET_FIELD(ph_lateral);
 	COPY_BITMAPSET_FIELD(ph_needed);
-	COPY_BITMAPSET_FIELD(ph_may_need);
 	COPY_SCALAR_FIELD(ph_width);
 
 	return newnode;

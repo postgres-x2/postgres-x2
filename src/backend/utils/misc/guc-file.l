@@ -409,6 +409,7 @@ ParseConfigFile(const char *config_file, const char *calling_file, bool strict,
 				ConfigVariable **head_p,
 				ConfigVariable **tail_p)
 {
+	char	   *abs_path;
 	bool		OK = true;
 	FILE	   *fp;
 
@@ -426,8 +427,8 @@ ParseConfigFile(const char *config_file, const char *calling_file, bool strict,
 		return false;
 	}
 
-	config_file = AbsoluteConfigLocation(config_file,calling_file);
-	fp = AllocateFile(config_file, "r");
+	abs_path = AbsoluteConfigLocation(config_file, calling_file);
+	fp = AllocateFile(abs_path, "r");
 	if (!fp)
 	{
 		if (strict)
@@ -435,19 +436,20 @@ ParseConfigFile(const char *config_file, const char *calling_file, bool strict,
 			ereport(elevel,
 					(errcode_for_file_access(),
 					 errmsg("could not open configuration file \"%s\": %m",
-							config_file)));
+							abs_path)));
 			return false;
 		}
 
 		ereport(LOG,
 				(errmsg("skipping missing configuration file \"%s\"",
-						config_file)));
+						abs_path)));
 		return OK;
 	}
 
-	OK = ParseConfigFp(fp, config_file, depth, elevel, head_p, tail_p);
+	OK = ParseConfigFp(fp, abs_path, depth, elevel, head_p, tail_p);
 
 	FreeFile(fp);
+	pfree(abs_path);
 
 	return OK;
 }
@@ -596,9 +598,9 @@ ParseConfigFp(FILE *fp, const char *config_file, int depth, int elevel,
 								 depth + 1, elevel,
 								 head_p, tail_p))
 				OK = false;
-				yy_switch_to_buffer(lex_buffer);
-				pfree(opt_name);
-				pfree(opt_value);
+			yy_switch_to_buffer(lex_buffer);
+			pfree(opt_name);
+			pfree(opt_value);
 		}
 		else if (guc_name_compare(opt_name, "include") == 0)
 		{

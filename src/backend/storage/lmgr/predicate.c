@@ -156,9 +156,9 @@
  *		PredicateLockTuple(Relation relation, HeapTuple tuple,
  *						Snapshot snapshot)
  *		PredicateLockPageSplit(Relation relation, BlockNumber oldblkno,
- *							   BlockNumber newblkno);
+ *							   BlockNumber newblkno)
  *		PredicateLockPageCombine(Relation relation, BlockNumber oldblkno,
- *								 BlockNumber newblkno);
+ *								 BlockNumber newblkno)
  *		TransferPredicateLocksToHeapRelation(Relation relation)
  *		ReleasePredicateLocks(bool isCommit)
  *
@@ -381,7 +381,7 @@ static SHM_QUEUE *FinishedSerializableTransactions;
  * this entry, you can ensure that there's enough scratch space available for
  * inserting one entry in the hash table. This is an otherwise-invalid tag.
  */
-static const PREDICATELOCKTARGETTAG ScratchTargetTag = {0, 0, 0, 0, 0};
+static const PREDICATELOCKTARGETTAG ScratchTargetTag = {0, 0, 0, 0};
 static uint32 ScratchTargetTagHash;
 static int	ScratchPartitionLock;
 
@@ -2492,8 +2492,6 @@ PredicateLockTuple(Relation relation, HeapTuple tuple, Snapshot snapshot)
 			}
 		}
 	}
-	else
-		targetxmin = InvalidTransactionId;
 
 	/*
 	 * Do quick-but-not-definitive test for a relation lock first.	This will
@@ -2512,8 +2510,7 @@ PredicateLockTuple(Relation relation, HeapTuple tuple, Snapshot snapshot)
 									 relation->rd_node.dbNode,
 									 relation->rd_id,
 									 ItemPointerGetBlockNumber(tid),
-									 ItemPointerGetOffsetNumber(tid),
-									 targetxmin);
+									 ItemPointerGetOffsetNumber(tid));
 	PredicateLockAcquire(&tag);
 }
 
@@ -4282,9 +4279,8 @@ CheckForSerializableConflictIn(Relation relation, HeapTuple tuple,
 		SET_PREDICATELOCKTARGETTAG_TUPLE(targettag,
 										 relation->rd_node.dbNode,
 										 relation->rd_id,
-						 ItemPointerGetBlockNumber(&(tuple->t_data->t_ctid)),
-						ItemPointerGetOffsetNumber(&(tuple->t_data->t_ctid)),
-									  HeapTupleHeaderGetXmin(tuple->t_data));
+								  ItemPointerGetBlockNumber(&(tuple->t_self)),
+								ItemPointerGetOffsetNumber(&(tuple->t_self)));
 		CheckTargetForConflictsIn(&targettag);
 	}
 

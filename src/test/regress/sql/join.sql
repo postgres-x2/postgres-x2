@@ -833,6 +833,50 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
   where (case when unique2 is null then f1 else 0 end) = 0;
 
 --
+-- another case with equivalence clauses above outer joins (bug #8591)
+--
+
+explain (costs off)
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+
+--
+-- check handling of join aliases when flattening multiple levels of subquery
+--
+
+explain (verbose, costs off)
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+
+--
 -- test ability to push constants through outer join clauses
 --
 
@@ -933,6 +977,15 @@ SELECT * FROM
   ON true order by 1, 2, 3, 4;
 
 rollback;
+
+-- bug #8444: we've historically allowed duplicate aliases within aliased JOINs
+
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1; -- error
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1; -- error
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y(ff)) j on q1 = f1; -- ok
 
 --
 -- Test LATERAL
@@ -1039,6 +1092,56 @@ select v.* from
   left join int4_tbl z on z.f1 = x.q2,
   lateral (select x.q1,y.q1 from dual union all select x.q2,y.q2 from dual) v(vx,vy) ORDER BY 1,2;
 
+explain (verbose, costs off)
+select * from
+  int8_tbl a left join
+  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
+select * from
+  int8_tbl a left join
+  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
+explain (verbose, costs off)
+select * from
+  int8_tbl a left join
+  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
+select * from
+  int8_tbl a left join
+  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
+
+-- lateral can result in join conditions appearing below their
+-- real semantic level
+explain (verbose, costs off)
+select * from int4_tbl i left join
+  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
+select * from int4_tbl i left join
+  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
+explain (verbose, costs off)
+select * from int4_tbl i left join
+  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
+select * from int4_tbl i left join
+  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
+explain (verbose, costs off)
+select * from int4_tbl a,
+  lateral (
+    select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
+  ) ss;
+select * from int4_tbl a,
+  lateral (
+    select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
+  ) ss;
+
+-- lateral reference in a PlaceHolderVar evaluated at join level
+explain (verbose, costs off)
+select * from
+  int8_tbl a left join lateral
+  (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
+   int8_tbl b cross join int8_tbl c) ss
+  on a.q2 = ss.bq1;
+select * from
+  int8_tbl a left join lateral
+  (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
+   int8_tbl b cross join int8_tbl c) ss
+  on a.q2 = ss.bq1;
+
 -- case requiring nested PlaceHolderVars
 explain (verbose, num_nodes off, nodes off, costs off)
 select * from
@@ -1050,6 +1153,19 @@ select * from
   ) on c.q2 = ss2.q1,
   lateral (select ss2.y) ss3;
 
+-- case that breaks the old ph_may_need optimization
+explain (verbose, costs off)
+select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
+  int8_tbl c left join (
+    int8_tbl a left join
+      (select q1, coalesce(q2,f1) as x from int8_tbl b, int4_tbl b2
+       where q1 < f1) ss1
+      on a.q2 = ss1.q1
+    cross join
+    lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2
+  ) on c.q2 = ss2.q1,
+  lateral (select * from int4_tbl i where ss2.y > f1) ss3;
+
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;
 select f1,g from int4_tbl a, (select a.f1 as g) ss;
@@ -1058,5 +1174,8 @@ select f1,g from int4_tbl a cross join (select a.f1 as g) ss;
 -- SQL:2008 says the left table is in scope but illegal to access here
 select f1,g from int4_tbl a right join lateral generate_series(0, a.f1) g on true;
 select f1,g from int4_tbl a full join lateral generate_series(0, a.f1) g on true;
+-- check we complain about ambiguous table references
+select * from
+  int8_tbl x cross join (int4_tbl x cross join lateral (select x.f1) ss);
 -- LATERAL can be used to put an aggregate into the FROM clause of its query
 select 1 from tenk1 a, lateral (select max(a.unique1) from int4_tbl b) ss;

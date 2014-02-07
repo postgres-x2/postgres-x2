@@ -429,7 +429,7 @@ static int	GetNumRegisteredBackgroundWorkers(int flags);
 static void StartupPacketTimeoutHandler(void);
 static void CleanupBackend(int pid, int exitstatus);
 static bool CleanupBackgroundWorker(int pid, int exitstatus);
-static void do_start_bgworker(void);
+static void StartBackgroundWorker(void);
 static void HandleChildCrash(int pid, int exitstatus, const char *procname);
 static void LogChildExit(int lev, const char *procname,
 			 int pid, int exitstatus);
@@ -454,7 +454,7 @@ static bool SignalUnconnectedWorkers(int signal);
 
 static int	CountChildren(int target);
 static int	CountUnconnectedWorkers(void);
-static void StartOneBackgroundWorker(void);
+static void maybe_start_bgworker(void);
 static bool CreateOptsFile(int argc, char *argv[], char *fullprogname);
 static pid_t StartChildProcess(AuxProcType type);
 static void StartAutovacuumWorker(void);
@@ -1021,7 +1021,8 @@ PostmasterMain(int argc, char *argv[])
 			/* syntax error in list */
 			ereport(FATAL,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid list syntax for \"listen_addresses\"")));
+					 errmsg("invalid list syntax in parameter \"%s\"",
+							"listen_addresses")));
 		}
 
 		foreach(l, elemlist)
@@ -1118,7 +1119,8 @@ PostmasterMain(int argc, char *argv[])
 			/* syntax error in list */
 			ereport(FATAL,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("invalid list syntax for \"unix_socket_directories\"")));
+					 errmsg("invalid list syntax in parameter \"%s\"",
+							"unix_socket_directories")));
 		}
 
 		foreach(l, elemlist)
@@ -1277,7 +1279,17 @@ PostmasterMain(int argc, char *argv[])
 	 * Log_destination permits.  We don't do this until the postmaster is
 	 * fully launched, since startup failures may as well be reported to
 	 * stderr.
+	 *
+	 * If we are in fact disabling logging to stderr, first emit a log message
+	 * saying so, to provide a breadcrumb trail for users who may not remember
+	 * that their logging is configured to go somewhere else.
 	 */
+	if (!(Log_destination & LOG_DESTINATION_STDERR))
+		ereport(LOG,
+				(errmsg("ending log output to stderr"),
+				 errhint("Future log output will go to log destination \"%s\".",
+						 Log_destination_string)));
+
 	whereToSendOutput = DestNone;
 
 	/*
@@ -1357,7 +1369,7 @@ PostmasterMain(int argc, char *argv[])
 	}
 #endif
 	/* Some workers may be scheduled to start now */
-	StartOneBackgroundWorker();
+	maybe_start_bgworker();
 
 	status = ServerLoop();
 
@@ -1767,7 +1779,7 @@ ServerLoop(void)
 
 		/* Get other worker processes running, if needed */
 		if (StartWorkerNeeded || HaveCrashedWorker)
-			StartOneBackgroundWorker();
+			maybe_start_bgworker();
 
 		/*
 		 * Touch Unix socket and lock files every 58 minutes, to ensure that
@@ -2749,7 +2761,7 @@ reaper(SIGNAL_ARGS)
 #endif
 
 			/* some workers may be scheduled to start now */
-			StartOneBackgroundWorker();
+			maybe_start_bgworker();
 
 			/* at this point we are really open for business */
 			ereport(LOG,
@@ -4763,7 +4775,7 @@ SubPostmasterMain(int argc, char *argv[])
 
 		cookie = atoi(argv[1] + 15);
 		MyBgworkerEntry = find_bgworker_entry(cookie);
-		do_start_bgworker();
+		StartBackgroundWorker();
 	}
 	if (strcmp(argv[1], "--forkarch") == 0)
 	{
@@ -4866,7 +4878,7 @@ sigusr1_handler(SIGNAL_ARGS)
 		pmState = PM_HOT_STANDBY;
 
 		/* Some workers may be scheduled to start now */
-		StartOneBackgroundWorker();
+		maybe_start_bgworker();
 	}
 
 #ifdef PGXC
@@ -5427,7 +5439,7 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 
 	if (!IsUnderPostmaster)
 		ereport(LOG,
-			(errmsg("registering background worker: %s", worker->bgw_name)));
+			(errmsg("registering background worker \"%s\"", worker->bgw_name)));
 
 	if (!process_shared_preload_libraries_in_progress)
 	{
@@ -5447,7 +5459,7 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 			if (!IsUnderPostmaster)
 				ereport(LOG,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("background worker \"%s\": must attach to shared memory in order to request a database connection",
+						 errmsg("background worker \"%s\": must attach to shared memory in order to be able to request a database connection",
 								worker->bgw_name)));
 			return;
 		}
@@ -5489,8 +5501,10 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 		ereport(LOG,
 				(errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
 				 errmsg("too many background workers"),
-				 errdetail("Up to %d background workers can be registered with the current settings.",
-						   maxworkers)));
+				 errdetail_plural("Up to %d background worker can be registered with the current settings.",
+								  "Up to %d background workers can be registered with the current settings.",
+								  maxworkers,
+								  maxworkers)));
 		return;
 	}
 
@@ -5507,9 +5521,6 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 	}
 
 	rw->rw_worker = *worker;
-	rw->rw_worker.bgw_name = ((char *) rw) + sizeof(RegisteredBgWorker);
-	strlcpy(rw->rw_worker.bgw_name, worker->bgw_name, namelen + 1);
-
 	rw->rw_backend = NULL;
 	rw->rw_pid = 0;
 	rw->rw_child_slot = 0;
@@ -5540,7 +5551,7 @@ BackgroundWorkerInitializeConnection(char *dbname, char *username)
 	/* it had better not gotten out of "init" mode yet */
 	if (!IsInitProcessingMode())
 		ereport(ERROR,
-				(errmsg("invalid processing mode in bgworker")));
+				(errmsg("invalid processing mode in background worker")));
 	SetProcessingMode(NormalProcessing);
 }
 
@@ -5635,7 +5646,7 @@ bgworker_sigusr1_handler(SIGNAL_ARGS)
 }
 
 static void
-do_start_bgworker(void)
+StartBackgroundWorker(void)
 {
 	sigjmp_buf	local_sigjmp_buf;
 	char		buf[MAXPGPATH];
@@ -5694,16 +5705,8 @@ do_start_bgworker(void)
 		pqsignal(SIGFPE, SIG_IGN);
 	}
 
-	/* SIGTERM and SIGHUP are configurable */
-	if (worker->bgw_sigterm)
-		pqsignal(SIGTERM, worker->bgw_sigterm);
-	else
-		pqsignal(SIGTERM, bgworker_die);
-
-	if (worker->bgw_sighup)
-		pqsignal(SIGHUP, worker->bgw_sighup);
-	else
-		pqsignal(SIGHUP, SIG_IGN);
+	pqsignal(SIGTERM, bgworker_die);
+	pqsignal(SIGHUP, SIG_IGN);
 
 	pqsignal(SIGQUIT, bgworker_quickdie);
 	InitializeTimeouts();		/* establishes SIGALRM handler */
@@ -5834,7 +5837,7 @@ bgworker_forkexec(int cookie)
  * This code is heavily based on autovacuum.c, q.v.
  */
 static void
-start_bgworker(RegisteredBgWorker *rw)
+do_start_bgworker(RegisteredBgWorker *rw)
 {
 	pid_t		worker_pid;
 
@@ -5865,7 +5868,7 @@ start_bgworker(RegisteredBgWorker *rw)
 			/* Do NOT release postmaster's working memory context */
 
 			MyBgworkerEntry = &rw->rw_worker;
-			do_start_bgworker();
+			StartBackgroundWorker();
 			break;
 #endif
 		default:
@@ -5969,7 +5972,7 @@ assign_backendlist_entry(RegisteredBgWorker *rw)
  * system state requires it.
  */
 static void
-StartOneBackgroundWorker(void)
+maybe_start_bgworker(void)
 {
 	slist_iter	iter;
 	TimestampTz now = 0;
@@ -6037,7 +6040,7 @@ StartOneBackgroundWorker(void)
 			else
 				rw->rw_child_slot = MyPMChildSlot = AssignPostmasterChildSlot();
 
-			start_bgworker(rw); /* sets rw->rw_pid */
+			do_start_bgworker(rw); /* sets rw->rw_pid */
 
 			if (rw->rw_backend)
 			{

@@ -68,8 +68,8 @@ extern uint32 bootstrap_data_checksum_version;
 /* File path names (all relative to $PGDATA) */
 #define RECOVERY_COMMAND_FILE	"recovery.conf"
 #define RECOVERY_COMMAND_DONE	"recovery.done"
-#define PROMOTE_SIGNAL_FILE "promote"
-#define FAST_PROMOTE_SIGNAL_FILE "fast_promote"
+#define PROMOTE_SIGNAL_FILE		"promote"
+#define FALLBACK_PROMOTE_SIGNAL_FILE "fallback_promote"
 
 
 /* User-settable parameters */
@@ -2612,7 +2612,7 @@ XLogFileOpen(XLogSegNo segno)
 	if (fd < 0)
 		ereport(PANIC,
 				(errcode_for_file_access(),
-				 errmsg("could not open xlog file \"%s\": %m", path)));
+				 errmsg("could not open transaction log file \"%s\": %m", path)));
 
 	return fd;
 }
@@ -5072,7 +5072,7 @@ StartupXLOG(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory"),
-			errdetail("Failed while allocating an XLog reading processor")));
+			errdetail("Failed while allocating an XLog reading processor.")));
 	xlogreader->system_identifier = ControlFile->system_identifier;
 
 	if (read_backup_label(&checkPointLoc, &backupEndRequired,
@@ -5215,7 +5215,7 @@ StartupXLOG(void)
 		ereport(FATAL,
 				(errmsg("requested timeline %u is not a child of this server's history",
 						recoveryTargetTLI),
-				 errdetail("Latest checkpoint is at %X/%X on timeline %u, but in the history of the requested timeline, the server forked off from that timeline at %X/%X",
+				 errdetail("Latest checkpoint is at %X/%X on timeline %u, but in the history of the requested timeline, the server forked off from that timeline at %X/%X.",
 						   (uint32) (ControlFile->checkPoint >> 32),
 						   (uint32) ControlFile->checkPoint,
 						   ControlFile->checkPointCopy.ThisTimeLineID,
@@ -5269,6 +5269,14 @@ StartupXLOG(void)
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
 	XLogCtl->ckptXidEpoch = checkPoint.nextXidEpoch;
 	XLogCtl->ckptXid = checkPoint.nextXid;
+
+	/*
+	 * Startup MultiXact.  We need to do this early for two reasons: one
+	 * is that we might try to access multixacts when we do tuple freezing,
+	 * and the other is we need its state initialized because we attempt
+	 * truncation during restartpoints.
+	 */
+	StartupMultiXact();
 
 	/*
 	 * Initialize unlogged LSN. On a clean shutdown, it's restored from the
@@ -5466,9 +5474,13 @@ StartupXLOG(void)
 				oldestActiveXID = checkPoint.oldestActiveXid;
 			Assert(TransactionIdIsValid(oldestActiveXID));
 
+			/* Tell procarray about the range of xids it has to deal with */
+			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
+
 			/*
-			 * Startup commit log and subtrans only. Other SLRUs are not
-			 * maintained during recovery and need not be started yet.
+			 * Startup commit log and subtrans only. MultiXact has already
+			 * been started up and other SLRUs are not maintained during
+			 * recovery and need not be started yet.
 			 */
 			StartupCLOG();
 			StartupSUBTRANS(oldestActiveXID);
@@ -6133,8 +6145,8 @@ StartupXLOG(void)
 	/*
 	 * Perform end of recovery actions for any SLRUs that need it.
 	 */
-	StartupMultiXact();
 	TrimCLOG();
+	TrimMultiXact();
 
 	/* Reload shared-memory state for prepared transactions */
 	RecoverPreparedTransactions();
@@ -7532,6 +7544,21 @@ CreateRestartPoint(int flags)
 	LWLockRelease(ControlFileLock);
 
 	/*
+	 * Due to an historical accident multixact truncations are not WAL-logged,
+	 * but just performed everytime the mxact horizon is increased. So, unless
+	 * we explicitly execute truncations on a standby it will never clean out
+	 * /pg_multixact which obviously is bad, both because it uses space and
+	 * because we can wrap around into pre-existing data...
+	 *
+	 * We can only do the truncation here, after the UpdateControlFile()
+	 * above, because we've now safely established a restart point, that
+	 * guarantees we will not need need to access those multis.
+	 *
+	 * It's probably worth improving this.
+	 */
+	TruncateMultiXact(lastCheckPoint.oldestMulti);
+
+	/*
 	 * Delete old log files (those no longer needed even for previous
 	 * checkpoint/restartpoint) to prevent the disk holding the xlog from
 	 * growing full.
@@ -7756,12 +7783,9 @@ XLogRestorePoint(const char *rpName)
  * records. In that case, multiple copies of the same block would be recorded
  * in separate WAL records by different backends, though that is still OK from
  * a correctness perspective.
- *
- * Note that this only works for buffers that fit the standard page model,
- * i.e. those for which buffer_std == true
  */
 XLogRecPtr
-XLogSaveBufferForHint(Buffer buffer)
+XLogSaveBufferForHint(Buffer buffer, bool buffer_std)
 {
 	XLogRecPtr	recptr = InvalidXLogRecPtr;
 	XLogRecPtr	lsn;
@@ -7783,7 +7807,7 @@ XLogSaveBufferForHint(Buffer buffer)
 	 * and reset rdata for any actual WAL record insert.
 	 */
 	rdata[0].buffer = buffer;
-	rdata[0].buffer_std = true;
+	rdata[0].buffer_std = buffer_std;
 
 	/*
 	 * Check buffer while not holding an exclusive lock.
@@ -7797,6 +7821,9 @@ XLogSaveBufferForHint(Buffer buffer)
 		 * Copy buffer so we don't have to worry about concurrent hint bit or
 		 * lsn updates. We assume pd_lower/upper cannot be changed without an
 		 * exclusive lock, so the contents bkp are not racy.
+		 *
+		 * With buffer_std set to false, XLogCheckBuffer() sets hole_length and
+		 * hole_offset to 0; so the following code is safe for either case.
 		 */
 		memcpy(copied_buffer, origdata, bkpb.hole_offset);
 		memcpy(copied_buffer + bkpb.hole_offset,
@@ -7819,7 +7846,7 @@ XLogSaveBufferForHint(Buffer buffer)
 		rdata[1].buffer = InvalidBuffer;
 		rdata[1].next = NULL;
 
-		recptr = XLogInsert(RM_XLOG_ID, XLOG_HINT, rdata);
+		recptr = XLogInsert(RM_XLOG_ID, XLOG_FPI, rdata);
 	}
 
 	return recptr;
@@ -7945,7 +7972,7 @@ checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI, TimeLineID prevTLI)
 	/* Check that the record agrees on what the current (old) timeline is */
 	if (prevTLI != ThisTimeLineID)
 		ereport(PANIC,
-				(errmsg("unexpected prev timeline ID %u (current timeline ID %u) in checkpoint record",
+				(errmsg("unexpected previous timeline ID %u (current timeline ID %u) in checkpoint record",
 						prevTLI, ThisTimeLineID)));
 
 	/*
@@ -8184,14 +8211,14 @@ xlog_redo(XLogRecPtr lsn, XLogRecord *record)
 	{
 		/* nothing to do here */
 	}
-	else if (info == XLOG_HINT)
+	else if (info == XLOG_FPI)
 	{
 		char	   *data;
 		BkpBlock	bkpb;
 
 		/*
-		 * Hint bit records contain a backup block stored "inline" in the
-		 * normal data since the locking when writing hint records isn't
+		 * Full-page image (FPI) records contain a backup block stored "inline"
+		 * in the normal data since the locking when writing hint records isn't
 		 * sufficient to use the normal backup block mechanism, which assumes
 		 * exclusive lock on the buffer supplied.
 		 *
@@ -9999,19 +10026,20 @@ CheckForStandbyTrigger(void)
 	{
 		/*
 		 * In 9.1 and 9.2 the postmaster unlinked the promote file inside the
-		 * signal handler. We now leave the file in place and let the Startup
-		 * process do the unlink. This allows Startup to know whether we're
-		 * doing fast or normal promotion. Fast promotion takes precedence.
+		 * signal handler. It now leaves the file in place and lets the
+		 * Startup process do the unlink. This allows Startup to know whether
+		 * it should create a full checkpoint before starting up (fallback
+		 * mode). Fast promotion takes precedence.
 		 */
-		if (stat(FAST_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		{
-			unlink(FAST_PROMOTE_SIGNAL_FILE);
 			unlink(PROMOTE_SIGNAL_FILE);
+			unlink(FALLBACK_PROMOTE_SIGNAL_FILE);
 			fast_promote = true;
 		}
-		else if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		else if (stat(FALLBACK_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		{
-			unlink(PROMOTE_SIGNAL_FILE);
+			unlink(FALLBACK_PROMOTE_SIGNAL_FILE);
 			fast_promote = false;
 		}
 
@@ -10047,7 +10075,7 @@ CheckPromoteSignal(void)
 	struct stat stat_buf;
 
 	if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0 ||
-		stat(FAST_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		stat(FALLBACK_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		return true;
 
 	return false;

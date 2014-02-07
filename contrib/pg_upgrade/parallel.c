@@ -32,18 +32,18 @@ HANDLE	   *thread_handles;
 
 typedef struct
 {
-	char		log_file[MAXPGPATH];
-	char		opt_log_file[MAXPGPATH];
-	char		cmd[MAX_STRING];
+	char	   *log_file;
+	char	   *opt_log_file;
+	char	   *cmd;
 } exec_thread_arg;
 
 typedef struct
 {
 	DbInfoArr  *old_db_arr;
 	DbInfoArr  *new_db_arr;
-	char		old_pgdata[MAXPGPATH];
-	char		new_pgdata[MAXPGPATH];
-	char		old_tablespace[MAXPGPATH];
+	char	   *old_pgdata;
+	char	   *new_pgdata;
+	char	   *old_tablespace;
 } transfer_thread_arg;
 
 exec_thread_arg **exec_thread_args;
@@ -87,6 +87,24 @@ parallel_exec_prog(const char *log_file, const char *opt_log_file,
 	{
 		/* parallel */
 #ifdef WIN32
+		if (thread_handles == NULL)
+			thread_handles = pg_malloc(user_opts.jobs * sizeof(HANDLE));
+
+		if (exec_thread_args == NULL)
+		{
+			int			i;
+
+			exec_thread_args = pg_malloc(user_opts.jobs * sizeof(exec_thread_arg *));
+
+			/*
+			 * For safety and performance, we keep the args allocated during
+			 * the entire life of the process, and we don't free the args in a
+			 * thread different from the one that allocated it.
+			 */
+			for (i = 0; i < user_opts.jobs; i++)
+				exec_thread_args[i] = pg_malloc0(sizeof(exec_thread_arg));
+		}
+
 		cur_thread_args = (void **) exec_thread_args;
 #endif
 		/* harvest any dead children */
@@ -112,29 +130,19 @@ parallel_exec_prog(const char *log_file, const char *opt_log_file,
 			/* fork failed */
 			pg_log(PG_FATAL, "could not create worker process: %s\n", strerror(errno));
 #else
-		if (thread_handles == NULL)
-		{
-			int			i;
-
-			thread_handles = pg_malloc(user_opts.jobs * sizeof(HANDLE));
-			exec_thread_args = pg_malloc(user_opts.jobs * sizeof(exec_thread_arg *));
-
-			/*
-			 * For safety and performance, we keep the args allocated during
-			 * the entire life of the process, and we don't free the args in a
-			 * thread different from the one that allocated it.
-			 */
-			for (i = 0; i < user_opts.jobs; i++)
-				exec_thread_args[i] = pg_malloc(sizeof(exec_thread_arg));
-		}
-
-		/* use first empty array element */
+		/* empty array element are always at the end */
 		new_arg = exec_thread_args[parallel_jobs - 1];
 
 		/* Can only pass one pointer into the function, so use a struct */
-		strcpy(new_arg->log_file, log_file);
-		strcpy(new_arg->opt_log_file, opt_log_file);
-		strcpy(new_arg->cmd, cmd);
+		if (new_arg->log_file)
+			pg_free(new_arg->log_file);
+		new_arg->log_file = pg_strdup(log_file);
+		if (new_arg->opt_log_file)
+			pg_free(new_arg->opt_log_file);
+		new_arg->opt_log_file = opt_log_file ? pg_strdup(opt_log_file) : NULL;
+		if (new_arg->cmd)
+			pg_free(new_arg->cmd);
+		new_arg->cmd = pg_strdup(cmd);
 
 		child = (HANDLE) _beginthreadex(NULL, 0, (void *) win32_exec_prog,
 										new_arg, 0, NULL);
@@ -188,6 +196,24 @@ parallel_transfer_all_new_dbs(DbInfoArr *old_db_arr, DbInfoArr *new_db_arr,
 	{
 		/* parallel */
 #ifdef WIN32
+		if (thread_handles == NULL)
+			thread_handles = pg_malloc(user_opts.jobs * sizeof(HANDLE));
+
+		if (transfer_thread_args == NULL)
+		{
+			int			i;
+
+			transfer_thread_args = pg_malloc(user_opts.jobs * sizeof(transfer_thread_arg *));
+
+			/*
+			 * For safety and performance, we keep the args allocated during
+			 * the entire life of the process, and we don't free the args in a
+			 * thread different from the one that allocated it.
+			 */
+			for (i = 0; i < user_opts.jobs; i++)
+				transfer_thread_args[i] = pg_malloc0(sizeof(transfer_thread_arg));
+		}
+
 		cur_thread_args = (void **) transfer_thread_args;
 #endif
 		/* harvest any dead children */
@@ -218,33 +244,23 @@ parallel_transfer_all_new_dbs(DbInfoArr *old_db_arr, DbInfoArr *new_db_arr,
 			/* fork failed */
 			pg_log(PG_FATAL, "could not create worker process: %s\n", strerror(errno));
 #else
-		if (thread_handles == NULL)
-		{
-			int			i;
-
-			thread_handles = pg_malloc(user_opts.jobs * sizeof(HANDLE));
-			transfer_thread_args = pg_malloc(user_opts.jobs * sizeof(transfer_thread_arg *));
-
-			/*
-			 * For safety and performance, we keep the args allocated during
-			 * the entire life of the process, and we don't free the args in a
-			 * thread different from the one that allocated it.
-			 */
-			for (i = 0; i < user_opts.jobs; i++)
-				transfer_thread_args[i] = pg_malloc(sizeof(transfer_thread_arg));
-		}
-
-		/* use first empty array element */
+		/* empty array element are always at the end */
 		new_arg = transfer_thread_args[parallel_jobs - 1];
 
 		/* Can only pass one pointer into the function, so use a struct */
 		new_arg->old_db_arr = old_db_arr;
 		new_arg->new_db_arr = new_db_arr;
-		strcpy(new_arg->old_pgdata, old_pgdata);
-		strcpy(new_arg->new_pgdata, new_pgdata);
-		strcpy(new_arg->old_tablespace, old_tablespace);
+		if (new_arg->old_pgdata)
+			pg_free(new_arg->old_pgdata);
+		new_arg->old_pgdata = pg_strdup(old_pgdata);
+		if (new_arg->new_pgdata)
+			pg_free(new_arg->new_pgdata);
+		new_arg->new_pgdata = pg_strdup(new_pgdata);
+		if (new_arg->old_tablespace)
+			pg_free(new_arg->old_tablespace);
+		new_arg->old_tablespace = old_tablespace ? pg_strdup(old_tablespace) : NULL;
 
-		child = (HANDLE) _beginthreadex(NULL, 0, (void *) win32_exec_prog,
+		child = (HANDLE) _beginthreadex(NULL, 0, (void *) win32_transfer_all_new_dbs,
 										new_arg, 0, NULL);
 		if (child == 0)
 			pg_log(PG_FATAL, "could not create worker thread: %s\n", strerror(errno));
@@ -323,10 +339,10 @@ reap_child(bool wait_for_child)
 		thread_handles[thread_num] = thread_handles[parallel_jobs - 1];
 
 		/*
-		 * We must swap the arg struct pointers because the thread we just
-		 * moved is active, and we must make sure it is not reused by the next
-		 * created thread.	Instead, the new thread will use the arg struct of
-		 * the thread that just died.
+		 * Move last active thead arg struct into the now-dead slot,
+		 * and the now-dead slot to the end for reuse by the next thread.
+		 * Though the thread struct is in use by another thread, we can
+		 * safely swap the struct pointers within the array.
 		 */
 		tmp_args = cur_thread_args[thread_num];
 		cur_thread_args[thread_num] = cur_thread_args[parallel_jobs - 1];

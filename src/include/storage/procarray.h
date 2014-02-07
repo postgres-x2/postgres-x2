@@ -27,11 +27,15 @@ extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
+<<<<<<< HEAD
 #ifdef PGXC  /* PGXC_DATANODE */
 extern void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
 extern void UnsetGlobalSnapshotData(void);
 extern void ReloadConnInfoOnBackends(void);
 #endif /* PGXC */
+=======
+extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);
+>>>>>>> REL9_3_2
 extern void ProcArrayApplyRecoveryInfo(RunningTransactions running);
 extern void ProcArrayApplyXidAssignment(TransactionId topxid,
 							int nsubxids, TransactionId *subxids);

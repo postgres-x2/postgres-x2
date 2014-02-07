@@ -85,6 +85,7 @@ static void ExecutePlan(EState *estate, PlanState *planstate,
 static bool ExecCheckRTEPerms(RangeTblEntry *rte);
 static void ExecCheckXactReadOnly(PlannedStmt *plannedstmt);
 static char *ExecBuildSlotValueDescription(TupleTableSlot *slot,
+							  TupleDesc tupdesc,
 							  int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
@@ -873,7 +874,8 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		 * it is a parameterless subplan (not initplan), we suggest that it be
 		 * prepared to handle REWIND efficiently; otherwise there is no need.
 		 */
-		sp_eflags = eflags & EXEC_FLAG_EXPLAIN_ONLY;
+		sp_eflags = eflags
+			& (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_WITH_NO_DATA);
 		if (bms_is_member(i, plannedstmt->rewindPlanIDs))
 			sp_eflags |= EXEC_FLAG_REWIND;
 
@@ -984,7 +986,7 @@ CheckValidResultRel(Relation resultRel, CmdType operation)
 						  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						   errmsg("cannot insert into view \"%s\"",
 								  RelationGetRelationName(resultRel)),
-						   errhint("To make the view insertable, provide an unconditional ON INSERT DO INSTEAD rule or an INSTEAD OF INSERT trigger.")));
+						   errhint("To enable inserting into the view, provide an INSTEAD OF INSERT trigger or an unconditional ON INSERT DO INSTEAD rule.")));
 					break;
 				case CMD_UPDATE:
 					if (!trigDesc || !trigDesc->trig_update_instead_row)
@@ -992,7 +994,7 @@ CheckValidResultRel(Relation resultRel, CmdType operation)
 						  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						   errmsg("cannot update view \"%s\"",
 								  RelationGetRelationName(resultRel)),
-						   errhint("To make the view updatable, provide an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.")));
+						   errhint("To enable updating the view, provide an INSTEAD OF UPDATE trigger or an unconditional ON UPDATE DO INSTEAD rule.")));
 					break;
 				case CMD_DELETE:
 					if (!trigDesc || !trigDesc->trig_delete_instead_row)
@@ -1000,7 +1002,7 @@ CheckValidResultRel(Relation resultRel, CmdType operation)
 						  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						   errmsg("cannot delete from view \"%s\"",
 								  RelationGetRelationName(resultRel)),
-						   errhint("To make the view updatable, provide an unconditional ON DELETE DO INSTEAD rule or an INSTEAD OF DELETE trigger.")));
+						   errhint("To enable deleting from the view, provide an INSTEAD OF DELETE trigger or an unconditional ON DELETE DO INSTEAD rule.")));
 					break;
 				default:
 					elog(ERROR, "unrecognized CmdType: %d", (int) operation);
@@ -1592,25 +1594,28 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 				TupleTableSlot *slot, EState *estate)
 {
 	Relation	rel = resultRelInfo->ri_RelationDesc;
-	TupleConstr *constr = rel->rd_att->constr;
+	TupleDesc	tupdesc = RelationGetDescr(rel);
+	TupleConstr *constr = tupdesc->constr;
 
 	Assert(constr);
 
 	if (constr->has_not_null)
 	{
-		int			natts = rel->rd_att->natts;
+		int			natts = tupdesc->natts;
 		int			attrChk;
 
 		for (attrChk = 1; attrChk <= natts; attrChk++)
 		{
-			if (rel->rd_att->attrs[attrChk - 1]->attnotnull &&
+			if (tupdesc->attrs[attrChk - 1]->attnotnull &&
 				slot_attisnull(slot, attrChk))
 				ereport(ERROR,
 						(errcode(ERRCODE_NOT_NULL_VIOLATION),
 						 errmsg("null value in column \"%s\" violates not-null constraint",
-						  NameStr(rel->rd_att->attrs[attrChk - 1]->attname)),
+							  NameStr(tupdesc->attrs[attrChk - 1]->attname)),
 						 errdetail("Failing row contains %s.",
-								   ExecBuildSlotValueDescription(slot, 64)),
+								   ExecBuildSlotValueDescription(slot,
+																 tupdesc,
+																 64)),
 						 errtablecol(rel, attrChk)));
 		}
 	}
@@ -1625,7 +1630,9 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 					 errmsg("new row for relation \"%s\" violates check constraint \"%s\"",
 							RelationGetRelationName(rel), failed),
 					 errdetail("Failing row contains %s.",
-							   ExecBuildSlotValueDescription(slot, 64)),
+							   ExecBuildSlotValueDescription(slot,
+															 tupdesc,
+															 64)),
 					 errtableconstraint(rel, failed)));
 	}
 }
@@ -1634,15 +1641,22 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
  * ExecBuildSlotValueDescription -- construct a string representing a tuple
  *
  * This is intentionally very similar to BuildIndexValueDescription, but
- * unlike that function, we truncate long field values.  That seems necessary
- * here since heap field values could be very long, whereas index entries
- * typically aren't so wide.
+ * unlike that function, we truncate long field values (to at most maxfieldlen
+ * bytes).	That seems necessary here since heap field values could be very
+ * long, whereas index entries typically aren't so wide.
+ *
+ * Also, unlike the case with index entries, we need to be prepared to ignore
+ * dropped columns.  We used to use the slot's tuple descriptor to decode the
+ * data, but the slot's descriptor doesn't identify dropped columns, so we
+ * now need to be passed the relation's descriptor.
  */
 static char *
-ExecBuildSlotValueDescription(TupleTableSlot *slot, int maxfieldlen)
+ExecBuildSlotValueDescription(TupleTableSlot *slot,
+							  TupleDesc tupdesc,
+							  int maxfieldlen)
 {
 	StringInfoData buf;
-	TupleDesc	tupdesc = slot->tts_tupleDescriptor;
+	bool		write_comma = false;
 	int			i;
 
 	/* Make sure the tuple is fully deconstructed */
@@ -1657,6 +1671,10 @@ ExecBuildSlotValueDescription(TupleTableSlot *slot, int maxfieldlen)
 		char	   *val;
 		int			vallen;
 
+		/* ignore dropped columns */
+		if (tupdesc->attrs[i]->attisdropped)
+			continue;
+
 		if (slot->tts_isnull[i])
 			val = "null";
 		else
@@ -1669,8 +1687,10 @@ ExecBuildSlotValueDescription(TupleTableSlot *slot, int maxfieldlen)
 			val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
 		}
 
-		if (i > 0)
+		if (write_comma)
 			appendStringInfoString(&buf, ", ");
+		else
+			write_comma = true;
 
 		/* truncate if needed */
 		vallen = strlen(val);

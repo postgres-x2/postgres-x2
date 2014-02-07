@@ -2807,7 +2807,7 @@
       </row>
 
       <row>
-       <entry><literal>ut8_to_euc_jis_2004</literal></entry>
+       <entry><literal>utf8_to_euc_jis_2004</literal></entry>
        <entry><literal>UTF8</literal></entry>
        <entry><literal>EUC_JIS_2004</literal></entry>
       </row>
@@ -2819,7 +2819,7 @@
       </row>
 
       <row>
-       <entry><literal>ut8_to_shift_jis_2004</literal></entry>
+       <entry><literal>utf8_to_shift_jis_2004</literal></entry>
        <entry><literal>UTF8</literal></entry>
        <entry><literal>SHIFT_JIS_2004</literal></entry>
       </row>
@@ -5623,7 +5623,7 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
        <row>
         <entry><literal>J</literal></entry>
-        <entry>Julian Day (days since November 24, 4714 BC at midnight)</entry>
+        <entry>Julian Day (integer days since November 24, 4714 BC at midnight UTC)</entry>
        </row>
        <row>
         <entry><literal>Q</literal></entry>
@@ -10088,7 +10088,7 @@ table2-mapping
          Expands the object in <replaceable>from_json</replaceable> to a row whose columns match
          the record type defined by base. Conversion will be best
          effort; columns in base with no corresponding key in <replaceable>from_json</replaceable>
-         will be left null.  A column may only be specified once.
+         will be left null. If a column is specified more than once, the last value is used.
        </entry>
        <entry><literal>select * from json_populate_record(null::x, '{"a":1,"b":2}')</literal></entry>
        <entry>
@@ -10111,8 +10111,8 @@ table2-mapping
          Expands the outermost set of objects in <replaceable>from_json</replaceable> to a set
          whose columns match the record type defined by base.
          Conversion will be best effort; columns in base with no
-         corresponding key in <replaceable>from_json</replaceable> will be left null.  A column
-         may only be specified once.
+         corresponding key in <replaceable>from_json</replaceable> will be left null.
+         If a column is specified more than once, the last value is used.
        </entry>
        <entry><literal>select * from json_populate_recordset(null::x, '[{"a":1,"b":2},{"a":3,"b":4}]')</literal></entry>
        <entry>
@@ -10205,12 +10205,11 @@ table2-mapping
   </indexterm>
 
   <para>
-   This section describes <productname>PostgreSQL</productname>'s
-   functions for operating on <firstterm>sequence objects</firstterm>.
-   Sequence objects (also called sequence generators or just
-   sequences) are special single-row tables created with <xref
+   This section describes functions for operating on <firstterm>sequence
+   objects</firstterm>, also called sequence generators or just sequences.
+   Sequence objects are special single-row tables created with <xref
    linkend="sql-createsequence">.
-   A sequence object is usually used to generate unique identifiers
+   Sequence objects are commonly used to generate unique identifiers
    for rows of a table.  The sequence functions, listed in <xref
    linkend="functions-sequence-table">, provide simple, multiuser-safe
    methods for obtaining successive sequence values from sequence
@@ -10563,6 +10562,16 @@ SELECT a,
 SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 </programlisting>
    </para>
+
+   <note>
+    <para>
+     As described in <xref linkend="xfunc-volatility">, functions and
+     operators marked <literal>IMMUTABLE</literal> can be evaluated when
+     the query is planned rather than when it is executed.  This means
+     that constant parts of a subexpression that is not evaluated during
+     query execution might still be evaluated during query planning.
+    </para>
+   </note>
   </sect2>
 
   <sect2 id="functions-coalesce-nvl-ifnull">

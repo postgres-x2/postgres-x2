@@ -189,10 +189,10 @@ typedef struct
  * since they just inherit column names from their input RTEs, and we can't
  * rename the columns at the join level.  Most of the time this isn't an issue
  * because we don't need to reference the join's output columns as such; we
- * can reference the input columns instead.  That approach fails for merged
- * FULL JOIN USING columns, however, so when we have one of those in an
- * unnamed join, we have to make that column's alias globally unique across
- * the whole query to ensure it can be referenced unambiguously.
+ * can reference the input columns instead.  That approach can fail for merged
+ * JOIN USING columns, however, so when we have one of those in an unnamed
+ * join, we have to make that column's alias globally unique across the whole
+ * query to ensure it can be referenced unambiguously.
  *
  * Another problem is that a JOIN USING clause requires the columns to be
  * merged to have the same aliases in both input RTEs.	To handle that, we do
@@ -260,6 +260,7 @@ typedef struct
 	 * child RTE's attno and rightattnos[i] is zero; and conversely for a
 	 * column of the right child.  But for merged columns produced by JOIN
 	 * USING/NATURAL JOIN, both leftattnos[i] and rightattnos[i] are nonzero.
+	 * Also, if the column has been dropped, both are zero.
 	 *
 	 * If it's a JOIN USING, usingNames holds the alias names selected for the
 	 * merged columns (these might be different from the original USING list,
@@ -325,7 +326,7 @@ static bool refname_is_unique(char *refname, deparse_namespace *dpns,
 static void set_deparse_for_query(deparse_namespace *dpns, Query *query,
 					  List *parent_namespaces);
 static void set_simple_column_names(deparse_namespace *dpns);
-static bool has_unnamed_full_join_using(Node *jtnode);
+static bool has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode);
 static void set_using_names(deparse_namespace *dpns, Node *jtnode);
 static void set_relation_column_names(deparse_namespace *dpns,
 						  RangeTblEntry *rte,
@@ -397,6 +398,7 @@ static const char *get_simple_binary_op_name(OpExpr *expr);
 static bool isSimpleNode(Node *node, Node *parentNode, int prettyFlags);
 static void appendContextKeyword(deparse_context *context, const char *str,
 					 int indentBefore, int indentAfter, int indentPlus);
+static void removeStringInfoSpaces(StringInfo str);
 static void get_rule_expr(Node *node, deparse_context *context,
 			  bool showimplicit);
 static void get_oper_expr(OpExpr *expr, deparse_context *context);
@@ -663,7 +665,7 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 	 * Get the pg_rewrite tuple for the view's SELECT rule
 	 */
 	args[0] = ObjectIdGetDatum(viewoid);
-	args[1] = PointerGetDatum(ViewSelectRuleName);
+	args[1] = DirectFunctionCall1(namein, CStringGetDatum(ViewSelectRuleName));
 	nulls[0] = ' ';
 	nulls[1] = ' ';
 	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 2);
@@ -2762,7 +2764,7 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 	{
 		/* Detect whether global uniqueness of USING names is needed */
 		dpns->unique_using =
-			has_unnamed_full_join_using((Node *) query->jointree);
+			has_dangerous_join_using(dpns, (Node *) query->jointree);
 
 		/*
 		 * Select names for columns merged by USING, via a recursive pass over
@@ -2822,25 +2824,26 @@ set_simple_column_names(deparse_namespace *dpns)
 }
 
 /*
- * has_unnamed_full_join_using: search jointree for unnamed FULL JOIN USING
+ * has_dangerous_join_using: search jointree for unnamed JOIN USING
  *
- * Merged columns of a FULL JOIN USING act differently from either of the
- * input columns, so they have to be referenced as columns of the JOIN not
- * as columns of either input.	And this is problematic if the join is
- * unnamed (alias-less): we cannot qualify the column's name with an RTE
- * name, since there is none.  (Forcibly assigning an alias to the join is
- * not a solution, since that will prevent legal references to tables below
- * the join.)  To ensure that every column in the query is unambiguously
- * referenceable, we must assign such merged columns names that are globally
- * unique across the whole query, aliasing other columns out of the way as
- * necessary.
+ * Merged columns of a JOIN USING may act differently from either of the input
+ * columns, either because they are merged with COALESCE (in a FULL JOIN) or
+ * because an implicit coercion of the underlying input column is required.
+ * In such a case the column must be referenced as a column of the JOIN not as
+ * a column of either input.  And this is problematic if the join is unnamed
+ * (alias-less): we cannot qualify the column's name with an RTE name, since
+ * there is none.  (Forcibly assigning an alias to the join is not a solution,
+ * since that will prevent legal references to tables below the join.)
+ * To ensure that every column in the query is unambiguously referenceable,
+ * we must assign such merged columns names that are globally unique across
+ * the whole query, aliasing other columns out of the way as necessary.
  *
  * Because the ensuing re-aliasing is fairly damaging to the readability of
  * the query, we don't do this unless we have to.  So, we must pre-scan
  * the join tree to see if we have to, before starting set_using_names().
  */
 static bool
-has_unnamed_full_join_using(Node *jtnode)
+has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode)
 {
 	if (IsA(jtnode, RangeTblRef))
 	{
@@ -2853,7 +2856,7 @@ has_unnamed_full_join_using(Node *jtnode)
 
 		foreach(lc, f->fromlist)
 		{
-			if (has_unnamed_full_join_using((Node *) lfirst(lc)))
+			if (has_dangerous_join_using(dpns, (Node *) lfirst(lc)))
 				return true;
 		}
 	}
@@ -2861,16 +2864,30 @@ has_unnamed_full_join_using(Node *jtnode)
 	{
 		JoinExpr   *j = (JoinExpr *) jtnode;
 
-		/* Is it an unnamed FULL JOIN with USING? */
-		if (j->alias == NULL &&
-			j->jointype == JOIN_FULL &&
-			j->usingClause)
-			return true;
+		/* Is it an unnamed JOIN with USING? */
+		if (j->alias == NULL && j->usingClause)
+		{
+			/*
+			 * Yes, so check each join alias var to see if any of them are not
+			 * simple references to underlying columns.  If so, we have a
+			 * dangerous situation and must pick unique aliases.
+			 */
+			RangeTblEntry *jrte = rt_fetch(j->rtindex, dpns->rtable);
+			ListCell   *lc;
+
+			foreach(lc, jrte->joinaliasvars)
+			{
+				Var		   *aliasvar = (Var *) lfirst(lc);
+
+				if (aliasvar != NULL && !IsA(aliasvar, Var))
+					return true;
+			}
+		}
 
 		/* Nope, but inspect children */
-		if (has_unnamed_full_join_using(j->larg))
+		if (has_dangerous_join_using(dpns, j->larg))
 			return true;
-		if (has_unnamed_full_join_using(j->rarg))
+		if (has_dangerous_join_using(dpns, j->rarg))
 			return true;
 	}
 	else
@@ -2960,16 +2977,16 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 		 *
 		 * If dpns->unique_using is TRUE, we force all USING names to be
 		 * unique across the whole query level.  In principle we'd only need
-		 * the names of USING columns in unnamed full joins to be globally
-		 * unique, but to safely assign all USING names in a single pass, we
-		 * have to enforce the same uniqueness rule for all of them.  However,
-		 * if a USING column's name has been pushed down from the parent, we
-		 * should use it as-is rather than making a uniqueness adjustment.
-		 * This is necessary when we're at an unnamed join, and it creates no
-		 * risk of ambiguity.  Also, if there's a user-written output alias
-		 * for a merged column, we prefer to use that rather than the input
-		 * name; this simplifies the logic and seems likely to lead to less
-		 * aliasing overall.
+		 * the names of dangerous USING columns to be globally unique, but to
+		 * safely assign all USING names in a single pass, we have to enforce
+		 * the same uniqueness rule for all of them.  However, if a USING
+		 * column's name has been pushed down from the parent, we should use
+		 * it as-is rather than making a uniqueness adjustment.  This is
+		 * necessary when we're at an unnamed join, and it creates no risk of
+		 * ambiguity.  Also, if there's a user-written output alias for a
+		 * merged column, we prefer to use that rather than the input name;
+		 * this simplifies the logic and seems likely to lead to less aliasing
+		 * overall.
 		 *
 		 * If dpns->unique_using is FALSE, we only need USING names to be
 		 * unique within their own join RTE.  We still need to honor
@@ -3246,6 +3263,13 @@ set_join_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
 		char	   *colname = colinfo->colnames[i];
 		char	   *real_colname;
 
+		/* Ignore dropped column (only possible for non-merged column) */
+		if (colinfo->leftattnos[i] == 0 && colinfo->rightattnos[i] == 0)
+		{
+			Assert(colname == NULL);
+			continue;
+		}
+
 		/* Get the child column name */
 		if (colinfo->leftattnos[i] > 0)
 			real_colname = leftcolinfo->colnames[colinfo->leftattnos[i] - 1];
@@ -3254,15 +3278,9 @@ set_join_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
 		else
 		{
 			/* We're joining system columns --- use eref name */
-			real_colname = (char *) list_nth(rte->eref->colnames, i);
+			real_colname = strVal(list_nth(rte->eref->colnames, i));
 		}
-
-		/* Ignore dropped columns (only possible for non-merged column) */
-		if (real_colname == NULL)
-		{
-			Assert(colname == NULL);
-			continue;
-		}
+		Assert(real_colname != NULL);
 
 		/* In an unnamed join, just report child column names as-is */
 		if (rte->alias == NULL)
@@ -3595,7 +3613,14 @@ identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
 	{
 		Var		   *aliasvar = (Var *) lfirst(lc);
 
-		if (IsA(aliasvar, Var))
+		/* get rid of any implicit coercion above the Var */
+		aliasvar = (Var *) strip_implicit_coercions((Node *) aliasvar);
+
+		if (aliasvar == NULL)
+		{
+			/* It's a dropped column; nothing to do here */
+		}
+		else if (IsA(aliasvar, Var))
 		{
 			Assert(aliasvar->varlevelsup == 0);
 			Assert(aliasvar->varattno != 0);
@@ -3615,15 +3640,8 @@ identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
 			 */
 		}
 		else
-		{
-			/*
-			 * Although NULL constants can appear in joinaliasvars lists
-			 * during planning, we shouldn't see any here, since the Query
-			 * tree hasn't been through AcquireRewriteLocks().
-			 */
 			elog(ERROR, "unrecognized node type in join alias vars: %d",
 				 (int) nodeTag(aliasvar));
-		}
 
 		i++;
 	}
@@ -4865,42 +4883,42 @@ get_target_list(List *targetList, deparse_context *context,
 		/* Consider line-wrapping if enabled */
 		if (PRETTY_INDENT(context) && context->wrapColumn >= 0)
 		{
-			int			leading_nl_pos = -1;
-			char	   *trailing_nl;
-			int			pos;
+			int			leading_nl_pos;
 
-			/* Does the new field start with whitespace plus a new line? */
-			for (pos = 0; pos < targetbuf.len; pos++)
-			{
-				if (targetbuf.data[pos] == '\n')
-				{
-					leading_nl_pos = pos;
-					break;
-				}
-				if (targetbuf.data[pos] != ' ')
-					break;
-			}
-
-			/* Locate the start of the current line in the output buffer */
-			trailing_nl = strrchr(buf->data, '\n');
-			if (trailing_nl == NULL)
-				trailing_nl = buf->data;
+			/* Does the new field start with a new line? */
+			if (targetbuf.len > 0 && targetbuf.data[0] == '\n')
+				leading_nl_pos = 0;
 			else
-				trailing_nl++;
+				leading_nl_pos = -1;
 
-			/*
-			 * If the field we're adding is the first in the list, or it
-			 * already has a leading newline, don't add anything. Otherwise,
-			 * add a newline, plus some indentation, if either the new field
-			 * would cause an overflow or the last field used more than one
-			 * line.
-			 */
-			if (colno > 1 &&
-				leading_nl_pos == -1 &&
-				((strlen(trailing_nl) + strlen(targetbuf.data) > context->wrapColumn) ||
-				 last_was_multiline))
-				appendContextKeyword(context, "", -PRETTYINDENT_STD,
-									 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+			/* If so, we shouldn't add anything */
+			if (leading_nl_pos >= 0)
+			{
+				/* instead, remove any trailing spaces currently in buf */
+				removeStringInfoSpaces(buf);
+			}
+			else
+			{
+				char	   *trailing_nl;
+
+				/* Locate the start of the current line in the output buffer */
+				trailing_nl = strrchr(buf->data, '\n');
+				if (trailing_nl == NULL)
+					trailing_nl = buf->data;
+				else
+					trailing_nl++;
+
+				/*
+				 * Add a newline, plus some indentation, if the new field is
+				 * not the first and either the new field would cause an
+				 * overflow or the last field used more than one line.
+				 */
+				if (colno > 1 &&
+					((strlen(trailing_nl) + targetbuf.len > context->wrapColumn) ||
+					 last_was_multiline))
+					appendContextKeyword(context, "", -PRETTYINDENT_STD,
+										 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+			}
 
 			/* Remember this field's multiline status for next iteration */
 			last_was_multiline =
@@ -5995,9 +6013,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	 * If it's a simple reference to one of the input vars, then recursively
 	 * print the name of that var instead.	When it's not a simple reference,
 	 * we have to just print the unqualified join column name.	(This can only
-	 * happen with columns that were merged by USING or NATURAL clauses in a
-	 * FULL JOIN; we took pains previously to make the unqualified column name
-	 * unique in such cases.)
+	 * happen with "dangerous" merged columns in a JOIN USING; we took pains
+	 * previously to make the unqualified column name unique in such cases.)
 	 *
 	 * This wouldn't work in decompiling plan trees, because we don't store
 	 * joinaliasvars lists after planning; but a plan tree should never
@@ -6012,7 +6029,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 			Var		   *aliasvar;
 
 			aliasvar = (Var *) list_nth(rte->joinaliasvars, attnum - 1);
-			if (IsA(aliasvar, Var))
+			/* we intentionally don't strip implicit coercions here */
+			if (aliasvar && IsA(aliasvar, Var))
 			{
 				return get_variable(aliasvar, var->varlevelsup + levelsup,
 									istoplevel, context);
@@ -6323,6 +6341,8 @@ get_name_for_var_field(Var *var, int fieldno,
 				elog(ERROR, "cannot decompile join alias var in plan tree");
 			Assert(attnum > 0 && attnum <= list_length(rte->joinaliasvars));
 			expr = (Node *) list_nth(rte->joinaliasvars, attnum - 1);
+			Assert(expr != NULL);
+			/* we intentionally don't strip implicit coercions here */
 			if (IsA(expr, Var))
 				return get_name_for_var_field((Var *) expr, fieldno,
 											  var->varlevelsup + levelsup,
@@ -6890,22 +6910,41 @@ static void
 appendContextKeyword(deparse_context *context, const char *str,
 					 int indentBefore, int indentAfter, int indentPlus)
 {
+	StringInfo	buf = context->buf;
+
 	if (PRETTY_INDENT(context))
 	{
 		context->indentLevel += indentBefore;
 
-		appendStringInfoChar(context->buf, '\n');
-		appendStringInfoSpaces(context->buf,
+		/* remove any trailing spaces currently in the buffer ... */
+		removeStringInfoSpaces(buf);
+		/* ... then add a newline and some spaces */
+		appendStringInfoChar(buf, '\n');
+		appendStringInfoSpaces(buf,
 							   Max(context->indentLevel, 0) + indentPlus);
-		appendStringInfoString(context->buf, str);
+
+		appendStringInfoString(buf, str);
 
 		context->indentLevel += indentAfter;
 		if (context->indentLevel < 0)
 			context->indentLevel = 0;
 	}
 	else
-		appendStringInfoString(context->buf, str);
+		appendStringInfoString(buf, str);
 }
+
+/*
+ * removeStringInfoSpaces - delete trailing spaces from a buffer.
+ *
+ * Possibly this should move to stringinfo.c at some point.
+ */
+static void
+removeStringInfoSpaces(StringInfo str)
+{
+	while (str->len > 0 && str->data[str->len - 1] == ' ')
+		str->data[--(str->len)] = '\0';
+}
+
 
 /*
  * get_rule_expr_paren	- deparse expr using get_rule_expr,
@@ -8131,6 +8170,7 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
 	int			nargs;
+	List	   *argnames;
 	ListCell   *l;
 
 	if (list_length(wfunc->args) > FUNC_MAX_ARGS)
@@ -8138,18 +8178,20 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
 				 errmsg("too many arguments")));
 	nargs = 0;
+	argnames = NIL;
 	foreach(l, wfunc->args)
 	{
 		Node	   *arg = (Node *) lfirst(l);
 
-		Assert(!IsA(arg, NamedArgExpr));
+		if (IsA(arg, NamedArgExpr))
+			argnames = lappend(argnames, ((NamedArgExpr *) arg)->name);
 		argtypes[nargs] = exprType(arg);
 		nargs++;
 	}
 
 	appendStringInfo(buf, "%s(",
 					 generate_function_name(wfunc->winfnoid, nargs,
-											NIL, argtypes,
+											argnames, argtypes,
 											false, NULL));
 	/* winstar can be set only in zero-argument aggregates */
 	if (wfunc->winstar)
@@ -8606,22 +8648,33 @@ get_from_clause(Query *query, const char *prefix, deparse_context *context)
 			/* Consider line-wrapping if enabled */
 			if (PRETTY_INDENT(context) && context->wrapColumn >= 0)
 			{
-				char	   *trailing_nl;
-
-				/* Locate the start of the current line in the buffer */
-				trailing_nl = strrchr(buf->data, '\n');
-				if (trailing_nl == NULL)
-					trailing_nl = buf->data;
+				/* Does the new item start with a new line? */
+				if (itembuf.len > 0 && itembuf.data[0] == '\n')
+				{
+					/* If so, we shouldn't add anything */
+					/* instead, remove any trailing spaces currently in buf */
+					removeStringInfoSpaces(buf);
+				}
 				else
-					trailing_nl++;
+				{
+					char	   *trailing_nl;
 
-				/*
-				 * Add a newline, plus some indentation, if the new item would
-				 * cause an overflow.
-				 */
-				if (strlen(trailing_nl) + strlen(itembuf.data) > context->wrapColumn)
-					appendContextKeyword(context, "", -PRETTYINDENT_STD,
-										 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+					/* Locate the start of the current line in the buffer */
+					trailing_nl = strrchr(buf->data, '\n');
+					if (trailing_nl == NULL)
+						trailing_nl = buf->data;
+					else
+						trailing_nl++;
+
+					/*
+					 * Add a newline, plus some indentation, if the new item
+					 * would cause an overflow.
+					 */
+					if (strlen(trailing_nl) + itembuf.len > context->wrapColumn)
+						appendContextKeyword(context, "", -PRETTYINDENT_STD,
+											 PRETTYINDENT_STD,
+											 PRETTYINDENT_VAR);
+				}
 			}
 
 			/* Add the new item */

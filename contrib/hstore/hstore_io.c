@@ -1246,11 +1246,7 @@ hstore_to_json_loose(PG_FUNCTION_ARGS)
 				dst;
 
 	if (count == 0)
-	{
-		out = palloc(1);
-		*out = '\0';
-		PG_RETURN_TEXT_P(cstring_to_text(out));
-	}
+		PG_RETURN_TEXT_P(cstring_to_text_with_len("{}",2));
 
 	buflen = 3;
 
@@ -1375,11 +1371,7 @@ hstore_to_json(PG_FUNCTION_ARGS)
 				dst;
 
 	if (count == 0)
-	{
-		out = palloc(1);
-		*out = '\0';
-		PG_RETURN_TEXT_P(cstring_to_text(out));
-	}
+		PG_RETURN_TEXT_P(cstring_to_text_with_len("{}",2));
 
 	buflen = 3;
 

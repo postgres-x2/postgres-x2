@@ -453,11 +453,15 @@ insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
+explain (verbose, costs off) select min(1-id) from matest0;
+select min(1-id) from matest0;
 reset enable_indexscan;
 
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
+explain (verbose, costs off) select min(1-id) from matest0;
+select min(1-id) from matest0;
 reset enable_seqscan;
 
 drop table matest0 cascade;
@@ -509,6 +513,26 @@ SELECT x, y FROM
    UNION ALL
    SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s
 ORDER BY x, y;
+
+-- exercise rescan code path via a repeatedly-evaluated subquery
+explain (costs off)
+SELECT
+    ARRAY(SELECT f.i FROM (
+        (SELECT d + g.i FROM generate_series(4, 30, 3) d ORDER BY 1)
+        UNION ALL
+        (SELECT d + g.i FROM generate_series(0, 30, 5) d ORDER BY 1)
+    ) f(i)
+    ORDER BY f.i LIMIT 10)
+FROM generate_series(1, 3) g(i);
+
+SELECT
+    ARRAY(SELECT f.i FROM (
+        (SELECT d + g.i FROM generate_series(4, 30, 3) d ORDER BY 1)
+        UNION ALL
+        (SELECT d + g.i FROM generate_series(0, 30, 5) d ORDER BY 1)
+    ) f(i)
+    ORDER BY f.i LIMIT 10)
+FROM generate_series(1, 3) g(i);
 
 reset enable_seqscan;
 reset enable_indexscan;

@@ -19,6 +19,7 @@
 #include "foreign/fdwapi.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/clauses.h"
 #include "parser/analyze.h"
 #include "parser/parse_coerce.h"
 #include "parser/parsetree.h"
@@ -111,9 +112,8 @@ static bool pull_qual_vars_walker(Node *node, pull_qual_vars_context *context);
  * such a list in a stored rule to include references to dropped columns.
  * (If the column is not explicitly referenced anywhere else in the query,
  * the dependency mechanism won't consider it used by the rule and so won't
- * prevent the column drop.)  To support get_rte_attribute_is_dropped(),
- * we replace join alias vars that reference dropped columns with NULL Const
- * nodes.
+ * prevent the column drop.)  To support get_rte_attribute_is_dropped(), we
+ * replace join alias vars that reference dropped columns with null pointers.
  *
  * (In PostgreSQL 8.0, we did not do this processing but instead had
  * get_rte_attribute_is_dropped() recurse to detect dropped columns in joins.
@@ -180,8 +180,8 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 
 				/*
 				 * Scan the join's alias var list to see if any columns have
-				 * been dropped, and if so replace those Vars with NULL
-				 * Consts.
+				 * been dropped, and if so replace those Vars with null
+				 * pointers.
 				 *
 				 * Since a join has only two inputs, we can expect to see
 				 * multiple references to the same input RTE; optimize away
@@ -192,16 +192,20 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 				curinputrte = NULL;
 				foreach(ll, rte->joinaliasvars)
 				{
-					Var		   *aliasvar = (Var *) lfirst(ll);
+					Var		   *aliasitem = (Var *) lfirst(ll);
+					Var		   *aliasvar = aliasitem;
+
+					/* Look through any implicit coercion */
+					aliasvar = (Var *) strip_implicit_coercions((Node *) aliasvar);
 
 					/*
 					 * If the list item isn't a simple Var, then it must
 					 * represent a merged column, ie a USING column, and so it
 					 * couldn't possibly be dropped, since it's referenced in
-					 * the join clause.  (Conceivably it could also be a NULL
-					 * constant already?  But that's OK too.)
+					 * the join clause.  (Conceivably it could also be a null
+					 * pointer already?  But that's OK too.)
 					 */
-					if (IsA(aliasvar, Var))
+					if (aliasvar && IsA(aliasvar, Var))
 					{
 						/*
 						 * The elements of an alias list have to refer to
@@ -225,15 +229,11 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 						if (get_rte_attribute_is_dropped(curinputrte,
 														 aliasvar->varattno))
 						{
-							/*
-							 * can't use vartype here, since that might be a
-							 * now-dropped type OID, but it doesn't really
-							 * matter what type the Const claims to be.
-							 */
-							aliasvar = (Var *) makeNullConst(INT4OID, -1, InvalidOid);
+							/* Replace the join alias item with a NULL */
+							aliasitem = NULL;
 						}
 					}
-					newaliasvars = lappend(newaliasvars, aliasvar);
+					newaliasvars = lappend(newaliasvars, aliasitem);
 				}
 				rte->joinaliasvars = newaliasvars;
 				break;
@@ -2485,7 +2485,7 @@ rewriteTargetView(Query *parsetree, Relation view)
 						 errmsg("cannot insert into view \"%s\"",
 								RelationGetRelationName(view)),
 						 errdetail_internal("%s", _(auto_update_detail)),
-						 errhint("To make the view insertable, provide an unconditional ON INSERT DO INSTEAD rule or an INSTEAD OF INSERT trigger.")));
+						 errhint("To enable inserting into the view, provide an INSTEAD OF INSERT trigger or an unconditional ON INSERT DO INSTEAD rule.")));
 				break;
 			case CMD_UPDATE:
 				ereport(ERROR,
@@ -2493,7 +2493,7 @@ rewriteTargetView(Query *parsetree, Relation view)
 						 errmsg("cannot update view \"%s\"",
 								RelationGetRelationName(view)),
 						 errdetail_internal("%s", _(auto_update_detail)),
-						 errhint("To make the view updatable, provide an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.")));
+						 errhint("To enable updating the view, provide an INSTEAD OF UPDATE trigger or an unconditional ON UPDATE DO INSTEAD rule.")));
 				break;
 			case CMD_DELETE:
 				ereport(ERROR,
@@ -2501,7 +2501,7 @@ rewriteTargetView(Query *parsetree, Relation view)
 						 errmsg("cannot delete from view \"%s\"",
 								RelationGetRelationName(view)),
 						 errdetail_internal("%s", _(auto_update_detail)),
-						 errhint("To make the view updatable, provide an unconditional ON DELETE DO INSTEAD rule or an INSTEAD OF DELETE trigger.")));
+						 errhint("To enable deleting from the view, provide an INSTEAD OF DELETE trigger or an unconditional ON DELETE DO INSTEAD rule.")));
 				break;
 			default:
 				elog(ERROR, "unrecognized CmdType: %d",
@@ -2554,6 +2554,13 @@ rewriteTargetView(Query *parsetree, Relation view)
 	new_rte = (RangeTblEntry *) copyObject(base_rte);
 	parsetree->rtable = lappend(parsetree->rtable, new_rte);
 	new_rt_index = list_length(parsetree->rtable);
+
+	/*
+	 * INSERTs never inherit.  For UPDATE/DELETE, we use the view query's
+	 * inheritance flag for the base relation.
+	 */
+	if (parsetree->commandType == CMD_INSERT)
+		new_rte->inh = false;
 
 	/*
 	 * Make a copy of the view's targetlist, adjusting its Vars to reference

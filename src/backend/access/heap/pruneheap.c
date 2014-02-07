@@ -262,7 +262,7 @@ heap_page_prune(Relation relation, Buffer buffer, TransactionId OldestXmin,
 		{
 			((PageHeader) page)->pd_prune_xid = prstate.new_prune_xid;
 			PageClearFull(page);
-			MarkBufferDirtyHint(buffer);
+			MarkBufferDirtyHint(buffer, true);
 		}
 	}
 
@@ -466,10 +466,9 @@ heap_prune_chain(Relation relation, Buffer buffer, OffsetNumber rootoffnum,
 				break;
 
 			case HEAPTUPLE_DELETE_IN_PROGRESS:
-
 				/*
-				 * This tuple may soon become DEAD.  Update the hint field so
-				 * that the page is reconsidered for pruning in future.
+				 * This tuple may soon become DEAD.  Update the hint field
+				 * so that the page is reconsidered for pruning in future.
 				 */
 				heap_prune_record_prunable(prstate,
 										   HeapTupleHeaderGetUpdateXid(htup));

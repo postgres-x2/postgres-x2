@@ -138,6 +138,9 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	RewriteRule *rule;
 	List	   *actions;
 	Query	   *dataQuery;
+	Oid			save_userid;
+	int			save_sec_context;
+	int			save_nestlevel;
 	Oid			tableSpace;
 	Oid			OIDNewHeap;
 	DestReceiver *dest;
@@ -157,11 +160,7 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 				 errmsg("\"%s\" is not a materialized view",
 						RelationGetRelationName(matviewRel))));
 
-	/*
-	 * We're not using materialized views in the system catalogs.
-	 */
-	Assert(!IsSystemRelation(matviewRel));
-
+	/* We don't allow an oid column for a materialized view. */
 	Assert(!matviewRel->rd_rel->relhasoids);
 
 	/*
@@ -208,14 +207,22 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	CheckTableNotInUse(matviewRel, "REFRESH MATERIALIZED VIEW");
 
 	/*
+	 * Switch to the owner's userid, so that any functions are run as that
+	 * user.  Also lock down security-restricted operations and arrange to
+	 * make GUC variable changes local to this command.
+	 */
+	GetUserIdAndSecContext(&save_userid, &save_sec_context);
+	SetUserIdAndSecContext(matviewRel->rd_rel->relowner,
+						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
+	save_nestlevel = NewGUCNestLevel();
+
+	/*
 	 * Tentatively mark the matview as populated or not (this will roll back
 	 * if we fail later).
 	 */
 	SetMatViewPopulatedState(matviewRel, !stmt->skipData);
 
 	tableSpace = matviewRel->rd_rel->reltablespace;
-
-	heap_close(matviewRel, NoLock);
 
 	/* Create the transient table that will receive the regenerated data. */
 	OIDNewHeap = make_new_heap(matviewOid, tableSpace);
@@ -237,6 +244,8 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	if (!stmt->skipData)
 		refresh_matview_datafill(dest, dataQuery, queryString);
 
+	heap_close(matviewRel, NoLock);
+
 	/*
 	 * Swap the physical files of the target and transient tables, then
 	 * rebuild the target's indexes and throw away the transient table.
@@ -244,7 +253,11 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	finish_heap_swap(matviewOid, OIDNewHeap, false, false, true, true,
 					 RecentXmin, ReadNextMultiXactId());
 
-	RelationCacheInvalidateEntry(matviewOid);
+	/* Roll back any GUC changes */
+	AtEOXact_GUC(false, save_nestlevel);
+
+	/* Restore userid and security context */
+	SetUserIdAndSecContext(save_userid, save_sec_context);
 }
 
 /*
@@ -257,9 +270,12 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 	List	   *rewritten;
 	PlannedStmt *plan;
 	QueryDesc  *queryDesc;
+	Query	   *copied_query;
 
-	/* Rewrite, copying the given Query to make sure it's not changed */
-	rewritten = QueryRewrite((Query *) copyObject(query));
+	/* Lock and rewrite, using a copy to preserve the original query. */
+	copied_query = copyObject(query);
+	AcquireRewriteLocks(copied_query, false);
+	rewritten = QueryRewrite(copied_query);
 
 	/* SELECT should never rewrite to more or less than one SELECT query */
 	if (list_length(rewritten) != 1)

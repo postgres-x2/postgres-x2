@@ -87,6 +87,8 @@ extern void MultiXactIdSetOldestMember(void);
 extern int GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **xids,
 					  bool allow_old);
 extern bool MultiXactIdPrecedes(MultiXactId multi1, MultiXactId multi2);
+extern bool MultiXactIdPrecedesOrEquals(MultiXactId multi1,
+							MultiXactId multi2);
 
 extern void AtEOXact_MultiXact(void);
 extern void AtPrepare_MultiXact(void);
@@ -96,6 +98,7 @@ extern Size MultiXactShmemSize(void);
 extern void MultiXactShmemInit(void);
 extern void BootStrapMultiXact(void);
 extern void StartupMultiXact(void);
+extern void TrimMultiXact(void);
 extern void ShutdownMultiXact(void);
 extern void SetMultiXactIdLimit(MultiXactId oldest_datminmxid,
 					Oid oldest_datoid);
