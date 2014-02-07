@@ -1470,9 +1470,7 @@ setjmp_again:
 		gtm_foreach(elem, thrinfo->thr_processed_commands)
 		{
 			GTMProxy_CommandInfo *cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
-
-			GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
-			thrinfo->thr_conn = conninfo;
+			thrinfo->thr_conn = cmdinfo->ci_conn;
 
 			/*
 			 * If this is a continuation of a multi-part command response, we
