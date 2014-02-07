@@ -64,6 +64,24 @@ SELECT * FROM nums;
  5
 (5 rows)
 
+<<<<<<< HEAD
+=======
+-- recursive view
+CREATE RECURSIVE VIEW nums (n) AS
+    VALUES (1)
+UNION ALL
+    SELECT n+1 FROM nums WHERE n < 5;
+SELECT * FROM nums;
+ n 
+---
+ 1
+ 2
+ 3
+ 4
+ 5
+(5 rows)
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE OR REPLACE RECURSIVE VIEW nums (n) AS
     VALUES (1)
 UNION ALL
@@ -1299,6 +1317,7 @@ with
 A as ( select q2 as id, (select q1) as x from int8_tbl ),
 B as ( select id, row_number() over (partition by id) as r from A ),
 C as ( select A.id, array(select B.id from B where B.id = A.id) from A )
+<<<<<<< HEAD
 select * from C order by 1,2;
         id         |                array                
 -------------------+-------------------------------------
@@ -1307,6 +1326,16 @@ select * from C order by 1,2;
                456 | {456}
   4567890123456789 | {4567890123456789,4567890123456789}
   4567890123456789 | {4567890123456789,4567890123456789}
+=======
+select * from C;
+        id         |                array                
+-------------------+-------------------------------------
+               456 | {456}
+  4567890123456789 | {4567890123456789,4567890123456789}
+               123 | {123}
+  4567890123456789 | {4567890123456789,4567890123456789}
+ -4567890123456789 | {-4567890123456789}
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (5 rows)
 
 --
@@ -2085,6 +2114,7 @@ SELECT * FROM parent ORDER BY id;
 EXPLAIN (VERBOSE, COSTS OFF, NODES OFF, NUM_NODES OFF)
 WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 )
 DELETE FROM a USING wcte WHERE aa = q2;
+<<<<<<< HEAD
                                            QUERY PLAN                                            
 -------------------------------------------------------------------------------------------------
  Delete on public.a a_1
@@ -2092,6 +2122,11 @@ DELETE FROM a USING wcte WHERE aa = q2;
    Remote query: DELETE FROM ONLY public.b WHERE ((b.ctid = $1) AND (b.xc_node_id = $2))
    Remote query: DELETE FROM ONLY public.c WHERE ((c.ctid = $1) AND (c.xc_node_id = $2))
    Remote query: DELETE FROM ONLY public.d WHERE ((d.ctid = $1) AND (d.xc_node_id = $2))
+=======
+                   QUERY PLAN                   
+------------------------------------------------
+ Delete on public.a
+>>>>>>> e472b921406407794bab911c64655b8b82375196
    CTE wcte
      ->  Insert on public.int8_tbl
            Output: int8_tbl.q2
@@ -2099,6 +2134,7 @@ DELETE FROM a USING wcte WHERE aa = q2;
            Remote query: INSERT INTO public.int8_tbl (q1, q2) VALUES ($1, $2) RETURNING q2
            ->  Result
                  Output: 42::bigint, 47::bigint
+<<<<<<< HEAD
    ->  Hash Join
          Output: a_1.aa, a_1.ctid, a_1.xc_node_id, wcte.*
          Hash Cond: (a_1.aa = wcte.q2)
@@ -2136,6 +2172,35 @@ DELETE FROM a USING wcte WHERE aa = q2;
                Output: aa, ctid, xc_node_id
                Remote query: SELECT aa, ctid, xc_node_id FROM ONLY public.d WHERE true
          ->  Hash
+=======
+   ->  Nested Loop
+         Output: a.ctid, wcte.*
+         Join Filter: (a.aa = wcte.q2)
+         ->  Seq Scan on public.a
+               Output: a.ctid, a.aa
+         ->  CTE Scan on wcte
+               Output: wcte.*, wcte.q2
+   ->  Nested Loop
+         Output: b.ctid, wcte.*
+         Join Filter: (b.aa = wcte.q2)
+         ->  Seq Scan on public.b
+               Output: b.ctid, b.aa
+         ->  CTE Scan on wcte
+               Output: wcte.*, wcte.q2
+   ->  Nested Loop
+         Output: c.ctid, wcte.*
+         Join Filter: (c.aa = wcte.q2)
+         ->  Seq Scan on public.c
+               Output: c.ctid, c.aa
+         ->  CTE Scan on wcte
+               Output: wcte.*, wcte.q2
+   ->  Nested Loop
+         Output: d.ctid, wcte.*
+         Join Filter: (d.aa = wcte.q2)
+         ->  Seq Scan on public.d
+               Output: d.ctid, d.aa
+         ->  CTE Scan on wcte
+>>>>>>> e472b921406407794bab911c64655b8b82375196
                Output: wcte.*, wcte.q2
                ->  CTE Scan on wcte
                      Output: wcte.*, wcte.q2

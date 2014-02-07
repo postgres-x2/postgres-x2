@@ -1540,8 +1540,11 @@ Indexes:
     "test_constraints_val1_val2_key" UNIQUE CONSTRAINT, btree (val1, val2)
 Child tables: test_constraints_inh
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(val1)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 ALTER TABLE ONLY test_constraints DROP CONSTRAINT test_constraints_val1_val2_key;
 \d+ test_constraints
@@ -1553,8 +1556,11 @@ ALTER TABLE ONLY test_constraints DROP CONSTRAINT test_constraints_val1_val2_key
  val2   | integer           |           | plain    |              | 
 Child tables: test_constraints_inh
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(val1)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 \d+ test_constraints_inh
                       Table "public.test_constraints_inh"
@@ -1565,8 +1571,11 @@ Location Nodes: ALL DATANODES
  val2   | integer           |           | plain    |              | 
 Inherits: test_constraints
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(id)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE test_constraints_inh;
 DROP TABLE test_constraints;
@@ -1618,8 +1627,11 @@ Indexes:
 Referenced by:
     TABLE "test_foreign_constraints" CONSTRAINT "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(id)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 \d+ test_foreign_constraints
                Table "public.test_foreign_constraints"
@@ -1630,8 +1642,11 @@ Foreign-key constraints:
     "test_foreign_constraints_id1_fkey" FOREIGN KEY (id1) REFERENCES test_primary_constraints(id)
 Child tables: test_foreign_constraints_inh
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(id1)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 ALTER TABLE test_foreign_constraints DROP CONSTRAINT test_foreign_constraints_id1_fkey;
 \d+ test_foreign_constraints
@@ -1641,8 +1656,11 @@ ALTER TABLE test_foreign_constraints DROP CONSTRAINT test_foreign_constraints_id
  id1    | integer |           | plain   |              | 
 Child tables: test_foreign_constraints_inh
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(id1)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 \d+ test_foreign_constraints_inh
              Table "public.test_foreign_constraints_inh"
@@ -1651,8 +1669,11 @@ Location Nodes: ALL DATANODES
  id1    | integer |           | plain   |              | 
 Inherits: test_foreign_constraints
 Has OIDs: no
+<<<<<<< HEAD
 Distribute By: HASH(id1)
 Location Nodes: ALL DATANODES
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE test_foreign_constraints_inh;
 DROP TABLE test_foreign_constraints;
@@ -1674,6 +1695,7 @@ create index patest2i on patest2(id);
 analyze patest0;
 analyze patest1;
 analyze patest2;
+<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
 select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
                             QUERY PLAN                             
@@ -1692,6 +1714,25 @@ select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 li
 (11 rows)
 
 select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
+=======
+explain (costs off)
+select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Nested Loop
+   ->  Limit
+         ->  Seq Scan on int4_tbl
+   ->  Append
+         ->  Index Scan using patest0i on patest0
+               Index Cond: (id = int4_tbl.f1)
+         ->  Index Scan using patest1i on patest1
+               Index Cond: (id = int4_tbl.f1)
+         ->  Index Scan using patest2i on patest2
+               Index Cond: (id = int4_tbl.f1)
+(10 rows)
+
+select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  id | x | f1 
 ----+---+----
   0 | 0 |  0
@@ -1700,6 +1741,7 @@ select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 li
 (3 rows)
 
 drop index patest2i;
+<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
 select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
                             QUERY PLAN                             
@@ -1718,6 +1760,25 @@ select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 li
 (11 rows)
 
 select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
+=======
+explain (costs off)
+select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Nested Loop
+   ->  Limit
+         ->  Seq Scan on int4_tbl
+   ->  Append
+         ->  Index Scan using patest0i on patest0
+               Index Cond: (id = int4_tbl.f1)
+         ->  Index Scan using patest1i on patest1
+               Index Cond: (id = int4_tbl.f1)
+         ->  Seq Scan on patest2
+               Filter: (int4_tbl.f1 = id)
+(10 rows)
+
+select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  id | x | f1 
 ----+---+----
   0 | 0 |  0
@@ -1750,6 +1811,7 @@ insert into matest2 (name) values ('Test 4');
 insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
+<<<<<<< HEAD
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
@@ -1772,6 +1834,26 @@ explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                      Output: matest3.id, matest3.name
                      Remote query: SELECT id, name FROM ONLY public.matest3 WHERE true
 (18 rows)
+=======
+explain (verbose, costs off) select * from matest0 order by 1-id;
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Sort
+   Output: matest0.id, matest0.name, ((1 - matest0.id))
+   Sort Key: ((1 - matest0.id))
+   ->  Result
+         Output: matest0.id, matest0.name, (1 - matest0.id)
+         ->  Append
+               ->  Seq Scan on public.matest0
+                     Output: matest0.id, matest0.name
+               ->  Seq Scan on public.matest1
+                     Output: matest1.id, matest1.name
+               ->  Seq Scan on public.matest2
+                     Output: matest2.id, matest2.name
+               ->  Seq Scan on public.matest3
+                     Output: matest3.id, matest3.name
+(14 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select * from matest0 order by 1-id;
  id |  name  
@@ -1786,6 +1868,7 @@ select * from matest0 order by 1-id;
 
 reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
+<<<<<<< HEAD
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
@@ -1808,6 +1891,25 @@ explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
                      Output: matest3.id, matest3.name
                      Remote query: SELECT id, name FROM ONLY public.matest3 WHERE true
 (18 rows)
+=======
+explain (verbose, costs off) select * from matest0 order by 1-id;
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Merge Append
+   Sort Key: ((1 - matest0.id))
+   ->  Index Scan using matest0i on public.matest0
+         Output: matest0.id, matest0.name, (1 - matest0.id)
+   ->  Index Scan using matest1i on public.matest1
+         Output: matest1.id, matest1.name, (1 - matest1.id)
+   ->  Sort
+         Output: matest2.id, matest2.name, ((1 - matest2.id))
+         Sort Key: ((1 - matest2.id))
+         ->  Seq Scan on public.matest2
+               Output: matest2.id, matest2.name, (1 - matest2.id)
+   ->  Index Scan using matest3i on public.matest3
+         Output: matest3.id, matest3.name, (1 - matest3.id)
+(13 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select * from matest0 order by 1-id;
  id |  name  
@@ -1838,6 +1940,7 @@ SELECT thousand, tenthous FROM tenk1
 UNION ALL
 SELECT thousand, thousand FROM tenk1
 ORDER BY thousand, tenthous;
+<<<<<<< HEAD
                           QUERY PLAN                          
 --------------------------------------------------------------
  Sort
@@ -1848,10 +1951,24 @@ ORDER BY thousand, tenthous;
 (5 rows)
 
 explain (costs off, num_nodes off, nodes off)
+=======
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Merge Append
+   Sort Key: tenk1.thousand, tenk1.tenthous
+   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
+   ->  Sort
+         Sort Key: tenk1_1.thousand, tenk1_1.thousand
+         ->  Index Only Scan using tenk1_thous_tenthous on tenk1 tenk1_1
+(6 rows)
+
+explain (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 SELECT thousand, tenthous, thousand+tenthous AS x FROM tenk1
 UNION ALL
 SELECT 42, 42, hundred FROM tenk1
 ORDER BY thousand, tenthous;
+<<<<<<< HEAD
                           QUERY PLAN                          
 --------------------------------------------------------------
  Sort
@@ -1862,10 +1979,24 @@ ORDER BY thousand, tenthous;
 (5 rows)
 
 explain (costs off, num_nodes off, nodes off)
+=======
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Merge Append
+   Sort Key: tenk1.thousand, tenk1.tenthous
+   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
+   ->  Sort
+         Sort Key: (42), (42)
+         ->  Index Only Scan using tenk1_hundred on tenk1 tenk1_1
+(6 rows)
+
+explain (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 SELECT thousand, tenthous FROM tenk1
 UNION ALL
 SELECT thousand, random()::integer FROM tenk1
 ORDER BY thousand, tenthous;
+<<<<<<< HEAD
                           QUERY PLAN                          
 --------------------------------------------------------------
  Sort
@@ -1874,6 +2005,17 @@ ORDER BY thousand, tenthous;
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (5 rows)
+=======
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Merge Append
+   Sort Key: tenk1.thousand, tenk1.tenthous
+   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
+   ->  Sort
+         Sort Key: tenk1_1.thousand, ((random())::integer)
+         ->  Index Only Scan using tenk1_thous_tenthous on tenk1 tenk1_1
+(6 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 -- Check min/max aggregate optimization
 explain (costs off, num_nodes off, nodes off)
@@ -1909,6 +2051,7 @@ SELECT x, y FROM
    UNION ALL
    SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s
 ORDER BY x, y;
+<<<<<<< HEAD
                           QUERY PLAN                          
 --------------------------------------------------------------
  Sort
@@ -1917,6 +2060,17 @@ ORDER BY x, y;
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (5 rows)
+=======
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Merge Append
+   Sort Key: a.thousand, a.tenthous
+   ->  Index Only Scan using tenk1_thous_tenthous on tenk1 a
+   ->  Sort
+         Sort Key: b.unique2, b.unique2
+         ->  Index Only Scan using tenk1_unique2 on tenk1 b
+(6 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 reset enable_seqscan;
 reset enable_indexscan;

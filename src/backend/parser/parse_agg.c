@@ -95,10 +95,13 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	ListCell   *lc;
 	const char *err;
 	bool		errkind;
+<<<<<<< HEAD
 #ifdef PGXC
 	HeapTuple	aggTuple;
 	Form_pg_aggregate aggform;
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * Transform the plain list of Exprs into a targetlist.  We don't bother
@@ -175,6 +178,14 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 */
 	min_varlevel = check_agg_arguments(pstate, agg->args);
 	agg->agglevelsup = min_varlevel;
+<<<<<<< HEAD
+=======
+
+	/* Mark the correct pstate level as having aggregates */
+	while (min_varlevel-- > 0)
+		pstate = pstate->parentParseState;
+	pstate->p_hasAggs = true;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* Mark the correct pstate level as having aggregates */
 	while (min_varlevel-- > 0)
@@ -183,6 +194,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 
 #ifdef PGXC
 	/*
+<<<<<<< HEAD
 	 * Return data type of PGXC Datanode's aggregate should always return the
 	 * result of transition function, that is expected by collection function
 	 * on the Coordinator.
@@ -214,6 +226,17 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 * what it will return is just a SQL keyword.  (Otherwise, use a custom
 	 * message to avoid creating translation problems.)
 	 */
+=======
+	 * Check to see if the aggregate function is in an invalid place within
+	 * its aggregation query.
+	 *
+	 * For brevity we support two schemes for reporting an error here: set
+	 * "err" to a custom message, or set "errkind" true if the error context
+	 * is sufficiently identified by what ParseExprKindName will return, *and*
+	 * what it will return is just a SQL keyword.  (Otherwise, use a custom
+	 * message to avoid creating translation problems.)
+	 */
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	err = NULL;
 	errkind = false;
 	switch (pstate->p_expr_kind)
@@ -313,6 +336,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 			 * runtime, the behavior will be the same as for EXPR_KIND_OTHER,
 			 * which is sane anyway.
 			 */
+<<<<<<< HEAD
 	}
 	if (err)
 		ereport(ERROR,
@@ -374,6 +398,69 @@ check_agg_arguments(ParseState *pstate, List *args)
 	else
 		agglevel = Min(context.min_varlevel, context.min_agglevel);
 
+=======
+	}
+	if (err)
+		ereport(ERROR,
+				(errcode(ERRCODE_GROUPING_ERROR),
+				 errmsg_internal("%s", err),
+				 parser_errposition(pstate, agg->location)));
+	if (errkind)
+		ereport(ERROR,
+				(errcode(ERRCODE_GROUPING_ERROR),
+		/* translator: %s is name of a SQL construct, eg GROUP BY */
+				 errmsg("aggregate functions are not allowed in %s",
+						ParseExprKindName(pstate->p_expr_kind)),
+				 parser_errposition(pstate, agg->location)));
+}
+
+/*
+ * check_agg_arguments
+ *	  Scan the arguments of an aggregate function to determine the
+ *	  aggregate's semantic level (zero is the current select's level,
+ *	  one is its parent, etc).
+ *
+ * The aggregate's level is the same as the level of the lowest-level variable
+ * or aggregate in its arguments; or if it contains no variables at all, we
+ * presume it to be local.
+ *
+ * We also take this opportunity to detect any aggregates or window functions
+ * nested within the arguments.  We can throw error immediately if we find
+ * a window function.  Aggregates are a bit trickier because it's only an
+ * error if the inner aggregate is of the same semantic level as the outer,
+ * which we can't know until we finish scanning the arguments.
+ */
+static int
+check_agg_arguments(ParseState *pstate, List *args)
+{
+	int			agglevel;
+	check_agg_arguments_context context;
+
+	context.pstate = pstate;
+	context.min_varlevel = -1;	/* signifies nothing found yet */
+	context.min_agglevel = -1;
+	context.sublevels_up = 0;
+
+	(void) expression_tree_walker((Node *) args,
+								  check_agg_arguments_walker,
+								  (void *) &context);
+
+	/*
+	 * If we found no vars nor aggs at all, it's a level-zero aggregate;
+	 * otherwise, its level is the minimum of vars or aggs.
+	 */
+	if (context.min_varlevel < 0)
+	{
+		if (context.min_agglevel < 0)
+			return 0;
+		agglevel = context.min_agglevel;
+	}
+	else if (context.min_agglevel < 0)
+		agglevel = context.min_varlevel;
+	else
+		agglevel = Min(context.min_varlevel, context.min_agglevel);
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	/*
 	 * If there's a nested aggregate of the same semantic level, complain.
 	 */

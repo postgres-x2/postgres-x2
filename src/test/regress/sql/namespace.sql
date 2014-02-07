@@ -33,6 +33,15 @@ CREATE SCHEMA IF NOT EXISTS test_schema_1 -- fail, disallowed
               b int UNIQUE
        );
 
+-- test IF NOT EXISTS cases
+CREATE SCHEMA test_schema_1; -- fail, already exists
+CREATE SCHEMA IF NOT EXISTS test_schema_1; -- ok with notice
+CREATE SCHEMA IF NOT EXISTS test_schema_1 -- fail, disallowed
+       CREATE TABLE abc (
+              a serial,
+              b int UNIQUE
+       );
+
 DROP SCHEMA test_schema_1 CASCADE;
 
 -- verify that the objects were dropped

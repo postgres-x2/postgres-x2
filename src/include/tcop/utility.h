@@ -25,6 +25,7 @@ typedef enum
 
 /* Hook for plugins to get control in ProcessUtility() */
 typedef void (*ProcessUtility_hook_type) (Node *parsetree,
+<<<<<<< HEAD
 										  const char *queryString, ProcessUtilityContext context,
 										  ParamListInfo params,
 										  DestReceiver *dest, 
@@ -48,6 +49,19 @@ extern void standard_ProcessUtility(Node *parsetree, const char *queryString,
 									bool sentToRemote,
 #endif /* PGXC */
 									char *completionTag);
+=======
+					  const char *queryString, ProcessUtilityContext context,
+													  ParamListInfo params,
+									DestReceiver *dest, char *completionTag);
+extern PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
+
+extern void ProcessUtility(Node *parsetree, const char *queryString,
+			   ProcessUtilityContext context, ParamListInfo params,
+			   DestReceiver *dest, char *completionTag);
+extern void standard_ProcessUtility(Node *parsetree, const char *queryString,
+						ProcessUtilityContext context, ParamListInfo params,
+						DestReceiver *dest, char *completionTag);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 extern bool UtilityReturnsTuples(Node *parsetree);
 

@@ -238,6 +238,7 @@ order by 1;
 (2 rows)
 
 -- Also check row comparison with an indexable condition
+<<<<<<< HEAD
 explain (num_nodes off, nodes off, costs off)
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
@@ -248,6 +249,17 @@ order by thousand, tenthous;
    Sort Key: tenk1.thousand, tenk1.tenthous
    ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
 (3 rows)
+=======
+explain (costs off)
+select thousand, tenthous from tenk1
+where (thousand, tenthous) >= (997, 5000)
+order by thousand, tenthous;
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Index Only Scan using tenk1_thous_tenthous on tenk1
+   Index Cond: (ROW(thousand, tenthous) >= ROW(997, 5000))
+(2 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
@@ -284,6 +296,7 @@ order by thousand, tenthous;
 -- Check row comparisons with IN
 select * from int8_tbl i8 where i8 in (row(123,456));  -- fail, type mismatch
 ERROR:  cannot compare dissimilar column types bigint and integer at record column 1
+<<<<<<< HEAD
 explain (num_nodes off, nodes off, costs off)
 select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
@@ -294,6 +307,19 @@ where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
 
 select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)') order by 1, 2;
+=======
+explain (costs off)
+select * from int8_tbl i8
+where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on int8_tbl i8
+   Filter: (i8.* = ANY (ARRAY[ROW(123::bigint, 456::bigint)::int8_tbl, '(4567890123456789,123)'::int8_tbl]))
+(2 rows)
+
+select * from int8_tbl i8
+where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
+>>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        | q2  
 ------------------+-----
               123 | 456

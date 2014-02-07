@@ -230,10 +230,13 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
 	cxt.hasoids = interpretOidsOption(stmt->options, true);
+<<<<<<< HEAD
 #ifdef PGXC
 	cxt.fallback_dist_col = NULL;
 	cxt.distributeby = stmt->distributeby;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	Assert(!stmt->ofTypename || !stmt->inhRelations);	/* grammar enforces */
 
@@ -902,12 +905,21 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 			Constraint *n = makeNode(Constraint);
 			Node	   *ccbin_node;
 			bool		found_whole_row;
+<<<<<<< HEAD
 
 			ccbin_node = map_variable_attnos(stringToNode(ccbin),
 											 1, 0,
 											 attmap, tupleDesc->natts,
 											 &found_whole_row);
 
+=======
+
+			ccbin_node = map_variable_attnos(stringToNode(ccbin),
+											 1, 0,
+											 attmap, tupleDesc->natts,
+											 &found_whole_row);
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 			/*
 			 * We reject whole-row variables because the whole point of LIKE
 			 * is that the new table's rowtype might later diverge from the

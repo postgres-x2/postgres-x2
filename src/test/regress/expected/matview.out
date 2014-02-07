@@ -17,12 +17,21 @@ SELECT * FROM tv ORDER BY type;
 (3 rows)
 
 -- create a materialized view with no data, and confirm correct behavior
+<<<<<<< HEAD
 EXPLAIN (costs off, nodes off)
   CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
                     QUERY PLAN                    
 --------------------------------------------------
  HashAggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+=======
+EXPLAIN (costs off)
+  CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
+     QUERY PLAN      
+---------------------
+ HashAggregate
+   ->  Seq Scan on t
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (2 rows)
 
 CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
@@ -43,6 +52,7 @@ SELECT relispopulated FROM pg_class WHERE oid = 'tm'::regclass;
 (1 row)
 
 CREATE UNIQUE INDEX tm_type ON tm (type);
+<<<<<<< HEAD
 SELECT * FROM tm ORDER BY type, totamt ;
  type | totamt 
 ------+--------
@@ -60,6 +70,25 @@ EXPLAIN (costs off, nodes off)
    Sort Key: t.type
    ->  HashAggregate
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+=======
+SELECT * FROM tm;
+ type | totamt 
+------+--------
+ y    |     12
+ z    |     11
+ x    |      5
+(3 rows)
+
+-- create various views
+EXPLAIN (costs off)
+  CREATE MATERIALIZED VIEW tvm AS SELECT * FROM tv ORDER BY type;
+        QUERY PLAN         
+---------------------------
+ Sort
+   Sort Key: t.type
+   ->  HashAggregate
+         ->  Seq Scan on t
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (4 rows)
 
 CREATE MATERIALIZED VIEW tvm AS SELECT * FROM tv ORDER BY type;
@@ -74,6 +103,7 @@ SELECT * FROM tvm;
 CREATE MATERIALIZED VIEW tmm AS SELECT sum(totamt) AS grandtot FROM tm;
 CREATE MATERIALIZED VIEW tvmm AS SELECT sum(totamt) AS grandtot FROM tvm;
 CREATE VIEW tvv AS SELECT sum(totamt) AS grandtot FROM tv;
+<<<<<<< HEAD
 EXPLAIN (costs off, nodes off)
   CREATE MATERIALIZED VIEW tvvm AS SELECT * FROM tvv;
                        QUERY PLAN                       
@@ -81,6 +111,15 @@ EXPLAIN (costs off, nodes off)
  Aggregate
    ->  HashAggregate
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+=======
+EXPLAIN (costs off)
+  CREATE MATERIALIZED VIEW tvvm AS SELECT * FROM tvv;
+        QUERY PLAN         
+---------------------------
+ Aggregate
+   ->  HashAggregate
+         ->  Seq Scan on t
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (3 rows)
 
 CREATE MATERIALIZED VIEW tvvm AS SELECT * FROM tvv;
@@ -367,7 +406,11 @@ drop cascades to materialized view mv_test2
 drop cascades to materialized view mv_test3
 -- test that vacuum does not make empty matview look unpopulated
 CREATE TABLE hoge (i int);
+<<<<<<< HEAD
 INSERT INTO hoge SELECT generate_series(1,100000);
+=======
+INSERT INTO hoge VALUES (generate_series(1,100000));
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE MATERIALIZED VIEW hogeview AS SELECT * FROM hoge WHERE i % 2 = 0;
 CREATE INDEX hogeviewidx ON hogeview (i);
 DELETE FROM hoge;

@@ -148,6 +148,7 @@ SELECT n.nspname, c.conname, a.rolname
 -- Foreign Data Wrapper and Foreign Server
 --
 CREATE FOREIGN DATA WRAPPER alt_fdw1;
+<<<<<<< HEAD
 ERROR:  Postgres-XC does not support FOREIGN DATA WRAPPER yet
 DETAIL:  The feature is not currently supported
 CREATE FOREIGN DATA WRAPPER alt_fdw2;
@@ -176,6 +177,30 @@ SELECT srvname FROM pg_foreign_server WHERE srvname like 'alt_fserv%';
  srvname 
 ---------
 (0 rows)
+=======
+CREATE FOREIGN DATA WRAPPER alt_fdw2;
+CREATE SERVER alt_fserv1 FOREIGN DATA WRAPPER alt_fdw1;
+CREATE SERVER alt_fserv2 FOREIGN DATA WRAPPER alt_fdw2;
+ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw2;  -- failed (name conflict)
+ERROR:  foreign-data wrapper "alt_fdw2" already exists
+ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw3;  -- OK
+ALTER SERVER alt_fserv1 RENAME TO alt_fserv2;   -- failed (name conflict)
+ERROR:  server "alt_fserv2" already exists
+ALTER SERVER alt_fserv1 RENAME TO alt_fserv3;   -- OK
+SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname like 'alt_fdw%';
+ fdwname  
+----------
+ alt_fdw2
+ alt_fdw3
+(2 rows)
+
+SELECT srvname FROM pg_foreign_server WHERE srvname like 'alt_fserv%';
+  srvname   
+------------
+ alt_fserv2
+ alt_fserv3
+(2 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 --
 -- Procedural Language
@@ -461,9 +486,15 @@ SELECT nspname, prsname
 --- Cleanup resources
 ---
 DROP FOREIGN DATA WRAPPER alt_fdw2 CASCADE;
+<<<<<<< HEAD
 ERROR:  foreign-data wrapper "alt_fdw2" does not exist
 DROP FOREIGN DATA WRAPPER alt_fdw3 CASCADE;
 ERROR:  foreign-data wrapper "alt_fdw3" does not exist
+=======
+NOTICE:  drop cascades to server alt_fserv2
+DROP FOREIGN DATA WRAPPER alt_fdw3 CASCADE;
+NOTICE:  drop cascades to server alt_fserv3
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 DROP LANGUAGE alt_lang2 CASCADE;
 DROP LANGUAGE alt_lang3 CASCADE;
 DROP LANGUAGE alt_lang4 CASCADE;

@@ -1253,6 +1253,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	const char *attrname;
 	TargetEntry *tle;
 
+<<<<<<< HEAD
 #ifdef PGXC
 	List *var_list = NIL;
 	ListCell *elt;
@@ -1292,6 +1293,8 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	}
 #endif
 
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	if (target_relation->rd_rel->relkind == RELKIND_RELATION ||
 		target_relation->rd_rel->relkind == RELKIND_MATVIEW)
 	{
@@ -2808,11 +2811,15 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		RangeTblEntry *rt_entry;
 		Relation	rt_entry_relation;
 		List	   *locks;
+<<<<<<< HEAD
 #ifdef PGXC
 		List	   *product_queries = NIL;
 #else
 		List	   *product_queries;
 #endif
+=======
+		List	   *product_queries;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 		result_relation = parsetree->resultRelation;
 		Assert(result_relation != 0);
@@ -2887,9 +2894,12 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		locks = matchLocks(event, rt_entry_relation->rd_rules,
 						   result_relation, parsetree);
 
+<<<<<<< HEAD
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR)
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		product_queries = fireRules(parsetree,
 									result_relation,
 									event,

@@ -1207,10 +1207,13 @@ AlterEnum(AlterEnumStmt *stmt, bool isTopLevel)
 		!(tup->t_data->t_infomask & HEAP_UPDATED))
 		 /* safe to do inside transaction block */ ;
 	else
+<<<<<<< HEAD
 #ifdef PGXC
 		/* Allow this to be run inside transaction block on remote nodes */
 		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
 
 	/* Check it's an enum and check user has permission to ALTER the enum */

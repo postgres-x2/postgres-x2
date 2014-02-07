@@ -1387,6 +1387,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 										   planstate, es);
 			break;
 		case T_ModifyTable:
+<<<<<<< HEAD
 #ifdef PGXC
 			{
 				/* Remote query planning on DMLs */
@@ -1398,6 +1399,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 #else
 			show_modifytable_info((ModifyTableState *) planstate, es);
 #endif
+=======
+			show_modifytable_info((ModifyTableState *) planstate, es);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 			break;
 		case T_Hash:
 			show_hash_info((HashState *) planstate, es);

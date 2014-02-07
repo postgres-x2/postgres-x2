@@ -389,10 +389,13 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * pulled up out of a UNION ALL appendrel.)
 	 */
 	required_outer = rel->lateral_relids;
+<<<<<<< HEAD
 #ifdef PGXC
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* Consider sequential scan */
 	add_path(rel, create_seqscan_path(root, rel, required_outer));

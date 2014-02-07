@@ -39,7 +39,11 @@ install-world:
 # build src/ before contrib/
 install-world-contrib-recurse: install-world-src-recurse
 
+<<<<<<< HEAD
 $(call recurse,installdirs uninstall coverage,doc-xc init-po update-po,doc src config)
+=======
+$(call recurse,installdirs uninstall coverage init-po update-po,doc src config)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 $(call recurse,distprep,doc-xc src config contrib)
 

@@ -165,9 +165,12 @@ static const Oid object_classes[MAX_OCLASS] = {
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
 	EventTriggerRelationId		/* OCLASS_EVENT_TRIGGER */
+<<<<<<< HEAD
 #ifdef PGXC
 	,PgxcClassRelationId		/* OCLASS_PGXCCLASS */
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 };
 
 
@@ -377,6 +380,7 @@ performMultipleDeletions(const ObjectAddresses *objects,
 
 	/* do the deed */
 	deleteObjectsInList(targetObjects, &depRel, flags);
+<<<<<<< HEAD
 
 	/* And clean up */
 	free_object_addresses(targetObjects);
@@ -466,6 +470,8 @@ performRename(const ObjectAddress *object, const char *oldname, const char *newn
 		ObjectAddress *thisobj = targetObjects->refs + i;
 		doRename(thisobj, oldname, newname);
 	}
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* And clean up */
 	free_object_addresses(targetObjects);
@@ -1127,6 +1133,7 @@ deleteOneObject(const ObjectAddress *object, Relation *depRel, int flags)
 	 */
 	if (flags & PERFORM_DELETION_CONCURRENTLY)
 		heap_close(*depRel, RowExclusiveLock);
+<<<<<<< HEAD
 
 	/*
 	 * Delete the object itself, in an object-type-dependent way.
@@ -1146,6 +1153,27 @@ deleteOneObject(const ObjectAddress *object, Relation *depRel, int flags)
 		*depRel = heap_open(DependRelationId, RowExclusiveLock);
 
 	/*
+=======
+
+	/*
+	 * Delete the object itself, in an object-type-dependent way.
+	 *
+	 * We used to do this after removing the outgoing dependency links, but it
+	 * seems just as reasonable to do it beforehand.  In the concurrent case
+	 * we *must* do it in this order, because we can't make any transactional
+	 * updates before calling doDeletion() --- they'd get committed right
+	 * away, which is not cool if the deletion then fails.
+	 */
+	doDeletion(object, flags);
+
+	/*
+	 * Reopen depRel if we closed it above
+	 */
+	if (flags & PERFORM_DELETION_CONCURRENTLY)
+		*depRel = heap_open(DependRelationId, RowExclusiveLock);
+
+	/*
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	 * Now remove any pg_depend records that link from this object to others.
 	 * (Any records linking to this object should be gone already.)
 	 *
@@ -2482,11 +2510,14 @@ getObjectClass(const ObjectAddress *object)
 
 		case EventTriggerRelationId:
 			return OCLASS_EVENT_TRIGGER;
+<<<<<<< HEAD
 #ifdef PGXC
 		case PgxcClassRelationId:
 			Assert(object->objectSubId == 0);
 			return OCLASS_PGXC_CLASS;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 
 	/* shouldn't get here */

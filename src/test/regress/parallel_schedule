@@ -61,7 +61,11 @@ test: inherit
 # ----------
 # Another group of parallel tests
 # ----------
+<<<<<<< HEAD
 test: create_aggregate create_function_3 create_cast constraints triggers create_table_like typed_table vacuum drop_if_exists updatable_views
+=======
+test: create_aggregate create_function_3 create_cast constraints triggers inherit create_table_like typed_table vacuum drop_if_exists updatable_views
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 # ----------
 # sanity_check does a vacuum, affecting the sort order of SELECT *
@@ -93,6 +97,14 @@ test: privileges security_label collate matview
 # ----------
 # Another group of parallel tests
 # ----------
+<<<<<<< HEAD
+=======
+test: privileges security_label collate matview
+
+# ----------
+# Another group of parallel tests
+# ----------
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 test: alter_generic misc psql
 
 # rules cannot run concurrently with any test that creates a view

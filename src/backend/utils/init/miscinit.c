@@ -52,6 +52,10 @@ ProcessingMode Mode = InitProcessing;
 
 /* List of lock files to be removed at proc exit */
 static List *lock_files = NIL;
+<<<<<<< HEAD
+=======
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 /* ----------------------------------------------------------------
  *		ignoring system indexes support stuff

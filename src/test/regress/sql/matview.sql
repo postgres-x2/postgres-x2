@@ -12,7 +12,11 @@ CREATE VIEW tv AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type;
 SELECT * FROM tv ORDER BY type;
 
 -- create a materialized view with no data, and confirm correct behavior
+<<<<<<< HEAD
 EXPLAIN (costs off, nodes off)
+=======
+EXPLAIN (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
   CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
 CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
 SELECT relispopulated FROM pg_class WHERE oid = 'tm'::regclass;
@@ -20,17 +24,28 @@ SELECT * FROM tm;
 REFRESH MATERIALIZED VIEW tm;
 SELECT relispopulated FROM pg_class WHERE oid = 'tm'::regclass;
 CREATE UNIQUE INDEX tm_type ON tm (type);
+<<<<<<< HEAD
 SELECT * FROM tm ORDER BY type, totamt ;
 
 -- create various views
 EXPLAIN (costs off, nodes off)
+=======
+SELECT * FROM tm;
+
+-- create various views
+EXPLAIN (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
   CREATE MATERIALIZED VIEW tvm AS SELECT * FROM tv ORDER BY type;
 CREATE MATERIALIZED VIEW tvm AS SELECT * FROM tv ORDER BY type;
 SELECT * FROM tvm;
 CREATE MATERIALIZED VIEW tmm AS SELECT sum(totamt) AS grandtot FROM tm;
 CREATE MATERIALIZED VIEW tvmm AS SELECT sum(totamt) AS grandtot FROM tvm;
 CREATE VIEW tvv AS SELECT sum(totamt) AS grandtot FROM tv;
+<<<<<<< HEAD
 EXPLAIN (costs off, nodes off)
+=======
+EXPLAIN (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
   CREATE MATERIALIZED VIEW tvvm AS SELECT * FROM tvv;
 CREATE MATERIALIZED VIEW tvvm AS SELECT * FROM tvv;
 CREATE VIEW tvvmv AS SELECT * FROM tvvm;
@@ -115,7 +130,11 @@ DROP VIEW v_test1 CASCADE;
 
 -- test that vacuum does not make empty matview look unpopulated
 CREATE TABLE hoge (i int);
+<<<<<<< HEAD
 INSERT INTO hoge SELECT generate_series(1,100000);
+=======
+INSERT INTO hoge VALUES (generate_series(1,100000));
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE MATERIALIZED VIEW hogeview AS SELECT * FROM hoge WHERE i % 2 = 0;
 CREATE INDEX hogeviewidx ON hogeview (i);
 DELETE FROM hoge;

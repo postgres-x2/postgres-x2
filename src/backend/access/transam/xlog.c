@@ -2825,6 +2825,7 @@ PreallocXlogFiles(XLogRecPtr endptr)
 
 	XLByteToPrevSeg(endptr, _logSegNo);
 	if ((endptr - 1) % XLogSegSize >= (uint32) (0.75 * XLogSegSize))
+<<<<<<< HEAD
 	{
 		_logSegNo++;
 		use_existent = true;
@@ -2857,6 +2858,40 @@ CheckXLogRemoved(XLogSegNo segno, TimeLineID tli)
 	{
 		char		filename[MAXFNAMELEN];
 
+=======
+	{
+		_logSegNo++;
+		use_existent = true;
+		lf = XLogFileInit(_logSegNo, &use_existent, true);
+		close(lf);
+		if (!use_existent)
+			CheckpointStats.ckpt_segs_added++;
+	}
+}
+
+/*
+ * Throws an error if the given log segment has already been removed or
+ * recycled. The caller should only pass a segment that it knows to have
+ * existed while the server has been running, as this function always
+ * succeeds if no WAL segments have been removed since startup.
+ * 'tli' is only used in the error message.
+ */
+void
+CheckXLogRemoved(XLogSegNo segno, TimeLineID tli)
+{
+	/* use volatile pointer to prevent code rearrangement */
+	volatile XLogCtlData *xlogctl = XLogCtl;
+	XLogSegNo	lastRemovedSegNo;
+
+	SpinLockAcquire(&xlogctl->info_lck);
+	lastRemovedSegNo = xlogctl->lastRemovedSegNo;
+	SpinLockRelease(&xlogctl->info_lck);
+
+	if (segno <= lastRemovedSegNo)
+	{
+		char		filename[MAXFNAMELEN];
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		XLogFileName(filename, tli, segno);
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -3121,6 +3156,7 @@ CleanupBackupHistory(void)
 
 /*
  * Restore a full-page image from a backup block attached to an XLOG record.
+<<<<<<< HEAD
  *
  * lsn: LSN of the XLOG record being replayed
  * record: the complete XLOG record
@@ -3128,6 +3164,15 @@ CleanupBackupHistory(void)
  * get_cleanup_lock: TRUE to get a cleanup rather than plain exclusive lock
  * keep_buffer: TRUE to return the buffer still locked and pinned
  *
+=======
+ *
+ * lsn: LSN of the XLOG record being replayed
+ * record: the complete XLOG record
+ * block_index: which backup block to restore (0 .. XLR_MAX_BKP_BLOCKS - 1)
+ * get_cleanup_lock: TRUE to get a cleanup rather than plain exclusive lock
+ * keep_buffer: TRUE to return the buffer still locked and pinned
+ *
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  * Returns the buffer number containing the page.  Note this is not terribly
  * useful unless keep_buffer is specified as TRUE.
  *
@@ -3258,10 +3303,17 @@ ReadRecord(XLogReaderState *xlogreader, XLogRecPtr RecPtr, int emode,
 	private->fetching_ckpt = fetching_ckpt;
 	private->emode = emode;
 	private->randAccess = (RecPtr != InvalidXLogRecPtr);
+<<<<<<< HEAD
 
 	/* This is the first attempt to read this page. */
 	lastSourceFailed = false;
 
+=======
+
+	/* This is the first attempt to read this page. */
+	lastSourceFailed = false;
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	for (;;)
 	{
 		char	   *errormsg;
@@ -3400,11 +3452,19 @@ rescanLatestTimeLine(void)
 		/* No new timelines found */
 		return false;
 	}
+<<<<<<< HEAD
 
 	/*
 	 * Determine the list of expected TLIs for the new TLI
 	 */
 
+=======
+
+	/*
+	 * Determine the list of expected TLIs for the new TLI
+	 */
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	newExpectedTLEs = readTimeLineHistory(newtarget);
 
 	/*
@@ -3795,6 +3855,41 @@ GetSystemIdentifier(void)
 {
 	Assert(ControlFile != NULL);
 	return ControlFile->system_identifier;
+}
+
+/*
+ * Are checksums enabled for data pages?
+ */
+bool
+DataChecksumsEnabled(void)
+{
+	Assert(ControlFile != NULL);
+	return (ControlFile->data_checksum_version > 0);
+}
+
+/*
+ * Returns a fake LSN for unlogged relations.
+ *
+ * Each call generates an LSN that is greater than any previous value
+ * returned. The current counter value is saved and restored across clean
+ * shutdowns, but like unlogged relations, does not survive a crash. This can
+ * be used in lieu of real LSN values returned by XLogInsert, if you need an
+ * LSN-like increasing sequence of numbers without writing any WAL.
+ */
+XLogRecPtr
+GetFakeLSNForUnloggedRel(void)
+{
+	XLogRecPtr	nextUnloggedLSN;
+
+	/* use volatile pointer to prevent code rearrangement */
+	volatile XLogCtlData *xlogctl = XLogCtl;
+
+	/* increment the unloggedLSN counter, need SpinLock */
+	SpinLockAcquire(&xlogctl->ulsn_lck);
+	nextUnloggedLSN = xlogctl->unloggedLSN++;
+	SpinLockRelease(&xlogctl->ulsn_lck);
+
+	return nextUnloggedLSN;
 }
 
 /*

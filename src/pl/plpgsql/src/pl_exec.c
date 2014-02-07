@@ -2615,6 +2615,7 @@ exec_stmt_return_next(PLpgSQL_execstate *estate,
 
 				tuple = get_tuple_from_datum(retval);
 				free_tuple = true;		/* tuple is always freshly palloc'd */
+<<<<<<< HEAD
 
 				/* it might need conversion */
 				retvaldesc = get_tupdesc_from_datum(retval);
@@ -2624,6 +2625,17 @@ exec_stmt_return_next(PLpgSQL_execstate *estate,
 				{
 					HeapTuple	newtuple;
 
+=======
+
+				/* it might need conversion */
+				retvaldesc = get_tupdesc_from_datum(retval);
+				tupmap = convert_tuples_by_position(retvaldesc, tupdesc,
+													gettext_noop("returned record type does not match expected record type"));
+				if (tupmap)
+				{
+					HeapTuple	newtuple;
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 					newtuple = do_convert_tuple(tuple, tupmap);
 					free_conversion_map(tupmap);
 					heap_freetuple(tuple);
@@ -5506,9 +5518,12 @@ exec_move_row_from_datum(PLpgSQL_execstate *estate,
 	tmptup.t_len = HeapTupleHeaderGetDatumLength(td);
 	ItemPointerSetInvalid(&(tmptup.t_self));
 	tmptup.t_tableOid = InvalidOid;
+<<<<<<< HEAD
 #ifdef PGXC
 	tmptup.t_xc_node_id = 0;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	tmptup.t_data = td;
 
 	/* Do the move */

@@ -4728,6 +4728,7 @@ DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4030 (  spg_text_inner_consistent PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_text_inner_consistent _null_ _null_ _null_ ));
 DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4031 (  spg_text_leaf_consistent	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2281 2281" _null_ _null_ _null_ _null_  spg_text_leaf_consistent _null_ _null_ _null_ ));
+<<<<<<< HEAD
 DESCR("SP-GiST support for suffix tree over text");
 
 #ifdef PGXC
@@ -4742,6 +4743,9 @@ DESCR("is given GXID committed or aborted?");
 DATA(insert OID = 3204 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v 0 0 16 "" _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
 DESCR("lock the cluster for taking backup");
 #endif
+=======
+DESCR("SP-GiST support for radix tree over text");
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DATA(insert OID = 3469 (  spg_range_quad_config PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_range_quad_config _null_ _null_ _null_ ));
 DESCR("SP-GiST support for quad tree over range");

@@ -17,7 +17,11 @@ dnl Read the Autoconf manual for details.
 dnl
 m4_pattern_forbid(^PGAC_)dnl to catch undefined macros
 
+<<<<<<< HEAD
 AC_INIT([Postgres-XC], [1.2devel], [pgsql-bugs@postgresql.org])
+=======
+AC_INIT([PostgreSQL], [9.3beta1], [pgsql-bugs@postgresql.org])
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.63], [], [m4_fatal([Autoconf version 2.63 is required.
 Untested combinations of 'autoconf' and PostgreSQL versions are not

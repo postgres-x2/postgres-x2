@@ -5,8 +5,12 @@
 --
 -- First test, check and cascade
 --
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE, ftest2 int );
 -- Insert test data into PKTABLE
 INSERT INTO PKTABLE VALUES (1, 'Test1');
@@ -60,8 +64,12 @@ DROP TABLE PKTABLE;
 --
 -- check set NULL and table constraint on multiple columns
 --
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, CONSTRAINT constrname FOREIGN KEY(ftest1, ftest2)
                        REFERENCES PKTABLE MATCH FULL ON DELETE SET NULL ON UPDATE SET NULL);
 -- Test comments
@@ -173,8 +181,12 @@ DROP TABLE FKTABLE;
 --
 -- check set default and table constraint on multiple columns
 --
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT -1, ftest2 int DEFAULT -2, ftest3 int, CONSTRAINT constrname2 FOREIGN KEY(ftest1, ftest2)
                        REFERENCES PKTABLE MATCH FULL ON DELETE SET DEFAULT ON UPDATE SET DEFAULT);
 -- Insert a value in PKTABLE for default
@@ -266,8 +278,12 @@ DROP TABLE FKTABLE;
 --
 -- First test, check with no on delete or on update
 --
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL, ftest2 int );
 -- Insert test data into PKTABLE
 INSERT INTO PKTABLE VALUES (1, 'Test1');
@@ -341,8 +357,12 @@ DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- MATCH SIMPLE
 -- Base test restricting update/delete
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE);
 -- Insert Primary Key values
@@ -405,8 +425,12 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- cascade update/delete
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
 			ON DELETE CASCADE ON UPDATE CASCADE);
@@ -610,9 +634,14 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- set default update / set null delete
+<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int, ftest4 int,  CONSTRAINT constrname3
+=======
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
+CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int DEFAULT -2, ftest4 int, CONSTRAINT constrname3
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
 			ON DELETE SET NULL ON UPDATE SET DEFAULT);
 -- Insert Primary Key values
@@ -759,8 +788,12 @@ DROP TABLE PKTABLE;
 -- Tests for mismatched types
 --
 -- Basic one column, two table setup
+<<<<<<< HEAD
 CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO PKTABLE VALUES(42);
 -- This next should fail, because int=inet does not exist
 CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable);
@@ -793,8 +826,12 @@ DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: numeric an
 DROP TABLE PKTABLE;
 -- On the other hand, this should work because int implicitly promotes to
 -- numeric, and we allow promotion on the FK side
+<<<<<<< HEAD
 CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO PKTABLE VALUES(42);
 CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable) DISTRIBUTE BY REPLICATION;
 -- Check it actually works
@@ -809,8 +846,12 @@ DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- Two columns, two tables
+<<<<<<< HEAD
 CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2))  DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2));
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 -- This should fail, because we just chose really odd types
 CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable) DISTRIBUTE BY REPLICATION;
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
@@ -865,10 +906,15 @@ DETAIL:  Key columns "ptest4" and "ptest1" are of incompatible types: inet and i
 --
 -- Now some cases with inheritance
 -- Basic 2 table case: 1 column of matching types.
+<<<<<<< HEAD
 create table pktable_base (base1 int not null) DISTRIBUTE BY REPLICATION;
 create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "pktable_base1_ptest1_key" for table "pktable"
+=======
+create table pktable_base (base1 int not null);
+create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 create table fktable (ftest1 int references pktable(base1));
 -- now some ins, upd, del
 insert into pktable(base1) values (1);
@@ -928,8 +974,12 @@ drop table pktable_base;
 -- Now we'll do one all in 1 table with 2 columns of matching types
 create table pktable_base(base1 int not null, base2 int) DISTRIBUTE BY REPLICATION;
 create table pktable(ptest1 int, ptest2 int, primary key(base1, ptest1), foreign key(base2, ptest2) references
+<<<<<<< HEAD
                                              pktable(base1, ptest1)) inherits (pktable_base) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+=======
+                                             pktable(base1, ptest1)) inherits (pktable_base);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 insert into pktable (base1, ptest1, base2, ptest2) values (1, 1, 1, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 1, 1, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1);
@@ -1002,6 +1052,7 @@ drop table pktable_base;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TABLE fktable (
@@ -1009,6 +1060,13 @@ CREATE TABLE fktable (
 	fk		INT4 REFERENCES pktable DEFERRABLE
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" for table "fktable"
+=======
+);
+CREATE TABLE fktable (
+	id		INT4 PRIMARY KEY,
+	fk		INT4 REFERENCES pktable DEFERRABLE
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 -- default to immediate: should fail
 INSERT INTO fktable VALUES (5, 10);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
@@ -1024,6 +1082,7 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TABLE fktable (
@@ -1036,6 +1095,12 @@ NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" fo
 CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
+=======
+);
+CREATE TABLE fktable (
+	id		INT4 PRIMARY KEY,
+	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 );
 -- default to deferred, should succeed
 BEGIN;
@@ -1058,6 +1123,7 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TABLE fktable (
@@ -1065,6 +1131,13 @@ CREATE TABLE fktable (
 	fk		INT4 REFERENCES pktable DEFERRABLE
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" for table "fktable"
+=======
+);
+CREATE TABLE fktable (
+	id		INT4 PRIMARY KEY,
+	fk		INT4 REFERENCES pktable DEFERRABLE
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
 -- should succeed, for now
@@ -1081,6 +1154,7 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TABLE fktable (
@@ -1088,6 +1162,13 @@ CREATE TABLE fktable (
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" for table "fktable"
+=======
+);
+CREATE TABLE fktable (
+	id		INT4 PRIMARY KEY,
+	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 BEGIN;
 -- no error here
 INSERT INTO fktable VALUES (100, 200);
@@ -1105,11 +1186,15 @@ CREATE TEMP TABLE pktable (
         id2     VARCHAR(4) UNIQUE,
         id3     REAL UNIQUE,
         UNIQUE(id1, id2, id3)
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "pktable_id2_key" for table "pktable"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "pktable_id3_key" for table "pktable"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "pktable_id1_id2_id3_key" for table "pktable"
+=======
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TEMP TABLE fktable (
         x1      INT4 REFERENCES pktable(id1),
         x2      VARCHAR(4) REFERENCES pktable(id2),
@@ -1176,6 +1261,7 @@ DROP TABLE pktable, fktable;
 CREATE TEMP TABLE pktable (
     id int primary key,
     other int
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TEMP TABLE fktable (
@@ -1183,6 +1269,13 @@ CREATE TEMP TABLE fktable (
     fk int references pktable deferrable initially deferred
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" for table "fktable"
+=======
+);
+CREATE TEMP TABLE fktable (
+    id int primary key,
+    fk int references pktable deferrable initially deferred
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO pktable VALUES (5, 10);
 BEGIN;
 -- doesn't match PK, but no error yet
@@ -1236,8 +1329,12 @@ DETAIL:  Key (fk)=(20) is not present in table "pktable".
 CREATE TEMP TABLE users (
   id INT PRIMARY KEY,
   name VARCHAR NOT NULL
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "users_pkey" for table "users"
+=======
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO users VALUES (1, 'Jozko');
 INSERT INTO users VALUES (2, 'Ferko');
 INSERT INTO users VALUES (3, 'Samko');
@@ -1246,8 +1343,12 @@ CREATE TEMP TABLE tasks (
   owner INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   worker INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   checked_by INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "tasks_pkey" for table "tasks"
+=======
+);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO tasks VALUES (1,1,NULL,NULL);
 INSERT INTO tasks VALUES (2,2,2,NULL);
 INSERT INTO tasks VALUES (3,3,3,3);

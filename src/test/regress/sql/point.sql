@@ -81,10 +81,16 @@ SELECT '' AS fifteen, p1.f1 AS point1, p2.f1 AS point2, (p1.f1 <-> p2.f1) AS dis
 SELECT '' AS three, p1.f1 AS point1, p2.f1 AS point2, (p1.f1 <-> p2.f1) AS distance
    FROM POINT_TBL p1, POINT_TBL p2
    WHERE (p1.f1 <-> p2.f1) > 3 and p1.f1 << p2.f1 and p1.f1 >^ p2.f1
+<<<<<<< HEAD
    ORDER BY distance, p1.f1[0], p1.f1[1], p2.f1[0], p2.f1[1];
 
 -- Test that GiST indexes provide same behavior as sequential scan
 SET enforce_two_phase_commit TO off;
+=======
+   ORDER BY distance;
+
+-- Test that GiST indexes provide same behavior as sequential scan
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TEMP TABLE point_gist_tbl(f1 point);
 INSERT INTO point_gist_tbl SELECT '(0,0)' FROM generate_series(0,1000);
 CREATE INDEX point_gist_tbl_index ON point_gist_tbl USING gist (f1);
@@ -104,4 +110,7 @@ SELECT COUNT(*) FROM point_gist_tbl WHERE f1 ~= '(0.0000018,0.0000018)'::point;
 RESET enable_seqscan;
 RESET enable_indexscan;
 RESET enable_bitmapscan;
+<<<<<<< HEAD
 RESET enforce_two_phase_commit;
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196

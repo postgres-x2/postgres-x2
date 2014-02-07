@@ -124,10 +124,13 @@ static Relation open_share_lock(SeqTable seq);
 static void init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel);
 static Form_pg_sequence read_seq_tuple(SeqTable elm, Relation rel,
 			   Buffer *buf, HeapTuple seqtuple);
+<<<<<<< HEAD
 #ifdef PGXC
 static void init_params(List *options, bool isInit,
 						Form_pg_sequence new, List **owned_by, bool *is_restart);
 #else
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 static void init_params(List *options, bool isInit,
 						Form_pg_sequence new, List **owned_by);
 #endif
@@ -292,6 +295,7 @@ DefineSequence(CreateSeqStmt *seq)
 
 	heap_close(rel, NoLock);
 
+<<<<<<< HEAD
 #ifdef PGXC  /* PGXC_COORD */
 	/*
 	 * Remote Coordinator is in charge of creating sequence in GTM.
@@ -322,6 +326,8 @@ DefineSequence(CreateSeqStmt *seq)
 		pfree(seqname);
 	}
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	return seqoid;
 }
 
@@ -553,6 +559,7 @@ AlterSequence(AlterSeqStmt *stmt)
 
 	/* Now okay to update the on-disk tuple */
 	START_CRIT_SECTION();
+<<<<<<< HEAD
 
 	memcpy(seq, &new, sizeof(FormData_pg_sequence));
 
@@ -564,6 +571,10 @@ AlterSequence(AlterSeqStmt *stmt)
 	last_value = new.last_value;
 	cycle = new.is_cycled;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
+
+	memcpy(seq, &new, sizeof(FormData_pg_sequence));
 
 	MarkBufferDirty(buf);
 
@@ -603,6 +614,7 @@ AlterSequence(AlterSeqStmt *stmt)
 
 	relation_close(seqrel, NoLock);
 
+<<<<<<< HEAD
 #ifdef PGXC
 	/*
 	 * Remote Coordinator is in charge of create sequence in GTM
@@ -629,6 +641,8 @@ AlterSequence(AlterSeqStmt *stmt)
 		pfree(seqname);
 	}
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	return relid;
 }
 
@@ -1928,6 +1942,7 @@ seq_redo(XLogRecPtr lsn, XLogRecord *record)
 
 	pfree(localpage);
 }
+<<<<<<< HEAD
 #ifdef PGXC
 /*
  * Register a callback for a sequence rename drop on GTM
@@ -2058,3 +2073,5 @@ drop_sequence_cb(GTMEvent event, void *args)
 				 errmsg("GTM error, could not drop sequence")));
 }
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196

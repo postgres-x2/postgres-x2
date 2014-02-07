@@ -24,10 +24,13 @@
 #include "access/transam.h"
 #include "utils/snapmgr.h"
 
+<<<<<<< HEAD
 #ifdef PGXC
 #include "utils/builtins.h"
 #endif
 
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 /*
  * Single-item cache for results of TransactionLogFetch.  It's worth having
  * such a cache because we frequently find ourselves repeatedly checking the

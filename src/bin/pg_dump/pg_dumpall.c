@@ -88,10 +88,13 @@ static int	server_version;
 static FILE *OPF;
 static char *filename = NULL;
 
+<<<<<<< HEAD
 #ifdef PGXC
 static int	dump_nodes = 0;
 static int include_nodes = 0;
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 #define exit_nicely(code) exit(code)
 
 int

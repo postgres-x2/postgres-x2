@@ -10724,6 +10724,7 @@ AlterTableNamespaceInternal(Relation rel, Oid oldNspOid, Oid nspOid,
 	}
 
 	heap_close(classRel, RowExclusiveLock);
+<<<<<<< HEAD
 
 #ifdef PGXC
 	/* Rename also sequence on GTM for a sequence */
@@ -10750,6 +10751,8 @@ AlterTableNamespaceInternal(Relation rel, Oid oldNspOid, Oid nspOid,
 	}
 #endif
 
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 }
 
 /*
@@ -10777,6 +10780,7 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 	thisobj.classId = RelationRelationId;
 	thisobj.objectId = relOid;
 	thisobj.objectSubId = 0;
+<<<<<<< HEAD
 
 	/*
 	 * Do nothing when there's nothing to do.
@@ -10798,6 +10802,29 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 		simple_heap_update(classRel, &classTup->t_self, classTup);
 		CatalogUpdateIndexes(classRel, classTup);
 
+=======
+
+	/*
+	 * Do nothing when there's nothing to do.
+	 */
+	if (!object_address_present(&thisobj, objsMoved))
+	{
+		/* check for duplicate name (more friendly than unique-index failure) */
+		if (get_relname_relid(NameStr(classForm->relname),
+							  newNspOid) != InvalidOid)
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_TABLE),
+					 errmsg("relation \"%s\" already exists in schema \"%s\"",
+							NameStr(classForm->relname),
+							get_namespace_name(newNspOid))));
+
+		/* classTup is a copy, so OK to scribble on */
+		classForm->relnamespace = newNspOid;
+
+		simple_heap_update(classRel, &classTup->t_self, classTup);
+		CatalogUpdateIndexes(classRel, classTup);
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		/* Update dependency on schema if caller said so */
 		if (hasDependEntry &&
 			changeDependencyFor(RelationRelationId,
@@ -10930,6 +10957,7 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 		 */
 		AlterTypeNamespaceInternal(RelationGetForm(seqRel)->reltype,
 								   newNspOid, false, false, objsMoved);
+<<<<<<< HEAD
 
 #ifdef PGXC
 		/* Change also this sequence name on GTM */
@@ -10954,6 +10982,8 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 			pfree(newseqname);
 		}
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 		/* Now we can close it.  Keep the lock till end of transaction. */
 		relation_close(seqRel, NoLock);

@@ -3634,6 +3634,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 #ifdef PGXC
 	/*
+<<<<<<< HEAD
 	 * Make sure we specified the mode if Coordinator or Datanode.
 	 * Allow for the exception of initdb by checking config option
 	 */
@@ -3653,6 +3654,10 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	/*
 	 * Optional database name should be there only if *dbname is NULL.
 	 */
+=======
+	 * Optional database name should be there only if *dbname is NULL.
+	 */
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	if (!errs && dbname && *dbname == NULL && argc - optind >= 1)
 		*dbname = strdup(argv[optind++]);
 
@@ -4241,6 +4246,8 @@ PostgresMain(int argc, char *argv[],
 					int			numParams;
 					Oid		   *paramTypes = NULL;
 					char 	  **paramTypeNames = NULL;
+
+					forbidden_in_wal_sender(firstchar);
 
 					forbidden_in_wal_sender(firstchar);
 

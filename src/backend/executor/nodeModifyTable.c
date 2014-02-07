@@ -370,9 +370,12 @@ ExecDelete(ItemPointer tupleid,
 	HTSU_Result result;
 	HeapUpdateFailureData hufd;
 	TupleTableSlot *slot = NULL;
+<<<<<<< HEAD
 #ifdef PGXC
 	RemoteQueryState  *resultRemoteRel = NULL;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * get information on the (current) result relation
@@ -1161,6 +1164,10 @@ ExecModifyTable(ModifyTableState *node)
 				{
 					/* do nothing; FDW must fetch any junk attrs it wants */
 				}
+				else if (relkind == RELKIND_FOREIGN_TABLE)
+				{
+					/* do nothing; FDW must fetch any junk attrs it wants */
+				}
 				else
 				{
 					datum = ExecGetJunkAttribute(slot,
@@ -1341,6 +1348,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 															 i,
 															 eflags);
 		}
+<<<<<<< HEAD
 #ifdef PGXC
 		if (remoteplan)
 		{
@@ -1351,6 +1359,8 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			mtstate->mt_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
 		}
 #endif		
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 		resultRelInfo++;
 		i++;
@@ -1531,6 +1541,10 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 							j->jf_xc_wholerow = ExecFindJunkAttribute(j, "wholerow");
 						}
 #endif
+					}
+					else if (relkind == RELKIND_FOREIGN_TABLE)
+					{
+						/* FDW must fetch any junk attrs it wants */
 					}
 					else if (relkind == RELKIND_FOREIGN_TABLE)
 					{

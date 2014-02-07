@@ -26,10 +26,13 @@ extern void ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString
 				   ParamListInfo params, char *completionTag);
 
 extern DestReceiver *CreateTransientRelDestReceiver(Oid oid);
+<<<<<<< HEAD
 #ifdef PGXC
 extern void pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string);
 extern void pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata,
 										int operation, TupleDesc tupdesc);
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 #endif   /* MATVIEW_H */

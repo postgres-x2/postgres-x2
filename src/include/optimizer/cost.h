@@ -91,9 +91,12 @@ extern void cost_functionscan(Path *path, PlannerInfo *root,
 				  RelOptInfo *baserel, ParamPathInfo *param_info);
 extern void cost_valuesscan(Path *path, PlannerInfo *root,
 				RelOptInfo *baserel, ParamPathInfo *param_info);
+<<<<<<< HEAD
 #ifdef PGXC
 extern void cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel);
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 extern void cost_ctescan(Path *path, PlannerInfo *root,
 			 RelOptInfo *baserel, ParamPathInfo *param_info);
 extern void cost_recursive_union(Plan *runion, Plan *nrterm, Plan *rterm);

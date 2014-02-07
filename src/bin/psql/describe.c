@@ -2280,6 +2280,7 @@ describeOneTableDetails(const char *schemaname,
 			printfPQExpBuffer(&buf, "%s: %s", s,
 							  (tableinfo.hasoids ? _("yes") : _("no")));
 			printTableAddFooter(&cont, buf.data);
+<<<<<<< HEAD
 		}
 
 		/* Tablespace info */
@@ -2334,8 +2335,26 @@ describeOneTableDetails(const char *schemaname,
 
 				PQclear(result);
 			}
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		}
 #endif /* PGXC */
+	}
+
+<<<<<<< HEAD
+	/* reloptions, if verbose */
+	if (verbose &&
+		tableinfo.reloptions && tableinfo.reloptions[0] != '\0')
+	{
+		const char *t = _("Options");
+
+		printfPQExpBuffer(&buf, "%s: %s", t, tableinfo.reloptions);
+		printTableAddFooter(&cont, buf.data);
+=======
+		/* Tablespace info */
+		add_tablespace_footer(&cont, tableinfo.relkind, tableinfo.tablespace,
+							  true);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 
 	/* reloptions, if verbose */

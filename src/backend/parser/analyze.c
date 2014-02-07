@@ -2546,6 +2546,7 @@ IsExecDirectUtilityStmt(Node *node)
 }
 
 /*
+<<<<<<< HEAD
  * Returns whether or not the rtable (and its subqueries)
  * contain any relation who is the parent of
  * the passed relation
@@ -2633,6 +2634,8 @@ is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
 #endif
 
 /*
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  * Check for features that are not supported with FOR [KEY] UPDATE/SHARE.
  *
  * exported so planner can check again after rewriting, query pullup, etc

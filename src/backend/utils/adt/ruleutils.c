@@ -19,9 +19,12 @@
 #include <fcntl.h>
 
 #include "access/htup_details.h"
+<<<<<<< HEAD
 #ifdef PGXC
 #include "access/reloptions.h"
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
@@ -360,11 +363,15 @@ static void make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 			 int prettyFlags, int wrapColumn);
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
+<<<<<<< HEAD
 			  int prettyFlags, int wrapColumn, int startIndent
 #ifdef PGXC
 			  , bool finalise_aggregates, bool sortgroup_colno
 #endif /* PGXC */
 				);
+=======
+			  int prettyFlags, int wrapColumn, int startIndent);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 static void get_values_def(List *values_lists, deparse_context *context);
 static void get_with_clause(Query *query, deparse_context *context);
 static void get_select_query_def(Query *query, deparse_context *context,
@@ -887,9 +894,12 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		context.varprefix = true;
 		context.prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
 		context.wrapColumn = WRAP_COLUMN_DEFAULT;
+<<<<<<< HEAD
 #ifdef PGXC
 		context.finalise_aggs = false;
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		context.indentLevel = PRETTYINDENT_STD;
 
 		get_rule_expr(qual, &context, false);
@@ -2349,9 +2359,12 @@ deparse_expression_pretty(Node *expr, List *dpcontext,
 	context.varprefix = forceprefix;
 	context.prettyFlags = prettyFlags;
 	context.wrapColumn = WRAP_COLUMN_DEFAULT;
+<<<<<<< HEAD
 #ifdef PGXC
 	context.finalise_aggs = false;
 #endif /* PGXC */
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	context.indentLevel = startIndent;
 
 	get_rule_expr(expr, &context, showimplicit);
@@ -2389,9 +2402,12 @@ deparse_context_for(const char *aliasname, Oid relid)
 	/* Build one-element rtable */
 	dpns->rtable = list_make1(rte);
 	dpns->ctes = NIL;
+<<<<<<< HEAD
 #ifdef PGXC
 	dpns->remotequery = false;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	set_rtable_names(dpns, NIL, NULL);
 	set_simple_column_names(dpns);
 
@@ -2447,6 +2463,13 @@ deparse_context_for_planstate(Node *planstate, List *ancestors,
 	 */
 	set_simple_column_names(dpns);
 
+	/*
+	 * Set up column name aliases.	We will get rather bogus results for join
+	 * RTEs, but that doesn't matter because plan trees don't contain any join
+	 * alias Vars.
+	 */
+	set_simple_column_names(dpns);
+
 	/* Set our attention on the specific plan node passed in */
 	set_deparse_planstate(dpns, (PlanState *) planstate);
 	dpns->ancestors = ancestors;
@@ -2457,6 +2480,1151 @@ deparse_context_for_planstate(Node *planstate, List *ancestors,
 
 /*
  * select_rtable_names_for_explain	- Select RTE aliases for EXPLAIN
+<<<<<<< HEAD
+=======
+ *
+ * Determine the relation aliases we'll use during an EXPLAIN operation.
+ * This is just a frontend to set_rtable_names.  We have to expose the aliases
+ * to EXPLAIN because EXPLAIN needs to know the right alias names to print.
+ */
+List *
+select_rtable_names_for_explain(List *rtable, Bitmapset *rels_used)
+{
+	deparse_namespace dpns;
+
+	memset(&dpns, 0, sizeof(dpns));
+	dpns.rtable = rtable;
+	dpns.ctes = NIL;
+	set_rtable_names(&dpns, NIL, rels_used);
+	/* We needn't bother computing column aliases yet */
+
+	return dpns.rtable_names;
+}
+
+/*
+ * set_rtable_names: select RTE aliases to be used in printing a query
+ *
+ * We fill in dpns->rtable_names with a list of names that is one-for-one with
+ * the already-filled dpns->rtable list.  Each RTE name is unique among those
+ * in the new namespace plus any ancestor namespaces listed in
+ * parent_namespaces.
+ *
+ * If rels_used isn't NULL, only RTE indexes listed in it are given aliases.
+ *
+ * Note that this function is only concerned with relation names, not column
+ * names.
+ */
+static void
+set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
+				 Bitmapset *rels_used)
+{
+	ListCell   *lc;
+	int			rtindex = 1;
+
+	dpns->rtable_names = NIL;
+	foreach(lc, dpns->rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
+		char	   *refname;
+
+		if (rels_used && !bms_is_member(rtindex, rels_used))
+		{
+			/* Ignore unreferenced RTE */
+			refname = NULL;
+		}
+		else if (rte->alias)
+		{
+			/* If RTE has a user-defined alias, prefer that */
+			refname = rte->alias->aliasname;
+		}
+		else if (rte->rtekind == RTE_RELATION)
+		{
+			/* Use the current actual name of the relation */
+			refname = get_rel_name(rte->relid);
+		}
+		else if (rte->rtekind == RTE_JOIN)
+		{
+			/* Unnamed join has no refname */
+			refname = NULL;
+		}
+		else
+		{
+			/* Otherwise use whatever the parser assigned */
+			refname = rte->eref->aliasname;
+		}
+
+		/*
+		 * If the selected name isn't unique, append digits to make it so
+		 */
+		if (refname &&
+			!refname_is_unique(refname, dpns, parent_namespaces))
+		{
+			char	   *modname = (char *) palloc(strlen(refname) + 32);
+			int			i = 0;
+
+			do
+			{
+				sprintf(modname, "%s_%d", refname, ++i);
+			} while (!refname_is_unique(modname, dpns, parent_namespaces));
+			refname = modname;
+		}
+
+		dpns->rtable_names = lappend(dpns->rtable_names, refname);
+		rtindex++;
+	}
+}
+
+/*
+ * refname_is_unique: is refname distinct from all already-chosen RTE names?
+ */
+static bool
+refname_is_unique(char *refname, deparse_namespace *dpns,
+				  List *parent_namespaces)
+{
+	ListCell   *lc;
+
+	foreach(lc, dpns->rtable_names)
+	{
+		char	   *oldname = (char *) lfirst(lc);
+
+		if (oldname && strcmp(oldname, refname) == 0)
+			return false;
+	}
+	foreach(lc, parent_namespaces)
+	{
+		deparse_namespace *olddpns = (deparse_namespace *) lfirst(lc);
+		ListCell   *lc2;
+
+		foreach(lc2, olddpns->rtable_names)
+		{
+			char	   *oldname = (char *) lfirst(lc2);
+
+			if (oldname && strcmp(oldname, refname) == 0)
+				return false;
+		}
+	}
+	return true;
+}
+
+/*
+ * set_deparse_for_query: set up deparse_namespace for deparsing a Query tree
+ *
+ * For convenience, this is defined to initialize the deparse_namespace struct
+ * from scratch.
+ */
+static void
+set_deparse_for_query(deparse_namespace *dpns, Query *query,
+					  List *parent_namespaces)
+{
+	ListCell   *lc;
+	ListCell   *lc2;
+
+	/* Initialize *dpns and fill rtable/ctes links */
+	memset(dpns, 0, sizeof(deparse_namespace));
+	dpns->rtable = query->rtable;
+	dpns->ctes = query->cteList;
+
+	/* Assign a unique relation alias to each RTE */
+	set_rtable_names(dpns, parent_namespaces, NULL);
+
+	/* Initialize dpns->rtable_columns to contain zeroed structs */
+	dpns->rtable_columns = NIL;
+	while (list_length(dpns->rtable_columns) < list_length(dpns->rtable))
+		dpns->rtable_columns = lappend(dpns->rtable_columns,
+									   palloc0(sizeof(deparse_columns)));
+
+	/* If it's a utility query, it won't have a jointree */
+	if (query->jointree)
+	{
+		/* Detect whether global uniqueness of USING names is needed */
+		dpns->unique_using =
+			has_unnamed_full_join_using((Node *) query->jointree);
+
+		/*
+		 * Select names for columns merged by USING, via a recursive pass over
+		 * the query jointree.
+		 */
+		set_using_names(dpns, (Node *) query->jointree);
+	}
+
+	/*
+	 * Now assign remaining column aliases for each RTE.  We do this in a
+	 * linear scan of the rtable, so as to process RTEs whether or not they
+	 * are in the jointree (we mustn't miss NEW.*, INSERT target relations,
+	 * etc).  JOIN RTEs must be processed after their children, but this is
+	 * okay because they appear later in the rtable list than their children
+	 * (cf Asserts in identify_join_columns()).
+	 */
+	forboth(lc, dpns->rtable, lc2, dpns->rtable_columns)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
+		deparse_columns *colinfo = (deparse_columns *) lfirst(lc2);
+
+		if (rte->rtekind == RTE_JOIN)
+			set_join_column_names(dpns, rte, colinfo);
+		else
+			set_relation_column_names(dpns, rte, colinfo);
+	}
+}
+
+/*
+ * set_simple_column_names: fill in column aliases for non-query situations
+ *
+ * This handles EXPLAIN and cases where we only have relation RTEs.  Without
+ * a join tree, we can't do anything smart about join RTEs, but we don't
+ * need to (note that EXPLAIN should never see join alias Vars anyway).
+ * If we do hit a join RTE we'll just process it like a non-table base RTE.
+ */
+static void
+set_simple_column_names(deparse_namespace *dpns)
+{
+	ListCell   *lc;
+	ListCell   *lc2;
+
+	/* Initialize dpns->rtable_columns to contain zeroed structs */
+	dpns->rtable_columns = NIL;
+	while (list_length(dpns->rtable_columns) < list_length(dpns->rtable))
+		dpns->rtable_columns = lappend(dpns->rtable_columns,
+									   palloc0(sizeof(deparse_columns)));
+
+	/* Assign unique column aliases within each RTE */
+	forboth(lc, dpns->rtable, lc2, dpns->rtable_columns)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
+		deparse_columns *colinfo = (deparse_columns *) lfirst(lc2);
+
+		set_relation_column_names(dpns, rte, colinfo);
+	}
+}
+
+/*
+ * has_unnamed_full_join_using: search jointree for unnamed FULL JOIN USING
+ *
+ * Merged columns of a FULL JOIN USING act differently from either of the
+ * input columns, so they have to be referenced as columns of the JOIN not
+ * as columns of either input.	And this is problematic if the join is
+ * unnamed (alias-less): we cannot qualify the column's name with an RTE
+ * name, since there is none.  (Forcibly assigning an alias to the join is
+ * not a solution, since that will prevent legal references to tables below
+ * the join.)  To ensure that every column in the query is unambiguously
+ * referenceable, we must assign such merged columns names that are globally
+ * unique across the whole query, aliasing other columns out of the way as
+ * necessary.
+ *
+ * Because the ensuing re-aliasing is fairly damaging to the readability of
+ * the query, we don't do this unless we have to.  So, we must pre-scan
+ * the join tree to see if we have to, before starting set_using_names().
+ */
+static bool
+has_unnamed_full_join_using(Node *jtnode)
+{
+	if (IsA(jtnode, RangeTblRef))
+	{
+		/* nothing to do here */
+	}
+	else if (IsA(jtnode, FromExpr))
+	{
+		FromExpr   *f = (FromExpr *) jtnode;
+		ListCell   *lc;
+
+		foreach(lc, f->fromlist)
+		{
+			if (has_unnamed_full_join_using((Node *) lfirst(lc)))
+				return true;
+		}
+	}
+	else if (IsA(jtnode, JoinExpr))
+	{
+		JoinExpr   *j = (JoinExpr *) jtnode;
+
+		/* Is it an unnamed FULL JOIN with USING? */
+		if (j->alias == NULL &&
+			j->jointype == JOIN_FULL &&
+			j->usingClause)
+			return true;
+
+		/* Nope, but inspect children */
+		if (has_unnamed_full_join_using(j->larg))
+			return true;
+		if (has_unnamed_full_join_using(j->rarg))
+			return true;
+	}
+	else
+		elog(ERROR, "unrecognized node type: %d",
+			 (int) nodeTag(jtnode));
+	return false;
+}
+
+/*
+ * set_using_names: select column aliases to be used for merged USING columns
+ *
+ * We do this during a recursive descent of the query jointree.
+ * dpns->unique_using must already be set to determine the global strategy.
+ *
+ * Column alias info is saved in the dpns->rtable_columns list, which is
+ * assumed to be filled with pre-zeroed deparse_columns structs.
+ */
+static void
+set_using_names(deparse_namespace *dpns, Node *jtnode)
+{
+	if (IsA(jtnode, RangeTblRef))
+	{
+		/* nothing to do now */
+	}
+	else if (IsA(jtnode, FromExpr))
+	{
+		FromExpr   *f = (FromExpr *) jtnode;
+		ListCell   *lc;
+
+		foreach(lc, f->fromlist)
+			set_using_names(dpns, (Node *) lfirst(lc));
+	}
+	else if (IsA(jtnode, JoinExpr))
+	{
+		JoinExpr   *j = (JoinExpr *) jtnode;
+		RangeTblEntry *rte = rt_fetch(j->rtindex, dpns->rtable);
+		deparse_columns *colinfo = deparse_columns_fetch(j->rtindex, dpns);
+		int		   *leftattnos;
+		int		   *rightattnos;
+		deparse_columns *leftcolinfo;
+		deparse_columns *rightcolinfo;
+		int			i;
+		ListCell   *lc;
+
+		/* Get info about the shape of the join */
+		identify_join_columns(j, rte, colinfo);
+		leftattnos = colinfo->leftattnos;
+		rightattnos = colinfo->rightattnos;
+
+		/* Look up the not-yet-filled-in child deparse_columns structs */
+		leftcolinfo = deparse_columns_fetch(colinfo->leftrti, dpns);
+		rightcolinfo = deparse_columns_fetch(colinfo->rightrti, dpns);
+
+		/*
+		 * If this join is unnamed, then we cannot substitute new aliases at
+		 * this level, so any name requirements pushed down to here must be
+		 * pushed down again to the children.
+		 */
+		if (rte->alias == NULL)
+		{
+			for (i = 0; i < colinfo->num_cols; i++)
+			{
+				char	   *colname = colinfo->colnames[i];
+
+				if (colname == NULL)
+					continue;
+
+				/* Push down to left column, unless it's a system column */
+				if (leftattnos[i] > 0)
+				{
+					expand_colnames_array_to(leftcolinfo, leftattnos[i]);
+					leftcolinfo->colnames[leftattnos[i] - 1] = colname;
+				}
+
+				/* Same on the righthand side */
+				if (rightattnos[i] > 0)
+				{
+					expand_colnames_array_to(rightcolinfo, rightattnos[i]);
+					rightcolinfo->colnames[rightattnos[i] - 1] = colname;
+				}
+			}
+		}
+
+		/*
+		 * If there's a USING clause, select the USING column names and push
+		 * those names down to the children.  We have two strategies:
+		 *
+		 * If dpns->unique_using is TRUE, we force all USING names to be
+		 * unique across the whole query level.  In principle we'd only need
+		 * the names of USING columns in unnamed full joins to be globally
+		 * unique, but to safely assign all USING names in a single pass, we
+		 * have to enforce the same uniqueness rule for all of them.  However,
+		 * if a USING column's name has been pushed down from the parent, we
+		 * should use it as-is rather than making a uniqueness adjustment.
+		 * This is necessary when we're at an unnamed join, and it creates no
+		 * risk of ambiguity.  Also, if there's a user-written output alias
+		 * for a merged column, we prefer to use that rather than the input
+		 * name; this simplifies the logic and seems likely to lead to less
+		 * aliasing overall.
+		 *
+		 * If dpns->unique_using is FALSE, we only need USING names to be
+		 * unique within their own join RTE.  We still need to honor
+		 * pushed-down names, though.
+		 *
+		 * Though significantly different in results, these two strategies are
+		 * implemented by the same code, with only the difference of whether
+		 * to put assigned names into dpns->using_names.
+		 */
+		if (j->usingClause)
+		{
+			/* USING names must correspond to the first join output columns */
+			expand_colnames_array_to(colinfo, list_length(j->usingClause));
+			i = 0;
+			foreach(lc, j->usingClause)
+			{
+				char	   *colname = strVal(lfirst(lc));
+
+				/* Assert it's a merged column */
+				Assert(leftattnos[i] != 0 && rightattnos[i] != 0);
+
+				/* Adopt passed-down name if any, else select unique name */
+				if (colinfo->colnames[i] != NULL)
+					colname = colinfo->colnames[i];
+				else
+				{
+					/* Prefer user-written output alias if any */
+					if (rte->alias && i < list_length(rte->alias->colnames))
+						colname = strVal(list_nth(rte->alias->colnames, i));
+					/* Make it appropriately unique */
+					colname = make_colname_unique(colname, dpns, colinfo);
+					if (dpns->unique_using)
+						dpns->using_names = lappend(dpns->using_names,
+													colname);
+					/* Save it as output column name, too */
+					colinfo->colnames[i] = colname;
+				}
+
+				/* Remember selected names for use later */
+				colinfo->usingNames = lappend(colinfo->usingNames, colname);
+
+				/* Push down to left column, unless it's a system column */
+				if (leftattnos[i] > 0)
+				{
+					expand_colnames_array_to(leftcolinfo, leftattnos[i]);
+					leftcolinfo->colnames[leftattnos[i] - 1] = colname;
+				}
+
+				/* Same on the righthand side */
+				if (rightattnos[i] > 0)
+				{
+					expand_colnames_array_to(rightcolinfo, rightattnos[i]);
+					rightcolinfo->colnames[rightattnos[i] - 1] = colname;
+				}
+
+				i++;
+			}
+		}
+
+		/* Now recursively assign USING column names in children */
+		set_using_names(dpns, j->larg);
+		set_using_names(dpns, j->rarg);
+	}
+	else
+		elog(ERROR, "unrecognized node type: %d",
+			 (int) nodeTag(jtnode));
+}
+
+/*
+ * set_relation_column_names: select column aliases for a non-join RTE
+ *
+ * Column alias info is saved in *colinfo, which is assumed to be pre-zeroed.
+ * If any colnames entries are already filled in, those override local
+ * choices.
+ */
+static void
+set_relation_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
+						  deparse_columns *colinfo)
+{
+	int			ncolumns;
+	char	  **real_colnames;
+	bool		changed_any;
+	int			noldcolumns;
+	int			i;
+	int			j;
+
+	/*
+	 * Extract the RTE's "real" column names.  This is comparable to
+	 * get_rte_attribute_name, except that it's important to disregard dropped
+	 * columns.  We put NULL into the array for a dropped column.
+	 */
+	if (rte->rtekind == RTE_RELATION)
+	{
+		/* Relation --- look to the system catalogs for up-to-date info */
+		Relation	rel;
+		TupleDesc	tupdesc;
+
+		rel = relation_open(rte->relid, AccessShareLock);
+		tupdesc = RelationGetDescr(rel);
+
+		ncolumns = tupdesc->natts;
+		real_colnames = (char **) palloc(ncolumns * sizeof(char *));
+
+		for (i = 0; i < ncolumns; i++)
+		{
+			if (tupdesc->attrs[i]->attisdropped)
+				real_colnames[i] = NULL;
+			else
+				real_colnames[i] = pstrdup(NameStr(tupdesc->attrs[i]->attname));
+		}
+		relation_close(rel, AccessShareLock);
+	}
+	else
+	{
+		/* Otherwise use the column names from eref */
+		ListCell   *lc;
+
+		ncolumns = list_length(rte->eref->colnames);
+		real_colnames = (char **) palloc(ncolumns * sizeof(char *));
+
+		i = 0;
+		foreach(lc, rte->eref->colnames)
+		{
+			real_colnames[i] = strVal(lfirst(lc));
+			i++;
+		}
+	}
+
+	/*
+	 * Ensure colinfo->colnames has a slot for each column.  (It could be long
+	 * enough already, if we pushed down a name for the last column.)  Note:
+	 * it's possible that there are now more columns than there were when the
+	 * query was parsed, ie colnames could be longer than rte->eref->colnames.
+	 * We must assign unique aliases to the new columns too, else there could
+	 * be unresolved conflicts when the view/rule is reloaded.
+	 */
+	expand_colnames_array_to(colinfo, ncolumns);
+	Assert(colinfo->num_cols == ncolumns);
+
+	/*
+	 * Make sufficiently large new_colnames and is_new_col arrays, too.
+	 *
+	 * Note: because we leave colinfo->num_new_cols zero until after the loop,
+	 * colname_is_unique will not consult that array, which is fine because it
+	 * would only be duplicate effort.
+	 */
+	colinfo->new_colnames = (char **) palloc(ncolumns * sizeof(char *));
+	colinfo->is_new_col = (bool *) palloc(ncolumns * sizeof(bool));
+
+	/*
+	 * Scan the columns, select a unique alias for each one, and store it in
+	 * colinfo->colnames and colinfo->new_colnames.  The former array has NULL
+	 * entries for dropped columns, the latter omits them.	Also mark
+	 * new_colnames entries as to whether they are new since parse time; this
+	 * is the case for entries beyond the length of rte->eref->colnames.
+	 */
+	noldcolumns = list_length(rte->eref->colnames);
+	changed_any = false;
+	j = 0;
+	for (i = 0; i < ncolumns; i++)
+	{
+		char	   *real_colname = real_colnames[i];
+		char	   *colname = colinfo->colnames[i];
+
+		/* Skip dropped columns */
+		if (real_colname == NULL)
+		{
+			Assert(colname == NULL);	/* colnames[i] is already NULL */
+			continue;
+		}
+
+		/* If alias already assigned, that's what to use */
+		if (colname == NULL)
+		{
+			/* If user wrote an alias, prefer that over real column name */
+			if (rte->alias && i < list_length(rte->alias->colnames))
+				colname = strVal(list_nth(rte->alias->colnames, i));
+			else
+				colname = real_colname;
+
+			/* Unique-ify and insert into colinfo */
+			colname = make_colname_unique(colname, dpns, colinfo);
+
+			colinfo->colnames[i] = colname;
+		}
+
+		/* Put names of non-dropped columns in new_colnames[] too */
+		colinfo->new_colnames[j] = colname;
+		/* And mark them as new or not */
+		colinfo->is_new_col[j] = (i >= noldcolumns);
+		j++;
+
+		/* Remember if any assigned aliases differ from "real" name */
+		if (!changed_any && strcmp(colname, real_colname) != 0)
+			changed_any = true;
+	}
+
+	/*
+	 * Set correct length for new_colnames[] array.  (Note: if columns have
+	 * been added, colinfo->num_cols includes them, which is not really quite
+	 * right but is harmless, since any new columns must be at the end where
+	 * they won't affect varattnos of pre-existing columns.)
+	 */
+	colinfo->num_new_cols = j;
+
+	/*
+	 * For a relation RTE, we need only print the alias column names if any
+	 * are different from the underlying "real" names.	For a function RTE,
+	 * always emit a complete column alias list; this is to protect against
+	 * possible instability of the default column names (eg, from altering
+	 * parameter names).  For other RTE types, print if we changed anything OR
+	 * if there were user-written column aliases (since the latter would be
+	 * part of the underlying "reality").
+	 */
+	if (rte->rtekind == RTE_RELATION)
+		colinfo->printaliases = changed_any;
+	else if (rte->rtekind == RTE_FUNCTION)
+		colinfo->printaliases = true;
+	else if (rte->alias && rte->alias->colnames != NIL)
+		colinfo->printaliases = true;
+	else
+		colinfo->printaliases = changed_any;
+}
+
+/*
+ * set_join_column_names: select column aliases for a join RTE
+ *
+ * Column alias info is saved in *colinfo, which is assumed to be pre-zeroed.
+ * If any colnames entries are already filled in, those override local
+ * choices.  Also, names for USING columns were already chosen by
+ * set_using_names().  We further expect that column alias selection has been
+ * completed for both input RTEs.
+ */
+static void
+set_join_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
+					  deparse_columns *colinfo)
+{
+	deparse_columns *leftcolinfo;
+	deparse_columns *rightcolinfo;
+	bool		changed_any;
+	int			noldcolumns;
+	int			nnewcolumns;
+	Bitmapset  *leftmerged = NULL;
+	Bitmapset  *rightmerged = NULL;
+	int			i;
+	int			j;
+	int			ic;
+	int			jc;
+
+	/* Look up the previously-filled-in child deparse_columns structs */
+	leftcolinfo = deparse_columns_fetch(colinfo->leftrti, dpns);
+	rightcolinfo = deparse_columns_fetch(colinfo->rightrti, dpns);
+
+	/*
+	 * Ensure colinfo->colnames has a slot for each column.  (It could be long
+	 * enough already, if we pushed down a name for the last column.)  Note:
+	 * it's possible that one or both inputs now have more columns than there
+	 * were when the query was parsed, but we'll deal with that below.  We
+	 * only need entries in colnames for pre-existing columns.
+	 */
+	noldcolumns = list_length(rte->eref->colnames);
+	expand_colnames_array_to(colinfo, noldcolumns);
+	Assert(colinfo->num_cols == noldcolumns);
+
+	/*
+	 * Scan the join output columns, select an alias for each one, and store
+	 * it in colinfo->colnames.  If there are USING columns, set_using_names()
+	 * already selected their names, so we can start the loop at the first
+	 * non-merged column.
+	 */
+	changed_any = false;
+	for (i = list_length(colinfo->usingNames); i < noldcolumns; i++)
+	{
+		char	   *colname = colinfo->colnames[i];
+		char	   *real_colname;
+
+		/* Get the child column name */
+		if (colinfo->leftattnos[i] > 0)
+			real_colname = leftcolinfo->colnames[colinfo->leftattnos[i] - 1];
+		else if (colinfo->rightattnos[i] > 0)
+			real_colname = rightcolinfo->colnames[colinfo->rightattnos[i] - 1];
+		else
+		{
+			/* We're joining system columns --- use eref name */
+			real_colname = (char *) list_nth(rte->eref->colnames, i);
+		}
+
+		/* Ignore dropped columns (only possible for non-merged column) */
+		if (real_colname == NULL)
+		{
+			Assert(colname == NULL);
+			continue;
+		}
+
+		/* In an unnamed join, just report child column names as-is */
+		if (rte->alias == NULL)
+		{
+			colinfo->colnames[i] = real_colname;
+			continue;
+		}
+
+		/* If alias already assigned, that's what to use */
+		if (colname == NULL)
+		{
+			/* If user wrote an alias, prefer that over real column name */
+			if (rte->alias && i < list_length(rte->alias->colnames))
+				colname = strVal(list_nth(rte->alias->colnames, i));
+			else
+				colname = real_colname;
+
+			/* Unique-ify and insert into colinfo */
+			colname = make_colname_unique(colname, dpns, colinfo);
+
+			colinfo->colnames[i] = colname;
+		}
+
+		/* Remember if any assigned aliases differ from "real" name */
+		if (!changed_any && strcmp(colname, real_colname) != 0)
+			changed_any = true;
+	}
+
+	/*
+	 * Calculate number of columns the join would have if it were re-parsed
+	 * now, and create storage for the new_colnames and is_new_col arrays.
+	 *
+	 * Note: colname_is_unique will be consulting new_colnames[] during the
+	 * loops below, so its not-yet-filled entries must be zeroes.
+	 */
+	nnewcolumns = leftcolinfo->num_new_cols + rightcolinfo->num_new_cols -
+		list_length(colinfo->usingNames);
+	colinfo->num_new_cols = nnewcolumns;
+	colinfo->new_colnames = (char **) palloc0(nnewcolumns * sizeof(char *));
+	colinfo->is_new_col = (bool *) palloc0(nnewcolumns * sizeof(bool));
+
+	/*
+	 * Generating the new_colnames array is a bit tricky since any new columns
+	 * added since parse time must be inserted in the right places.  This code
+	 * must match the parser, which will order a join's columns as merged
+	 * columns first (in USING-clause order), then non-merged columns from the
+	 * left input (in attnum order), then non-merged columns from the right
+	 * input (ditto).  If one of the inputs is itself a join, its columns will
+	 * be ordered according to the same rule, which means newly-added columns
+	 * might not be at the end.  We can figure out what's what by consulting
+	 * the leftattnos and rightattnos arrays plus the input is_new_col arrays.
+	 *
+	 * In these loops, i indexes leftattnos/rightattnos (so it's join varattno
+	 * less one), j indexes new_colnames/is_new_col, and ic/jc have similar
+	 * meanings for the current child RTE.
+	 */
+
+	/* Handle merged columns; they are first and can't be new */
+	i = j = 0;
+	while (i < noldcolumns &&
+		   colinfo->leftattnos[i] != 0 &&
+		   colinfo->rightattnos[i] != 0)
+	{
+		/* column name is already determined and known unique */
+		colinfo->new_colnames[j] = colinfo->colnames[i];
+		colinfo->is_new_col[j] = false;
+
+		/* build bitmapsets of child attnums of merged columns */
+		if (colinfo->leftattnos[i] > 0)
+			leftmerged = bms_add_member(leftmerged, colinfo->leftattnos[i]);
+		if (colinfo->rightattnos[i] > 0)
+			rightmerged = bms_add_member(rightmerged, colinfo->rightattnos[i]);
+
+		i++, j++;
+	}
+
+	/* Handle non-merged left-child columns */
+	ic = 0;
+	for (jc = 0; jc < leftcolinfo->num_new_cols; jc++)
+	{
+		char	   *child_colname = leftcolinfo->new_colnames[jc];
+
+		if (!leftcolinfo->is_new_col[jc])
+		{
+			/* Advance ic to next non-dropped old column of left child */
+			while (ic < leftcolinfo->num_cols &&
+				   leftcolinfo->colnames[ic] == NULL)
+				ic++;
+			Assert(ic < leftcolinfo->num_cols);
+			ic++;
+			/* If it is a merged column, we already processed it */
+			if (bms_is_member(ic, leftmerged))
+				continue;
+			/* Else, advance i to the corresponding existing join column */
+			while (i < colinfo->num_cols &&
+				   colinfo->colnames[i] == NULL)
+				i++;
+			Assert(i < colinfo->num_cols);
+			Assert(ic == colinfo->leftattnos[i]);
+			/* Use the already-assigned name of this column */
+			colinfo->new_colnames[j] = colinfo->colnames[i];
+			i++;
+		}
+		else
+		{
+			/*
+			 * Unique-ify the new child column name and assign, unless we're
+			 * in an unnamed join, in which case just copy
+			 */
+			if (rte->alias != NULL)
+			{
+				colinfo->new_colnames[j] =
+					make_colname_unique(child_colname, dpns, colinfo);
+				if (!changed_any &&
+					strcmp(colinfo->new_colnames[j], child_colname) != 0)
+					changed_any = true;
+			}
+			else
+				colinfo->new_colnames[j] = child_colname;
+		}
+
+		colinfo->is_new_col[j] = leftcolinfo->is_new_col[jc];
+		j++;
+	}
+
+	/* Handle non-merged right-child columns in exactly the same way */
+	ic = 0;
+	for (jc = 0; jc < rightcolinfo->num_new_cols; jc++)
+	{
+		char	   *child_colname = rightcolinfo->new_colnames[jc];
+
+		if (!rightcolinfo->is_new_col[jc])
+		{
+			/* Advance ic to next non-dropped old column of right child */
+			while (ic < rightcolinfo->num_cols &&
+				   rightcolinfo->colnames[ic] == NULL)
+				ic++;
+			Assert(ic < rightcolinfo->num_cols);
+			ic++;
+			/* If it is a merged column, we already processed it */
+			if (bms_is_member(ic, rightmerged))
+				continue;
+			/* Else, advance i to the corresponding existing join column */
+			while (i < colinfo->num_cols &&
+				   colinfo->colnames[i] == NULL)
+				i++;
+			Assert(i < colinfo->num_cols);
+			Assert(ic == colinfo->rightattnos[i]);
+			/* Use the already-assigned name of this column */
+			colinfo->new_colnames[j] = colinfo->colnames[i];
+			i++;
+		}
+		else
+		{
+			/*
+			 * Unique-ify the new child column name and assign, unless we're
+			 * in an unnamed join, in which case just copy
+			 */
+			if (rte->alias != NULL)
+			{
+				colinfo->new_colnames[j] =
+					make_colname_unique(child_colname, dpns, colinfo);
+				if (!changed_any &&
+					strcmp(colinfo->new_colnames[j], child_colname) != 0)
+					changed_any = true;
+			}
+			else
+				colinfo->new_colnames[j] = child_colname;
+		}
+
+		colinfo->is_new_col[j] = rightcolinfo->is_new_col[jc];
+		j++;
+	}
+
+	/* Assert we processed the right number of columns */
+#ifdef USE_ASSERT_CHECKING
+	while (i < colinfo->num_cols && colinfo->colnames[i] == NULL)
+		i++;
+	Assert(i == colinfo->num_cols);
+	Assert(j == nnewcolumns);
+#endif
+
+	/*
+	 * For a named join, print column aliases if we changed any from the child
+	 * names.  Unnamed joins cannot print aliases.
+	 */
+	if (rte->alias != NULL)
+		colinfo->printaliases = changed_any;
+	else
+		colinfo->printaliases = false;
+}
+
+/*
+ * colname_is_unique: is colname distinct from already-chosen column names?
+ *
+ * dpns is query-wide info, colinfo is for the column's RTE
+ */
+static bool
+colname_is_unique(char *colname, deparse_namespace *dpns,
+				  deparse_columns *colinfo)
+{
+	int			i;
+	ListCell   *lc;
+
+	/* Check against already-assigned column aliases within RTE */
+	for (i = 0; i < colinfo->num_cols; i++)
+	{
+		char	   *oldname = colinfo->colnames[i];
+
+		if (oldname && strcmp(oldname, colname) == 0)
+			return false;
+	}
+
+	/*
+	 * If we're building a new_colnames array, check that too (this will be
+	 * partially but not completely redundant with the previous checks)
+	 */
+	for (i = 0; i < colinfo->num_new_cols; i++)
+	{
+		char	   *oldname = colinfo->new_colnames[i];
+
+		if (oldname && strcmp(oldname, colname) == 0)
+			return false;
+	}
+
+	/* Also check against USING-column names that must be globally unique */
+	foreach(lc, dpns->using_names)
+	{
+		char	   *oldname = (char *) lfirst(lc);
+
+		if (strcmp(oldname, colname) == 0)
+			return false;
+	}
+
+	return true;
+}
+
+/*
+ * make_colname_unique: modify colname if necessary to make it unique
+ *
+ * dpns is query-wide info, colinfo is for the column's RTE
+ */
+static char *
+make_colname_unique(char *colname, deparse_namespace *dpns,
+					deparse_columns *colinfo)
+{
+	/*
+	 * If the selected name isn't unique, append digits to make it so
+	 */
+	if (!colname_is_unique(colname, dpns, colinfo))
+	{
+		char	   *modname = (char *) palloc(strlen(colname) + 32);
+		int			i = 0;
+
+		do
+		{
+			sprintf(modname, "%s_%d", colname, ++i);
+		} while (!colname_is_unique(modname, dpns, colinfo));
+		colname = modname;
+	}
+	return colname;
+}
+
+/*
+ * expand_colnames_array_to: make colinfo->colnames at least n items long
+ *
+ * Any added array entries are initialized to zero.
+ */
+static void
+expand_colnames_array_to(deparse_columns *colinfo, int n)
+{
+	if (n > colinfo->num_cols)
+	{
+		if (colinfo->colnames == NULL)
+			colinfo->colnames = (char **) palloc0(n * sizeof(char *));
+		else
+		{
+			colinfo->colnames = (char **) repalloc(colinfo->colnames,
+												   n * sizeof(char *));
+			memset(colinfo->colnames + colinfo->num_cols, 0,
+				   (n - colinfo->num_cols) * sizeof(char *));
+		}
+		colinfo->num_cols = n;
+	}
+}
+
+/*
+ * identify_join_columns: figure out where columns of a join come from
+ *
+ * Fills the join-specific fields of the colinfo struct, except for
+ * usingNames which is filled later.
+ */
+static void
+identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
+					  deparse_columns *colinfo)
+{
+	int			numjoincols;
+	int			i;
+	ListCell   *lc;
+
+	/* Extract left/right child RT indexes */
+	if (IsA(j->larg, RangeTblRef))
+		colinfo->leftrti = ((RangeTblRef *) j->larg)->rtindex;
+	else if (IsA(j->larg, JoinExpr))
+		colinfo->leftrti = ((JoinExpr *) j->larg)->rtindex;
+	else
+		elog(ERROR, "unrecognized node type in jointree: %d",
+			 (int) nodeTag(j->larg));
+	if (IsA(j->rarg, RangeTblRef))
+		colinfo->rightrti = ((RangeTblRef *) j->rarg)->rtindex;
+	else if (IsA(j->rarg, JoinExpr))
+		colinfo->rightrti = ((JoinExpr *) j->rarg)->rtindex;
+	else
+		elog(ERROR, "unrecognized node type in jointree: %d",
+			 (int) nodeTag(j->rarg));
+
+	/* Assert children will be processed earlier than join in second pass */
+	Assert(colinfo->leftrti < j->rtindex);
+	Assert(colinfo->rightrti < j->rtindex);
+
+	/* Initialize result arrays with zeroes */
+	numjoincols = list_length(jrte->joinaliasvars);
+	Assert(numjoincols == list_length(jrte->eref->colnames));
+	colinfo->leftattnos = (int *) palloc0(numjoincols * sizeof(int));
+	colinfo->rightattnos = (int *) palloc0(numjoincols * sizeof(int));
+
+	/* Scan the joinaliasvars list to identify simple column references */
+	i = 0;
+	foreach(lc, jrte->joinaliasvars)
+	{
+		Var		   *aliasvar = (Var *) lfirst(lc);
+
+		if (IsA(aliasvar, Var))
+		{
+			Assert(aliasvar->varlevelsup == 0);
+			Assert(aliasvar->varattno != 0);
+			if (aliasvar->varno == colinfo->leftrti)
+				colinfo->leftattnos[i] = aliasvar->varattno;
+			else if (aliasvar->varno == colinfo->rightrti)
+				colinfo->rightattnos[i] = aliasvar->varattno;
+			else
+				elog(ERROR, "unexpected varno %d in JOIN RTE",
+					 aliasvar->varno);
+		}
+		else if (IsA(aliasvar, CoalesceExpr))
+		{
+			/*
+			 * It's a merged column in FULL JOIN USING.  Ignore it for now and
+			 * let the code below identify the merged columns.
+			 */
+		}
+		else
+		{
+			/*
+			 * Although NULL constants can appear in joinaliasvars lists
+			 * during planning, we shouldn't see any here, since the Query
+			 * tree hasn't been through AcquireRewriteLocks().
+			 */
+			elog(ERROR, "unrecognized node type in join alias vars: %d",
+				 (int) nodeTag(aliasvar));
+		}
+
+		i++;
+	}
+
+	/*
+	 * If there's a USING clause, deconstruct the join quals to identify the
+	 * merged columns.	This is a tad painful but if we cannot rely on the
+	 * column names, there is no other representation of which columns were
+	 * joined by USING.  (Unless the join type is FULL, we can't tell from the
+	 * joinaliasvars list which columns are merged.)  Note: we assume that the
+	 * merged columns are the first output column(s) of the join.
+	 */
+	if (j->usingClause)
+	{
+		List	   *leftvars = NIL;
+		List	   *rightvars = NIL;
+		ListCell   *lc2;
+
+		/* Extract left- and right-side Vars from the qual expression */
+		flatten_join_using_qual(j->quals, &leftvars, &rightvars);
+		Assert(list_length(leftvars) == list_length(j->usingClause));
+		Assert(list_length(rightvars) == list_length(j->usingClause));
+
+		/* Mark the output columns accordingly */
+		i = 0;
+		forboth(lc, leftvars, lc2, rightvars)
+		{
+			Var		   *leftvar = (Var *) lfirst(lc);
+			Var		   *rightvar = (Var *) lfirst(lc2);
+
+			Assert(leftvar->varlevelsup == 0);
+			Assert(leftvar->varattno != 0);
+			if (leftvar->varno != colinfo->leftrti)
+				elog(ERROR, "unexpected varno %d in JOIN USING qual",
+					 leftvar->varno);
+			colinfo->leftattnos[i] = leftvar->varattno;
+
+			Assert(rightvar->varlevelsup == 0);
+			Assert(rightvar->varattno != 0);
+			if (rightvar->varno != colinfo->rightrti)
+				elog(ERROR, "unexpected varno %d in JOIN USING qual",
+					 rightvar->varno);
+			colinfo->rightattnos[i] = rightvar->varattno;
+
+			i++;
+		}
+	}
+}
+
+/*
+ * flatten_join_using_qual: extract Vars being joined from a JOIN/USING qual
+ *
+ * We assume that transformJoinUsingClause won't have produced anything except
+ * AND nodes, equality operator nodes, and possibly implicit coercions, and
+ * that the AND node inputs match left-to-right with the original USING list.
+ *
+ * Caller must initialize the result lists to NIL.
+ */
+static void
+flatten_join_using_qual(Node *qual, List **leftvars, List **rightvars)
+{
+	if (IsA(qual, BoolExpr))
+	{
+		/* Handle AND nodes by recursion */
+		BoolExpr   *b = (BoolExpr *) qual;
+		ListCell   *lc;
+
+		Assert(b->boolop == AND_EXPR);
+		foreach(lc, b->args)
+		{
+			flatten_join_using_qual((Node *) lfirst(lc),
+									leftvars, rightvars);
+		}
+	}
+	else if (IsA(qual, OpExpr))
+	{
+		/* Otherwise we should have an equality operator */
+		OpExpr	   *op = (OpExpr *) qual;
+		Var		   *var;
+
+		if (list_length(op->args) != 2)
+			elog(ERROR, "unexpected unary operator in JOIN/USING qual");
+		/* Arguments should be Vars with perhaps implicit coercions */
+		var = (Var *) strip_implicit_coercions((Node *) linitial(op->args));
+		if (!IsA(var, Var))
+			elog(ERROR, "unexpected node type in JOIN/USING qual: %d",
+				 (int) nodeTag(var));
+		*leftvars = lappend(*leftvars, var);
+		var = (Var *) strip_implicit_coercions((Node *) lsecond(op->args));
+		if (!IsA(var, Var))
+			elog(ERROR, "unexpected node type in JOIN/USING qual: %d",
+				 (int) nodeTag(var));
+		*rightvars = lappend(*rightvars, var);
+	}
+	else
+	{
+		/* Perhaps we have an implicit coercion to boolean? */
+		Node	   *q = strip_implicit_coercions(qual);
+
+		if (q != qual)
+			flatten_join_using_qual(q, leftvars, rightvars);
+		else
+			elog(ERROR, "unexpected node type in JOIN/USING qual: %d",
+				 (int) nodeTag(qual));
+	}
+}
+
+/*
+ * get_rtable_name: convenience function to get a previously assigned RTE alias
+ *
+ * The RTE must belong to the topmost namespace level in "context".
+ */
+static char *
+get_rtable_name(int rtindex, deparse_context *context)
+{
+	deparse_namespace *dpns = (deparse_namespace *) linitial(context->namespaces);
+
+	Assert(rtindex > 0 && rtindex <= list_length(dpns->rtable_names));
+	return (char *) list_nth(dpns->rtable_names, rtindex - 1);
+}
+
+/*
+ * set_deparse_planstate: set up deparse_namespace to parse subexpressions
+ * of a given PlanState node
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  *
  * Determine the relation aliases we'll use during an EXPLAIN operation.
  * This is just a frontend to set_rtable_names.  We have to expose the aliases
@@ -2771,6 +3939,7 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 		set_using_names(dpns, (Node *) query->jointree);
 	}
 
+<<<<<<< HEAD
 	/*
 	 * Now assign remaining column aliases for each RTE.  We do this in a
 	 * linear scan of the rtable, so as to process RTEs whether or not they
@@ -2789,6 +3958,13 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 		else
 			set_relation_column_names(dpns, rte, colinfo);
 	}
+=======
+	/* Link current plan node into ancestors list */
+	dpns->ancestors = lcons(dpns->planstate, dpns->ancestors);
+
+	/* Set attention on selected child */
+	set_deparse_planstate(dpns, ps);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 }
 
 /*
@@ -2802,6 +3978,7 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 static void
 set_simple_column_names(deparse_namespace *dpns)
 {
+<<<<<<< HEAD
 	ListCell   *lc;
 	ListCell   *lc2;
 
@@ -2819,6 +3996,18 @@ set_simple_column_names(deparse_namespace *dpns)
 
 		set_relation_column_names(dpns, rte, colinfo);
 	}
+=======
+	List	   *ancestors;
+
+	/* Get rid of ancestors list cell added by push_child_plan */
+	ancestors = list_delete_first(dpns->ancestors);
+
+	/* Restore fields changed by push_child_plan */
+	*dpns = *save_dpns;
+
+	/* Make sure dpns->ancestors is right (may be unnecessary) */
+	dpns->ancestors = ancestors;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 }
 
 /*
@@ -4165,11 +5354,15 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		{
 			query = (Query *) lfirst(action);
 			get_query_def(query, buf, NIL, NULL,
+<<<<<<< HEAD
 						  prettyFlags, WRAP_COLUMN_DEFAULT, 0
 #ifdef PGXC
 						  , false, false
 #endif /* PGXC */
 				);
+=======
+						  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 			if (prettyFlags)
 				appendStringInfo(buf, ";\n");
 			else
@@ -4187,11 +5380,15 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 		query = (Query *) linitial(actions);
 		get_query_def(query, buf, NIL, NULL,
+<<<<<<< HEAD
 					  prettyFlags, WRAP_COLUMN_DEFAULT, 0
 #ifdef PGXC
 						, false, false
 #endif /* PGXC */
 		);
+=======
+					  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		appendStringInfo(buf, ";");
 	}
 }
@@ -4259,11 +5456,15 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	ev_relation = heap_open(ev_class, AccessShareLock);
 
 	get_query_def(query, buf, NIL, RelationGetDescr(ev_relation),
+<<<<<<< HEAD
 				  prettyFlags, wrapColumn, 0
 #ifdef PGXC
 				  , false, false
 #endif /* PGXC */
 				  );
+=======
+				  prettyFlags, wrapColumn, 0);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	appendStringInfo(buf, ";");
 
 	heap_close(ev_relation, AccessShareLock);
@@ -4343,11 +5544,15 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 static void
 get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
+<<<<<<< HEAD
 			  int prettyFlags, int wrapColumn, int startIndent
 #ifdef PGXC
 				, bool finalise_aggs, bool sortgroup_colno
 #endif /* PGXC */
 			  )
+=======
+			  int prettyFlags, int wrapColumn, int startIndent)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 {
 	deparse_context context;
 	deparse_namespace dpns;
@@ -4506,11 +5711,15 @@ get_with_clause(Query *query, deparse_context *context)
 			appendContextKeyword(context, "", 0, 0, 0);
 		get_query_def((Query *) cte->ctequery, buf, context->namespaces, NULL,
 					  context->prettyFlags, context->wrapColumn,
+<<<<<<< HEAD
 					  context->indentLevel
 #ifdef PGXC
 					  , context->finalise_aggs, context->sortgroup_colno
 #endif /* PGXC */
 					  );
+=======
+					  context->indentLevel);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
 		appendStringInfoChar(buf, ')');
@@ -4612,6 +5821,7 @@ get_select_query_def(Query *query, deparse_context *context,
 					break;
 				case LCS_FORSHARE:
 					appendContextKeyword(context, " FOR SHARE",
+<<<<<<< HEAD
 									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
 				case LCS_FORNOKEYUPDATE:
@@ -4622,6 +5832,18 @@ get_select_query_def(Query *query, deparse_context *context,
 					appendContextKeyword(context, " FOR UPDATE",
 									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
+=======
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+					break;
+				case LCS_FORNOKEYUPDATE:
+					appendContextKeyword(context, " FOR NO KEY UPDATE",
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+					break;
+				case LCS_FORUPDATE:
+					appendContextKeyword(context, " FOR UPDATE",
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+					break;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 			}
 
 			appendStringInfo(buf, " OF %s",
@@ -4786,9 +6008,12 @@ get_target_list(List *targetList, deparse_context *context,
 	char	   *sep;
 	int			colno;
 	ListCell   *l;
+<<<<<<< HEAD
 #ifdef PGXC
 	bool no_targetlist = true;
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* we use targetbuf to hold each TLE's text temporarily */
 	initStringInfo(&targetbuf);
@@ -4911,6 +6136,7 @@ get_target_list(List *targetList, deparse_context *context,
 		appendStringInfoString(buf, targetbuf.data);
 	}
 
+<<<<<<< HEAD
 #ifdef PGXC
 	/*
 	 * Because the empty target list can generate invalid SQL
@@ -4921,6 +6147,8 @@ get_target_list(List *targetList, deparse_context *context,
 	if (no_targetlist)
 		appendStringInfo(buf, " *");
 #endif
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	/* clean up */
 	pfree(targetbuf.data);
 }
@@ -4950,11 +6178,15 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 			appendStringInfoChar(buf, '(');
 		get_query_def(subquery, buf, context->namespaces, resultDesc,
 					  context->prettyFlags, context->wrapColumn,
+<<<<<<< HEAD
 					  context->indentLevel
 #ifdef PGXC
 					  , context->finalise_aggs, context->sortgroup_colno
 #endif /* PGXC */
 					  );
+=======
+					  context->indentLevel);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		if (need_paren)
 			appendStringInfoChar(buf, ')');
 	}
@@ -5409,11 +6641,15 @@ get_insert_query_def(Query *query, deparse_context *context)
 		/* Add the SELECT */
 		get_query_def(select_rte->subquery, buf, NIL, NULL,
 					  context->prettyFlags, context->wrapColumn,
+<<<<<<< HEAD
 					  context->indentLevel
 #ifdef PGXC
 					  , context->finalise_aggs, context->sortgroup_colno
 #endif /* PGXC */
 					  );
+=======
+					  context->indentLevel);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 	else if (values_rte)
 	{
@@ -5957,6 +7193,7 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		return NULL;
 	}
 
+<<<<<<< HEAD
 #ifdef PGXC
 	if (rte->rtekind == RTE_REMOTE_DUMMY &&
 		attnum > list_length(rte->eref->colnames) &&
@@ -6005,6 +7242,23 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	 */
 	if (rte->rtekind == RTE_JOIN && rte->alias == NULL)
 {
+=======
+	/*
+	 * If it's an unnamed join, look at the expansion of the alias variable.
+	 * If it's a simple reference to one of the input vars, then recursively
+	 * print the name of that var instead.	When it's not a simple reference,
+	 * we have to just print the unqualified join column name.	(This can only
+	 * happen with columns that were merged by USING or NATURAL clauses in a
+	 * FULL JOIN; we took pains previously to make the unqualified column name
+	 * unique in such cases.)
+	 *
+	 * This wouldn't work in decompiling plan trees, because we don't store
+	 * joinaliasvars lists after planning; but a plan tree should never
+	 * contain a join alias variable.
+	 */
+	if (rte->rtekind == RTE_JOIN && rte->alias == NULL)
+	{
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		if (rte->joinaliasvars == NIL)
 			elog(ERROR, "cannot decompile join alias var in plan tree");
 		if (attnum > 0)
@@ -8529,11 +9783,15 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 
 	get_query_def(query, buf, context->namespaces, NULL,
 				  context->prettyFlags, context->wrapColumn,
+<<<<<<< HEAD
 				  context->indentLevel
 #ifdef PGXC
 				  , context->finalise_aggs, context->sortgroup_colno
 #endif /* PGXC */
 				  );
+=======
+				  context->indentLevel);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (need_paren)
 		appendStringInfo(buf, "))");
@@ -8646,10 +9904,17 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 		char	   *refname = get_rtable_name(varno, context);
 		deparse_columns *colinfo = deparse_columns_fetch(varno, dpns);
 		bool		printalias;
+<<<<<<< HEAD
 
 		if (rte->lateral)
 			appendStringInfoString(buf, "LATERAL ");
 
+=======
+
+		if (rte->lateral)
+			appendStringInfoString(buf, "LATERAL ");
+
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		/* Print the FROM item proper */
 		switch (rte->rtekind)
 		{
@@ -8665,11 +9930,15 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				appendStringInfoChar(buf, '(');
 				get_query_def(rte->subquery, buf, context->namespaces, NULL,
 							  context->prettyFlags, context->wrapColumn,
+<<<<<<< HEAD
 							  context->indentLevel
 #ifdef PGXC
 							  , context->finalise_aggs, context->sortgroup_colno
 #endif /* PGXC */
 							  );
+=======
+							  context->indentLevel);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 				appendStringInfoChar(buf, ')');
 				break;
 			case RTE_FUNCTION:
@@ -8694,12 +9963,21 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 		{
 			/* Always print alias if user provided one */
 			printalias = true;
+<<<<<<< HEAD
 		}
 		else if (colinfo->printaliases)
 		{
 			/* Always print alias if we need to print column aliases */
 			printalias = true;
 		}
+=======
+		}
+		else if (colinfo->printaliases)
+		{
+			/* Always print alias if we need to print column aliases */
+			printalias = true;
+		}
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		else if (rte->rtekind == RTE_RELATION)
 		{
 			/*
@@ -8709,6 +9987,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			 */
 			if (strcmp(refname, get_relation_name(rte->relid)) != 0)
 				printalias = true;
+<<<<<<< HEAD
 		}
 #ifdef PGXC
 		else if (rte->rtekind == RTE_SUBQUERY && rte->eref->aliasname)
@@ -8722,6 +10001,8 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			 * be possible to refer to this subquery object.
 			 */
 			printalias = true;
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		}
 #endif
 		else if (rte->rtekind == RTE_FUNCTION)

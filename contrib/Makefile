@@ -43,7 +43,10 @@ SUBDIRS = \
 		pgcrypto	\
 		pgrowlocks	\
 		pgstattuple	\
+<<<<<<< HEAD
 		pgxc_clean	\
+=======
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 		pg_xlogdump	\
 		postgres_fdw	\
 		seg		\

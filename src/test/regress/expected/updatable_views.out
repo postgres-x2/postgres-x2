@@ -235,7 +235,11 @@ DROP VIEW ro_view10, ro_view12, ro_view19;
 DROP SEQUENCE seq CASCADE;
 NOTICE:  drop cascades to view ro_view20
 -- simple updatable view
+<<<<<<< HEAD
 CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified') distribute by replication;
+=======
+CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified');
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) g(i);
 CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a>0;
 SELECT table_name, is_insertable_into
@@ -268,7 +272,11 @@ INSERT INTO rw_view1 VALUES (3, 'Row 3');
 INSERT INTO rw_view1 (a) VALUES (4);
 UPDATE rw_view1 SET a=5 WHERE a=4;
 DELETE FROM rw_view1 WHERE b='Row 2';
+<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
+=======
+SELECT * FROM base_tbl;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a  |      b      
 ----+-------------
  -2 | Row -2
@@ -279,6 +287,7 @@ SELECT * FROM base_tbl order by 1;
   5 | Unspecified
 (6 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view1 SET a=6 WHERE a=5;
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
@@ -298,6 +307,23 @@ EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view1 WHERE a=5;
          Output: base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.ctid
          Remote query: SELECT a, ctid FROM ONLY public.base_tbl WHERE ((a > 0) AND (a = 5))
 (5 rows)
+=======
+EXPLAIN (costs off) UPDATE rw_view1 SET a=6 WHERE a=5;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Update on base_tbl
+   ->  Index Scan using base_tbl_pkey on base_tbl
+         Index Cond: ((a > 0) AND (a = 5))
+(3 rows)
+
+EXPLAIN (costs off) DELETE FROM rw_view1 WHERE a=5;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Delete on base_tbl
+   ->  Index Scan using base_tbl_pkey on base_tbl
+         Index Cond: ((a > 0) AND (a = 5))
+(3 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 NOTICE:  drop cascades to view rw_view1
@@ -334,7 +360,11 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3');
 INSERT INTO rw_view2 (aaa) VALUES (4);
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  aaa |     bbb     
 -----+-------------
    1 | Row 1
@@ -345,7 +375,11 @@ SELECT * FROM rw_view2 order by 1;
 
 UPDATE rw_view2 SET bbb='Row 4' WHERE aaa=4;
 DELETE FROM rw_view2 WHERE aaa=2;
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  aaa |  bbb  
 -----+-------
    1 | Row 1
@@ -353,6 +387,7 @@ SELECT * FROM rw_view2 order by 1;
    4 | Row 4
 (3 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET aaa=5 WHERE aaa=4;
 ERROR:  Partition column can't be updated in current version
 EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE aaa=4;
@@ -364,6 +399,23 @@ EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE aaa=4;
          Output: base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.ctid, base_tbl.xc_node_id
          Remote query: SELECT a, ctid, xc_node_id FROM ONLY public.base_tbl WHERE ((a < 10) AND (a > 0) AND (a = 4))
 (5 rows)
+=======
+EXPLAIN (costs off) UPDATE rw_view2 SET aaa=5 WHERE aaa=4;
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Update on base_tbl
+   ->  Index Scan using base_tbl_pkey on base_tbl
+         Index Cond: ((a < 10) AND (a > 0) AND (a = 4))
+(3 rows)
+
+EXPLAIN (costs off) DELETE FROM rw_view2 WHERE aaa=4;
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Delete on base_tbl
+   ->  Index Scan using base_tbl_pkey on base_tbl
+         Index Cond: ((a < 10) AND (a > 0) AND (a = 4))
+(3 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 NOTICE:  drop cascades to 2 other objects
@@ -520,7 +572,11 @@ UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
  3 | Row three
 (1 row)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |     b     
 ---+-----------
  1 | Row 1
@@ -534,13 +590,18 @@ DELETE FROM rw_view2 WHERE a=3 RETURNING *;
  3 | Row three
 (1 row)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |   b   
 ---+-------
  1 | Row 1
  2 | Row 2
 (2 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET a=3 WHERE a=2;
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
@@ -577,6 +638,37 @@ EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE a=2;
                      Output: a, b
                      Remote query: SELECT a, b FROM ONLY public.base_tbl WHERE (a > 0)
 (13 rows)
+=======
+EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Update on base_tbl
+   ->  Nested Loop
+         ->  Index Scan using base_tbl_pkey on base_tbl
+               Index Cond: (a = 2)
+         ->  Subquery Scan on rw_view1
+               Filter: ((rw_view1.a < 10) AND (rw_view1.a = 2))
+               ->  Bitmap Heap Scan on base_tbl base_tbl_1
+                     Recheck Cond: (a > 0)
+                     ->  Bitmap Index Scan on base_tbl_pkey
+                           Index Cond: (a > 0)
+(10 rows)
+
+EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Delete on base_tbl
+   ->  Nested Loop
+         ->  Index Scan using base_tbl_pkey on base_tbl
+               Index Cond: (a = 2)
+         ->  Subquery Scan on rw_view1
+               Filter: ((rw_view1.a < 10) AND (rw_view1.a = 2))
+               ->  Bitmap Heap Scan on base_tbl base_tbl_1
+                     Recheck Cond: (a > 0)
+                     ->  Bitmap Index Scan on base_tbl_pkey
+                           Index Cond: (a > 0)
+(10 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 NOTICE:  drop cascades to 2 other objects
@@ -758,7 +850,11 @@ UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
  3 | Row three
 (1 row)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |     b     
 ---+-----------
  1 | Row 1
@@ -772,13 +868,18 @@ DELETE FROM rw_view2 WHERE a=3 RETURNING *;
  3 | Row three
 (1 row)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
+=======
+SELECT * FROM rw_view2;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |   b   
 ---+-------
  1 | Row 1
  2 | Row 2
 (2 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET a=3 WHERE a=2;
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
@@ -801,6 +902,30 @@ EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE a=2;
          ->  Data Node Scan on base_tbl "_REMOTE_TABLE_QUERY_"
                Output: a, b
                Remote query: SELECT a, b FROM ONLY public.base_tbl WHERE (a > 0)
+=======
+EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Update on rw_view1 rw_view1_1
+   ->  Subquery Scan on rw_view1
+         Filter: ((rw_view1.a < 10) AND (rw_view1.a = 2))
+         ->  Bitmap Heap Scan on base_tbl
+               Recheck Cond: (a > 0)
+               ->  Bitmap Index Scan on base_tbl_pkey
+                     Index Cond: (a > 0)
+(7 rows)
+
+EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Delete on rw_view1 rw_view1_1
+   ->  Subquery Scan on rw_view1
+         Filter: ((rw_view1.a < 10) AND (rw_view1.a = 2))
+         ->  Bitmap Heap Scan on base_tbl
+               Recheck Cond: (a > 0)
+               ->  Bitmap Index Scan on base_tbl_pkey
+                     Index Cond: (a > 0)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (7 rows)
 
 DROP TABLE base_tbl CASCADE;
@@ -831,7 +956,11 @@ SELECT * FROM base_tbl;
   2 | Updated row 2
 (5 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose true, costs off, nodes false)
+=======
+EXPLAIN (costs off)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2
   RETURNING rw_view1_aa(v), v.bb;
                     QUERY PLAN                    
@@ -849,7 +978,11 @@ drop cascades to function rw_view1_aa(rw_view1)
 CREATE USER view_user1;
 CREATE USER view_user2;
 SET SESSION AUTHORIZATION view_user1;
+<<<<<<< HEAD
 CREATE TABLE base_tbl(a int, b text, c float) distribute by replication;
+=======
+CREATE TABLE base_tbl(a int, b text, c float);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO base_tbl VALUES (1, 'Row 1', 1.0);
 CREATE VIEW rw_view1 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
 INSERT INTO rw_view1 VALUES ('Row 2', 2.0, 2);
@@ -860,21 +993,33 @@ GRANT UPDATE (bb,cc) ON rw_view1 TO view_user2;
 RESET SESSION AUTHORIZATION;
 SET SESSION AUTHORIZATION view_user2;
 CREATE VIEW rw_view2 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
+<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1; -- ok
+=======
+SELECT * FROM base_tbl; -- ok
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |   b   | c 
 ---+-------+---
  1 | Row 1 | 1
  2 | Row 2 | 2
 (2 rows)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view1 order by 1; -- ok
+=======
+SELECT * FROM rw_view1; -- ok
+>>>>>>> e472b921406407794bab911c64655b8b82375196
   bb   | cc | aa 
 -------+----+----
  Row 1 |  1 |  1
  Row 2 |  2 |  2
 (2 rows)
 
+<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1; -- ok
+=======
+SELECT * FROM rw_view2; -- ok
+>>>>>>> e472b921406407794bab911c64655b8b82375196
   bb   | cc | aa 
 -------+----+----
  Row 1 |  1 |  1
@@ -915,7 +1060,11 @@ DELETE FROM base_tbl WHERE a=1; -- ok
 DELETE FROM rw_view1 WHERE aa=2; -- not allowed
 ERROR:  permission denied for relation rw_view1
 DELETE FROM rw_view2 WHERE aa=2; -- ok
+<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
+=======
+SELECT * FROM base_tbl;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |   b   | c 
 ---+-------+---
  3 | Row 3 | 3
@@ -938,7 +1087,11 @@ ERROR:  permission denied for relation base_tbl
 DELETE FROM rw_view1 WHERE aa=3; -- ok
 DELETE FROM rw_view2 WHERE aa=4; -- not allowed
 ERROR:  permission denied for relation base_tbl
+<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
+=======
+SELECT * FROM base_tbl;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |   b   | c 
 ---+-------+---
  4 | Row 4 | 4
@@ -961,7 +1114,11 @@ CREATE VIEW rw_view1 AS SELECT a AS aa, b AS bb FROM base_tbl;
 ALTER VIEW rw_view1 ALTER COLUMN bb SET DEFAULT 'View default';
 INSERT INTO rw_view1 VALUES (4, 'Row 4');
 INSERT INTO rw_view1 (aa) VALUES (5);
+<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
+=======
+SELECT * FROM base_tbl;
+>>>>>>> e472b921406407794bab911c64655b8b82375196
  a |      b       | c 
 ---+--------------+---
  1 | Row 1        | 1
@@ -993,12 +1150,21 @@ CREATE TRIGGER rw_view1_ins_trig AFTER INSERT ON base_tbl
   FOR EACH ROW EXECUTE PROCEDURE rw_view1_trig_fn();
 CREATE VIEW rw_view1 AS SELECT a AS aa, b AS bb FROM base_tbl;
 INSERT INTO rw_view1 VALUES (3, 'Row 3');
+<<<<<<< HEAD
 select * from base_tbl order by 1;
  a |   b   
 ---+-------
  1 | Row 3
  2 | Row 2
  3 | Row 3
+=======
+select * from base_tbl;
+ a |   b   
+---+-------
+ 2 | Row 2
+ 3 | Row 3
+ 1 | Row 3
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (3 rows)
 
 DROP VIEW rw_view1;
@@ -1027,6 +1193,7 @@ SELECT * FROM rw_view1;
  4 |  5
 (4 rows)
 
+<<<<<<< HEAD
 EXPLAIN (verbose, costs off, nodes false) UPDATE rw_view1 SET b = b + 1 RETURNING *;
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1038,6 +1205,16 @@ EXPLAIN (verbose, costs off, nodes false) UPDATE rw_view1 SET b = b + 1 RETURNIN
          Output: base_tbl.a, (base_tbl.b + 1), base_tbl.ctid, base_tbl.xc_node_id
          Remote query: SELECT a, b, ctid, xc_node_id FROM ONLY public.base_tbl WHERE true
 (7 rows)
+=======
+EXPLAIN (verbose, costs off) UPDATE rw_view1 SET b = b + 1 RETURNING *;
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Update on public.base_tbl
+   Output: base_tbl.a, base_tbl.b
+   ->  Seq Scan on public.base_tbl
+         Output: base_tbl.a, (base_tbl.b + 1), base_tbl.ctid
+(4 rows)
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 UPDATE rw_view1 SET b = b + 1 RETURNING *;
  a | b  

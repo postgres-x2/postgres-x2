@@ -105,7 +105,11 @@ CREATE SCHEMA schema_one authorization regression_bob;
 CREATE SCHEMA schema_two authorization regression_bob;
 CREATE SCHEMA audit_tbls authorization regression_bob;
 SET SESSION AUTHORIZATION regression_bob;
+<<<<<<< HEAD
 CREATE TABLE schema_one.table_one(a int) distribute by replication;
+=======
+CREATE TABLE schema_one.table_one(a int);
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE schema_one."table two"(a int);
 CREATE TABLE schema_one.table_three(a int);
 CREATE TABLE audit_tbls.schema_one_table_two(the_value text);
@@ -251,6 +255,7 @@ PL/pgSQL function test_evtrig_dropped_objects() line 8 at EXECUTE statement
 NOTICE:  table "schema_one_table_three" does not exist, skipping
 CONTEXT:  SQL statement "DROP TABLE IF EXISTS audit_tbls.schema_one_table_three"
 PL/pgSQL function test_evtrig_dropped_objects() line 8 at EXECUTE statement
+<<<<<<< HEAD
 SELECT * FROM dropped_objects WHERE (schema IS NULL OR schema <> 'pg_toast') AND type <> 'pgxc_class'
 	ORDER BY type, object using ~<~;
      type     |   schema   |               object                
@@ -278,6 +283,34 @@ SELECT * FROM dropped_objects WHERE (schema IS NULL OR schema <> 'pg_toast') AND
  type         | schema_two | schema_two.table_three[]
  type         | schema_two | schema_two.table_two
  type         | schema_two | schema_two.table_two[]
+=======
+SELECT * FROM dropped_objects WHERE schema IS NULL OR schema <> 'pg_toast';
+     type     |   schema   |               object                
+--------------+------------+-------------------------------------
+ table column | schema_one | schema_one.table_one.a
+ schema       |            | schema_two
+ table        | schema_two | schema_two.table_two
+ type         | schema_two | schema_two.table_two
+ type         | schema_two | schema_two.table_two[]
+ table        | audit_tbls | audit_tbls.schema_two_table_three
+ type         | audit_tbls | audit_tbls.schema_two_table_three
+ type         | audit_tbls | audit_tbls.schema_two_table_three[]
+ table        | schema_two | schema_two.table_three
+ type         | schema_two | schema_two.table_three
+ type         | schema_two | schema_two.table_three[]
+ function     | schema_two | schema_two.add(integer,integer)
+ aggregate    | schema_two | schema_two.newton(integer)
+ schema       |            | schema_one
+ table        | schema_one | schema_one.table_one
+ type         | schema_one | schema_one.table_one
+ type         | schema_one | schema_one.table_one[]
+ table        | schema_one | schema_one."table two"
+ type         | schema_one | schema_one."table two"
+ type         | schema_one | schema_one."table two"[]
+ table        | schema_one | schema_one.table_three
+ type         | schema_one | schema_one.table_three
+ type         | schema_one | schema_one.table_three[]
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 (23 rows)
 
 DROP OWNED BY regression_bob;

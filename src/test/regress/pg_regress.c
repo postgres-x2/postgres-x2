@@ -2673,9 +2673,13 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	int			i;
 	int			option_index;
 	char		buf[MAXPGPATH * 4];
+<<<<<<< HEAD
 #ifndef PGXC
 	char		buf2[MAXPGPATH * 4];
 #endif
+=======
+	char		buf2[MAXPGPATH * 4];
+>>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_regress"));
