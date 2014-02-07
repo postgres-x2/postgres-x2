@@ -905,23 +905,12 @@ SELECT count(*) FROM kd_point_tbl WHERE p ~= '(4585, 365)';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
-                         QUERY PLAN                         
-------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t = 'P0123456789abcdef'::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
  count 
@@ -929,23 +918,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
   1000
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
-                         QUERY PLAN                         
-------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t = 'P0123456789abcde'::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
  count 
@@ -953,23 +931,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
-                         QUERY PLAN                         
-------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t = 'P0123456789abcdefF'::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
  count 
@@ -977,7 +944,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -985,16 +951,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t < 'Aztec                         Ct  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
  count 
@@ -1002,7 +958,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         
    272
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1010,16 +965,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t ~<~ 'Aztec                         Ct  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
  count 
@@ -1027,7 +972,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         
    272
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1035,16 +979,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
-                              QUERY PLAN                               
------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t <= 'Aztec                         Ct  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
  count 
@@ -1052,7 +986,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         
    273
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1060,16 +993,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
-                               QUERY PLAN                                
--------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t ~<=~ 'Aztec                         Ct  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
  count 
@@ -1077,23 +1000,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         
    273
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t = 'Aztec                         Ct  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
  count 
@@ -1101,23 +1013,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t = 'Worth                         St  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
  count 
@@ -1125,7 +1026,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         
      2
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
                     QUERY PLAN                    
@@ -1133,16 +1033,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
-                              QUERY PLAN                               
------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t >= 'Worth                         St  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
  count 
@@ -1150,7 +1040,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         
     50
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
                     QUERY PLAN                    
@@ -1158,16 +1047,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
-                               QUERY PLAN                                
--------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t ~>=~ 'Worth                         St  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
  count 
@@ -1175,7 +1054,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         
     50
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
                     QUERY PLAN                    
@@ -1183,16 +1061,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t > 'Worth                         St  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
  count 
@@ -1200,7 +1068,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         
     48
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
                     QUERY PLAN                    
@@ -1208,16 +1075,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Aggregate
-   ->  Index Only Scan using sp_radix_ind on radix_text_tbl
-         Index Cond: (t ~>~ 'Worth                         St  '::text)
-(3 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
  count 
@@ -1483,25 +1340,12 @@ SELECT count(*) FROM kd_point_tbl WHERE p ~= '(4585, 365)';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
-                        QUERY PLAN                         
------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t = 'P0123456789abcdef'::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t = 'P0123456789abcdef'::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
  count 
@@ -1509,25 +1353,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef';
   1000
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
-                        QUERY PLAN                        
-----------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t = 'P0123456789abcde'::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t = 'P0123456789abcde'::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
  count 
@@ -1535,25 +1366,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
-                         QUERY PLAN                         
-------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t = 'P0123456789abcdefF'::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t = 'P0123456789abcdefF'::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
  count 
@@ -1561,7 +1379,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF';
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1569,18 +1386,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t < 'Aztec                         Ct  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t < 'Aztec                         Ct  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  ';
  count 
@@ -1588,7 +1393,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         
    272
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1596,18 +1400,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t ~<~ 'Aztec                         Ct  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t ~<~ 'Aztec                         Ct  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  ';
  count 
@@ -1615,7 +1407,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         
    272
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1623,18 +1414,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t <= 'Aztec                         Ct  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t <= 'Aztec                         Ct  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  ';
  count 
@@ -1642,7 +1421,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         
    273
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
                     QUERY PLAN                    
@@ -1650,18 +1428,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t ~<=~ 'Aztec                         Ct  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t ~<=~ 'Aztec                         Ct  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  ';
  count 
@@ -1669,25 +1435,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         
    273
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t = 'Aztec                         Ct  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t = 'Aztec                         Ct  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  ';
  count 
@@ -1695,25 +1448,12 @@ SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         
      1
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
                 QUERY PLAN                
 ------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
 (1 row)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t = 'Worth                         St  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t = 'Worth                         St  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  ';
  count 
@@ -1721,7 +1461,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         
      2
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
                     QUERY PLAN                    
@@ -1729,18 +1468,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t >= 'Worth                         St  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t >= 'Worth                         St  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  ';
  count 
@@ -1748,7 +1475,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         
     50
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
                     QUERY PLAN                    
@@ -1756,18 +1482,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t ~>=~ 'Worth                         St  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t ~>=~ 'Worth                         St  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  ';
  count 
@@ -1775,7 +1489,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         
     50
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
                     QUERY PLAN                    
@@ -1783,18 +1496,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t > 'Worth                         St  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t > 'Worth                         St  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  ';
  count 
@@ -1802,7 +1503,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         
     48
 (1 row)
 
-<<<<<<< HEAD
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
                     QUERY PLAN                    
@@ -1810,18 +1510,6 @@ SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
-=======
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on radix_text_tbl
-         Recheck Cond: (t ~>~ 'Worth                         St  '::text)
-         ->  Bitmap Index Scan on sp_radix_ind
-               Index Cond: (t ~>~ 'Worth                         St  '::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  ';
  count 
@@ -2476,12 +2164,8 @@ DROP INDEX CONCURRENTLY "concur_index2";				-- works
 ERROR:  PGXC does not support concurrent INDEX yet
 DETAIL:  The feature is not currently supported
 DROP INDEX CONCURRENTLY IF EXISTS "concur_index2";		-- notice
-<<<<<<< HEAD
 ERROR:  PGXC does not support concurrent INDEX yet
 DETAIL:  The feature is not currently supported
-=======
-NOTICE:  index "concur_index2" does not exist, skipping
->>>>>>> e472b921406407794bab911c64655b8b82375196
 -- failures
 DROP INDEX CONCURRENTLY "concur_index2", "concur_index3";
 ERROR:  PGXC does not support concurrent INDEX yet
@@ -2837,7 +2521,6 @@ explain (costs off)
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
 ORDER BY unique1;
-<<<<<<< HEAD
                    QUERY PLAN                    
 -------------------------------------------------
  Sort
@@ -2845,13 +2528,6 @@ ORDER BY unique1;
    ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Node/s: dn1, dn2
 (4 rows)
-=======
-                      QUERY PLAN                       
--------------------------------------------------------
- Index Only Scan using tenk1_unique1 on tenk1
-   Index Cond: (unique1 = ANY ('{1,42,7}'::integer[]))
-(2 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
@@ -2867,21 +2543,12 @@ explain (costs off)
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;
-<<<<<<< HEAD
                    QUERY PLAN                    
 -------------------------------------------------
  Sort
    Sort Key: tenk1.thousand
    ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Node/s: dn1, dn2
-=======
-                                      QUERY PLAN                                      
---------------------------------------------------------------------------------------
- Sort
-   Sort Key: thousand
-   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
-         Index Cond: ((thousand < 2) AND (tenthous = ANY ('{1001,3000}'::integer[])))
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (4 rows)
 
 SELECT thousand, tenthous FROM tenk1

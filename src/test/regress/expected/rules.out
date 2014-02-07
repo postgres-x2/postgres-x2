@@ -2039,11 +2039,8 @@ SELECT viewname, definition FROM pg_views WHERE schemaname <> 'information_schem
                                  |    FROM (pg_class c                                                                                                                                                                                            +
                                  |    LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))                                                                                                                                                     +
                                  |   WHERE (c.relkind = 'v'::"char");
-<<<<<<< HEAD
  pgxc_prepared_xacts             |  SELECT DISTINCT pgxc_prepared_xact.pgxc_prepared_xact                                                                                                                                                         +
                                  |    FROM pgxc_prepared_xact() pgxc_prepared_xact(pgxc_prepared_xact);
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  rtest_v1                        |  SELECT rtest_t1.a,                                                                                                                                                                                            +
                                  |     rtest_t1.b                                                                                                                                                                                                 +
                                  |    FROM rtest_t1;
@@ -2144,11 +2141,7 @@ SELECT viewname, definition FROM pg_views WHERE schemaname <> 'information_schem
                                  |    FROM tv;
  tvvmv                           |  SELECT tvvm.grandtot                                                                                                                                                                                          +
                                  |    FROM tvvm;
-<<<<<<< HEAD
 (65 rows)
-=======
-(64 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT tablename, rulename, definition FROM pg_rules
 	ORDER BY tablename, rulename;
@@ -2416,17 +2409,11 @@ reset client_min_messages;
 -- check corner case where an entirely-dummy subplan is created by
 -- constraint exclusion
 --
-<<<<<<< HEAD
 -- Enforce use of COMMIT instead of 2PC for temporary objects
 SET enforce_two_phase_commit TO off;
 create temp table t1 (a integer primary key) distribute by replication;
 create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1) distribute by replication;
 create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1) distribute by replication;
-=======
-create temp table t1 (a integer primary key);
-create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1);
-create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 create rule t1_ins_1 as on insert to t1
 	where new.a >= 0 and new.a < 10
 	do instead
@@ -2535,43 +2522,27 @@ create rule r1 as on update to rules_src do also
   insert into rules_log values(old.*, 'old'), (new.*, 'new');
 update rules_src set f2 = f2 + 1;
 update rules_src set f2 = f2 * 10;
-<<<<<<< HEAD
 select * from rules_src order by 1,2;
-=======
-select * from rules_src;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  f1 | f2  
 ----+-----
   1 |  30
  11 | 130
 (2 rows)
 
-<<<<<<< HEAD
 select * from rules_log order by 1,2,3;
-=======
-select * from rules_log;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  f1 | f2  | tag 
 ----+-----+-----
   1 |   2 | old
   1 |   3 | new
-<<<<<<< HEAD
   1 |   3 | old
   1 |  30 | new
  11 |  12 | old
  11 |  13 | new
-=======
- 11 |  12 | old
- 11 |  13 | new
-  1 |   3 | old
-  1 |  30 | new
->>>>>>> e472b921406407794bab911c64655b8b82375196
  11 |  13 | old
  11 | 130 | new
 (8 rows)
 
 create rule r2 as on update to rules_src do also
-<<<<<<< HEAD
   values(old.*, 'old'), (new.*, 'new') order by 1,2,3;
 update rules_src set f2 = f2 / 10;
  column1 | column2 | column3 
@@ -2583,35 +2554,17 @@ update rules_src set f2 = f2 / 10;
 (4 rows)
 
 select * from rules_src order by 1,2;
-=======
-  values(old.*, 'old'), (new.*, 'new');
-update rules_src set f2 = f2 / 10;
- column1 | column2 | column3 
----------+---------+---------
-       1 |      30 | old
-       1 |       3 | new
-      11 |     130 | old
-      11 |      13 | new
-(4 rows)
-
-select * from rules_src;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  f1 | f2 
 ----+----
   1 |  3
  11 | 13
 (2 rows)
 
-<<<<<<< HEAD
 select * from rules_log order by 1,2,3;
-=======
-select * from rules_log;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  f1 | f2  | tag 
 ----+-----+-----
   1 |   2 | old
   1 |   3 | new
-<<<<<<< HEAD
   1 |   3 | new
   1 |   3 | old
   1 |  30 | new
@@ -2626,21 +2579,6 @@ select * from rules_log;
 
 create rule r3 as on delete to rules_src do notify rules_src_deletion;
 ERROR:  Rule may not use NOTIFY, it is not yet supported
-=======
- 11 |  12 | old
- 11 |  13 | new
-  1 |   3 | old
-  1 |  30 | new
- 11 |  13 | old
- 11 | 130 | new
-  1 |  30 | old
-  1 |   3 | new
- 11 | 130 | old
- 11 |  13 | new
-(12 rows)
-
-create rule r3 as on delete to rules_src do notify rules_src_deletion;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 \d+ rules_src
                       Table "public.rules_src"
  Column |  Type   | Modifiers | Storage | Stats target | Description 
@@ -2649,7 +2587,6 @@ create rule r3 as on delete to rules_src do notify rules_src_deletion;
  f2     | integer |           | plain   |              | 
 Rules:
     r1 AS
-<<<<<<< HEAD
     ON UPDATE TO rules_src DO  INSERT INTO rules_log (f1, f2, tag) 
   VALUES ("*VALUES*".column1, "*VALUES*".column2, "*VALUES*".column3)
     r2 AS
@@ -2658,15 +2595,6 @@ Rules:
 Has OIDs: no
 Distribute By: HASH(f1)
 Location Nodes: ALL DATANODES
-=======
-    ON UPDATE TO rules_src DO  INSERT INTO rules_log (f1, f2, tag) VALUES (old.f1,old.f2,'old'::text), (new.f1,new.f2,'new'::text)
-    r2 AS
-    ON UPDATE TO rules_src DO  VALUES (old.f1,old.f2,'old'::text), (new.f1,new.f2,'new'::text)
-    r3 AS
-    ON DELETE TO rules_src DO 
- NOTIFY rules_src_deletion
-Has OIDs: no
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 --
 -- check alter rename rule

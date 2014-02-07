@@ -554,7 +554,6 @@ DefineIndex(IndexStmt *stmt,
 					  stmt->excludeOpNames, relationId,
 					  accessMethodName, accessMethodId,
 					  amcanorder, stmt->isconstraint);
-<<<<<<< HEAD
 
 #ifdef PGXC
 	/* Check if index is safely shippable */
@@ -586,8 +585,6 @@ DefineIndex(IndexStmt *stmt,
 							"enforced to remote nodes")));
 }
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * Extra checks when creating a PRIMARY KEY index.
@@ -642,21 +639,12 @@ DefineIndex(IndexStmt *stmt,
 					 allowSystemTableMods,
 					 skip_build || stmt->concurrent,
 					 stmt->concurrent, !check_rights);
-<<<<<<< HEAD
 
 	/* Add any requested comment */
 	if (stmt->idxcomment != NULL)
 		CreateComments(indexRelationId, RelationRelationId, 0,
 					   stmt->idxcomment);
 
-=======
-
-	/* Add any requested comment */
-	if (stmt->idxcomment != NULL)
-		CreateComments(indexRelationId, RelationRelationId, 0,
-					   stmt->idxcomment);
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	if (!stmt->concurrent)
 	{
 		/* Close the heap and we're done, in the non-concurrent case */

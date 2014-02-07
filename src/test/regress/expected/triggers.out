@@ -1171,11 +1171,7 @@ CREATE TABLE country_table (
     country_id        serial primary key,
     country_name    text unique not null,
     continent        text not null
-<<<<<<< HEAD
 ) distribute by replication;
-=======
-);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),
            ('UK', 'Europe'),
@@ -1767,7 +1763,4 @@ select * from self_ref_trigger;
 drop table self_ref_trigger;
 drop function self_ref_trigger_ins_func();
 drop function self_ref_trigger_del_func();
-<<<<<<< HEAD
 RESET enforce_two_phase_commit;
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

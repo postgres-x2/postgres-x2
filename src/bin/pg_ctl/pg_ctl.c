@@ -3,10 +3,7 @@
  * pg_ctl --- start/stops/restarts the PostgreSQL server
  *
  * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
-<<<<<<< HEAD
  * Portions Copyright (c) 2010-2013, Postgres-XC Development Group
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  *
  * src/bin/pg_ctl/pg_ctl.c
  *
@@ -1808,12 +1805,9 @@ do_help(void)
 	printf(_("  -V, --version          output version information, then exit\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
-<<<<<<< HEAD
 #ifdef PGXC
 	printf(_("  -Z NODE-TYPE           can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 	printf(_("If the -D option is omitted, the environment variable PGDATA is used.\n"));

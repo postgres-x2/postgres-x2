@@ -2757,7 +2757,6 @@ select * from tenk1 t1 left join
   (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
   on t1.hundred = t2.hundred and t1.ten = t3.ten
 where t1.unique1 = 1;
-<<<<<<< HEAD
                              QUERY PLAN                             
 --------------------------------------------------------------------
  Hash Right Join
@@ -2770,29 +2769,12 @@ where t1.unique1 = 1;
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__2"
 (9 rows)
-=======
-                       QUERY PLAN                       
---------------------------------------------------------
- Nested Loop Left Join
-   ->  Index Scan using tenk1_unique1 on tenk1 t1
-         Index Cond: (unique1 = 1)
-   ->  Nested Loop
-         Join Filter: (t1.ten = t3.ten)
-         ->  Bitmap Heap Scan on tenk1 t2
-               Recheck Cond: (t1.hundred = hundred)
-               ->  Bitmap Index Scan on tenk1_hundred
-                     Index Cond: (t1.hundred = hundred)
-         ->  Index Scan using tenk1_unique2 on tenk1 t3
-               Index Cond: (unique2 = t2.thousand)
-(11 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 explain (num_nodes off, nodes off, costs off)
 select * from tenk1 t1 left join
   (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
   on t1.hundred = t2.hundred and t1.ten + t2.ten = t3.ten
 where t1.unique1 = 1;
-<<<<<<< HEAD
                              QUERY PLAN                             
 --------------------------------------------------------------------
  Hash Right Join
@@ -2806,29 +2788,12 @@ where t1.unique1 = 1;
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__2"
 (10 rows)
-=======
-                       QUERY PLAN                       
---------------------------------------------------------
- Nested Loop Left Join
-   ->  Index Scan using tenk1_unique1 on tenk1 t1
-         Index Cond: (unique1 = 1)
-   ->  Nested Loop
-         Join Filter: ((t1.ten + t2.ten) = t3.ten)
-         ->  Bitmap Heap Scan on tenk1 t2
-               Recheck Cond: (t1.hundred = hundred)
-               ->  Bitmap Index Scan on tenk1_hundred
-                     Index Cond: (t1.hundred = hundred)
-         ->  Index Scan using tenk1_unique2 on tenk1 t3
-               Index Cond: (unique2 = t2.thousand)
-(11 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 explain (num_nodes off, nodes off, costs off)
 select count(*) from
   tenk1 a join tenk1 b on a.unique1 = b.unique2
   left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand
   join int4_tbl on b.thousand = f1;
-<<<<<<< HEAD
                                    QUERY PLAN                                   
 --------------------------------------------------------------------------------
  Aggregate
@@ -2847,25 +2812,6 @@ select count(*) from
          ->  Hash
                ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__3"
 (15 rows)
-=======
-                               QUERY PLAN                                
--------------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop Left Join
-         Join Filter: (a.unique2 = b.unique1)
-         ->  Nested Loop
-               ->  Nested Loop
-                     ->  Seq Scan on int4_tbl
-                     ->  Bitmap Heap Scan on tenk1 b
-                           Recheck Cond: (thousand = int4_tbl.f1)
-                           ->  Bitmap Index Scan on tenk1_thous_tenthous
-                                 Index Cond: (thousand = int4_tbl.f1)
-               ->  Index Scan using tenk1_unique1 on tenk1 a
-                     Index Cond: (unique1 = b.unique2)
-         ->  Index Only Scan using tenk1_thous_tenthous on tenk1 c
-               Index Cond: (thousand = a.thousand)
-(14 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select count(*) from
   tenk1 a join tenk1 b on a.unique1 = b.unique2
@@ -2887,7 +2833,6 @@ select b.unique1 from
 --------------------------------------------------------------------------------------
  Sort
    Sort Key: b.unique1
-<<<<<<< HEAD
    ->  Hash Right Join
          Hash Cond: (b.tenthous = i2.f1)
          ->  Hash Join
@@ -2907,22 +2852,6 @@ select b.unique1 from
          ->  Hash
                ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__4"
 (20 rows)
-=======
-   ->  Nested Loop Left Join
-         ->  Seq Scan on int4_tbl i2
-         ->  Nested Loop Left Join
-               Join Filter: (b.unique1 = 42)
-               ->  Nested Loop
-                     ->  Nested Loop
-                           ->  Seq Scan on int4_tbl i1
-                           ->  Index Scan using tenk1_thous_tenthous on tenk1 b
-                                 Index Cond: ((thousand = i1.f1) AND (i2.f1 = tenthous))
-                     ->  Index Scan using tenk1_unique1 on tenk1 a
-                           Index Cond: (unique1 = b.unique2)
-               ->  Index Only Scan using tenk1_thous_tenthous on tenk1 c
-                     Index Cond: (thousand = a.thousand)
-(15 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select b.unique1 from
   tenk1 a join tenk1 b on a.unique1 = b.unique2
@@ -2939,11 +2868,7 @@ select b.unique1 from
         
 (5 rows)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
-=======
-explain (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 select * from
 (
   select unique1, q1, coalesce(unique1, -1) + q1 as fault
@@ -2953,7 +2878,6 @@ where fault = 122
 order by fault;
                            QUERY PLAN                            
 -----------------------------------------------------------------
-<<<<<<< HEAD
  Hash Left Join
    Hash Cond: (int8_tbl.q2 = tenk1.unique2)
    Filter: ((COALESCE(tenk1.unique1, (-1)) + int8_tbl.q1) = 122)
@@ -2961,14 +2885,6 @@ order by fault;
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (6 rows)
-=======
- Nested Loop Left Join
-   Filter: ((COALESCE(tenk1.unique1, (-1)) + int8_tbl.q1) = 122)
-   ->  Seq Scan on int8_tbl
-   ->  Index Scan using tenk1_unique2 on tenk1
-         Index Cond: (int8_tbl.q2 = unique2)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select * from
 (
@@ -2985,17 +2901,12 @@ order by fault;
 --
 -- test handling of potential equivalence clauses above outer joins
 --
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
-=======
-explain (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
   where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123);
                                       QUERY PLAN                                      
 --------------------------------------------------------------------------------------
-<<<<<<< HEAD
  Hash Left Join
    Hash Cond: (a.q1 = b.unique2)
    Filter: ((COALESCE(b.thousand, 123) = a.q1) AND (a.q1 = COALESCE(b.hundred, 123)))
@@ -3003,14 +2914,6 @@ select q1, unique2, thousand, hundred
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (6 rows)
-=======
- Nested Loop Left Join
-   Filter: ((COALESCE(b.thousand, 123) = a.q1) AND (a.q1 = COALESCE(b.hundred, 123)))
-   ->  Seq Scan on int8_tbl a
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (a.q1 = unique2)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
@@ -3019,17 +2922,12 @@ select q1, unique2, thousand, hundred
 ----+---------+----------+---------
 (0 rows)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
-=======
-explain (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
   where (case when unique2 is null then f1 else 0 end) = 0;
                              QUERY PLAN                             
 --------------------------------------------------------------------
-<<<<<<< HEAD
  Hash Left Join
    Hash Cond: (a.f1 = b.unique2)
    Filter: (CASE WHEN (b.unique2 IS NULL) THEN a.f1 ELSE 0 END = 0)
@@ -3037,14 +2935,6 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (6 rows)
-=======
- Nested Loop Left Join
-   Filter: (CASE WHEN (b.unique2 IS NULL) THEN a.f1 ELSE 0 END = 0)
-   ->  Seq Scan on int4_tbl a
-   ->  Index Only Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = a.f1)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
@@ -3057,7 +2947,6 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 --
 -- test ability to push constants through outer join clauses
 --
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select * from int4_tbl a left join tenk1 b on f1 = unique2 where f1 = 0;
                        QUERY PLAN                        
@@ -3078,31 +2967,6 @@ explain (costs off, num_nodes off, nodes off)
    ->  Hash
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
 (5 rows)
-=======
-explain (costs off)
-  select * from int4_tbl a left join tenk1 b on f1 = unique2 where f1 = 0;
-                   QUERY PLAN                    
--------------------------------------------------
- Nested Loop Left Join
-   Join Filter: (a.f1 = b.unique2)
-   ->  Seq Scan on int4_tbl a
-         Filter: (f1 = 0)
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = 0)
-(6 rows)
-
-explain (costs off)
-  select * from tenk1 a full join tenk1 b using(unique2) where unique2 = 42;
-                   QUERY PLAN                    
--------------------------------------------------
- Merge Full Join
-   Merge Cond: (a.unique2 = b.unique2)
-   ->  Index Scan using tenk1_unique2 on tenk1 a
-         Index Cond: (unique2 = 42)
-   ->  Index Scan using tenk1_unique2 on tenk1 b
-         Index Cond: (unique2 = 42)
-(6 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 --
 -- test join removal
@@ -3306,7 +3170,6 @@ from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x;
     9998 |  0
 (1 row)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x;
@@ -3314,18 +3177,6 @@ explain (costs off, num_nodes off, nodes off)
 ------------------------------------------
  Data Node Scan on "_REMOTE_TABLE_QUERY_"
 (1 row)
-=======
-explain (costs off)
-  select unique2, x.*
-  from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x;
-                   QUERY PLAN                    
--------------------------------------------------
- Nested Loop
-   ->  Seq Scan on int4_tbl b
-   ->  Index Scan using tenk1_unique1 on tenk1 a
-         Index Cond: (unique1 = b.f1)
-(4 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select unique2, x.*
 from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
@@ -3334,7 +3185,6 @@ from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
     9998 |  0
 (1 row)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
@@ -3350,29 +3200,6 @@ explain (costs off, num_nodes off, nodes off)
 ------------------------------------------
  Data Node Scan on "_REMOTE_TABLE_QUERY_"
 (1 row)
-=======
-explain (costs off)
-  select unique2, x.*
-  from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
-                  QUERY PLAN                   
------------------------------------------------
- Nested Loop
-   ->  Seq Scan on int4_tbl x
-   ->  Index Scan using tenk1_unique1 on tenk1
-         Index Cond: (unique1 = x.f1)
-(4 rows)
-
-explain (costs off)
-  select unique2, x.*
-  from int4_tbl x cross join lateral (select unique2 from tenk1 where f1 = unique1) ss;
-                  QUERY PLAN                   
------------------------------------------------
- Nested Loop
-   ->  Seq Scan on int4_tbl x
-   ->  Index Scan using tenk1_unique1 on tenk1
-         Index Cond: (unique1 = x.f1)
-(4 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 select unique2, x.*
 from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
@@ -3385,7 +3212,6 @@ from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 =
          | -2147483647
 (5 rows)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
@@ -3395,58 +3221,28 @@ explain (costs off, num_nodes off, nodes off)
    Filter: (x.f1 = tenk1.unique1)
    ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
    ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
-=======
-explain (costs off)
-  select unique2, x.*
-  from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
-                  QUERY PLAN                   
------------------------------------------------
- Nested Loop Left Join
-   ->  Seq Scan on int4_tbl x
-   ->  Index Scan using tenk1_unique1 on tenk1
-         Index Cond: (unique1 = x.f1)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (4 rows)
 
 -- check scoping of lateral versus parent references
 -- the first of these should return int8_tbl.q2, the second int8_tbl.q1
-<<<<<<< HEAD
 select *, (select r from (select q1 as q2) x, (select q2 as r) y) from int8_tbl order by 1,2,3;
-=======
-select *, (select r from (select q1 as q2) x, (select q2 as r) y) from int8_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         |         r         
 ------------------+-------------------+-------------------
               123 |               456 |               456
               123 |  4567890123456789 |  4567890123456789
-<<<<<<< HEAD
  4567890123456789 | -4567890123456789 | -4567890123456789
  4567890123456789 |               123 |               123
  4567890123456789 |  4567890123456789 |  4567890123456789
 (5 rows)
 
 select *, (select r from (select q1 as q2) x, lateral (select q2 as r) y) from int8_tbl order by 1,2,3;
-=======
- 4567890123456789 |               123 |               123
- 4567890123456789 |  4567890123456789 |  4567890123456789
- 4567890123456789 | -4567890123456789 | -4567890123456789
-(5 rows)
-
-select *, (select r from (select q1 as q2) x, lateral (select q2 as r) y) from int8_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         |        r         
 ------------------+-------------------+------------------
               123 |               456 |              123
               123 |  4567890123456789 |              123
-<<<<<<< HEAD
  4567890123456789 | -4567890123456789 | 4567890123456789
  4567890123456789 |               123 | 4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789
-=======
- 4567890123456789 |               123 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (5 rows)
 
 -- lateral with function in FROM
@@ -3456,7 +3252,6 @@ select count(*) from tenk1 a, lateral generate_series(1,two) g;
   5000
 (1 row)
 
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select count(*) from tenk1 a, lateral generate_series(1,two) g;
                          QUERY PLAN                         
@@ -3474,30 +3269,10 @@ explain (costs off, num_nodes off, nodes off)
  Aggregate
    ->  Nested Loop
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
-=======
-explain (costs off)
-  select count(*) from tenk1 a, lateral generate_series(1,two) g;
-                   QUERY PLAN                   
-------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         ->  Seq Scan on tenk1 a
-         ->  Function Scan on generate_series g
-(4 rows)
-
-explain (costs off)
-  select count(*) from tenk1 a cross join lateral generate_series(1,two) g;
-                   QUERY PLAN                   
-------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         ->  Seq Scan on tenk1 a
->>>>>>> e472b921406407794bab911c64655b8b82375196
          ->  Function Scan on generate_series g
 (4 rows)
 
 -- don't need the explicit LATERAL keyword for functions
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select count(*) from tenk1 a, generate_series(1,two) g;
                          QUERY PLAN                         
@@ -3505,20 +3280,10 @@ explain (costs off, num_nodes off, nodes off)
  Aggregate
    ->  Nested Loop
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
-=======
-explain (costs off)
-  select count(*) from tenk1 a, generate_series(1,two) g;
-                   QUERY PLAN                   
-------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         ->  Seq Scan on tenk1 a
->>>>>>> e472b921406407794bab911c64655b8b82375196
          ->  Function Scan on generate_series g
 (4 rows)
 
 -- lateral with UNION ALL subselect
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select * from generate_series(100,200) g,
     lateral (select * from int8_tbl a where g = q1 union all
@@ -3532,21 +3297,6 @@ explain (costs off, num_nodes off, nodes off)
                Coordinator quals: (g.g = q1)
          ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
                Coordinator quals: (g.g = q2)
-=======
-explain (costs off)
-  select * from generate_series(100,200) g,
-    lateral (select * from int8_tbl a where g = q1 union all
-             select * from int8_tbl b where g = q2) ss;
-                QUERY PLAN                
-------------------------------------------
- Nested Loop
-   ->  Function Scan on generate_series g
-   ->  Append
-         ->  Seq Scan on int8_tbl a
-               Filter: (g.g = q1)
-         ->  Seq Scan on int8_tbl b
-               Filter: (g.g = q2)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (7 rows)
 
 select * from generate_series(100,200) g,
@@ -3560,32 +3310,19 @@ select * from generate_series(100,200) g,
 (3 rows)
 
 -- lateral with VALUES
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
-=======
-explain (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
   select count(*) from tenk1 a,
     tenk1 b join lateral (values(a.unique1)) ss(x) on b.unique2 = ss.x;
                             QUERY PLAN                            
 ------------------------------------------------------------------
  Aggregate
    ->  Hash Join
-<<<<<<< HEAD
          Hash Cond: ("*VALUES*".column1 = unique2)
          ->  Nested Loop
                ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
                ->  Values Scan on "*VALUES*"
          ->  Hash
                ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
-=======
-         Hash Cond: ("*VALUES*".column1 = b.unique2)
-         ->  Nested Loop
-               ->  Index Only Scan using tenk1_unique1 on tenk1 a
-               ->  Values Scan on "*VALUES*"
-         ->  Hash
-               ->  Index Only Scan using tenk1_unique2 on tenk1 b
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (8 rows)
 
 select count(*) from tenk1 a,
@@ -3596,7 +3333,6 @@ select count(*) from tenk1 a,
 (1 row)
 
 -- lateral injecting a strange outer join condition
-<<<<<<< HEAD
 explain (costs off, num_nodes off, nodes off)
   select * from int8_tbl a,
     int8_tbl x left join lateral (select a.q1 from int4_tbl y) ss(z)
@@ -3610,60 +3346,31 @@ explain (costs off, num_nodes off, nodes off)
          ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__2"
          ->  Hash
                ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
-=======
-explain (costs off)
-  select * from int8_tbl a,
-    int8_tbl x left join lateral (select a.q1 from int4_tbl y) ss(z)
-      on x.q2 = ss.z;
-                QUERY PLAN                
-------------------------------------------
- Nested Loop
-   ->  Seq Scan on int8_tbl a
-   ->  Hash Left Join
-         Hash Cond: (x.q2 = (a.q1))
-         ->  Seq Scan on int8_tbl x
-         ->  Hash
-               ->  Seq Scan on int4_tbl y
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (7 rows)
 
 select * from int8_tbl a,
   int8_tbl x left join lateral (select a.q1 from int4_tbl y) ss(z)
-<<<<<<< HEAD
     on x.q2 = ss.z order by 1,2,3,4,5;
-=======
-    on x.q2 = ss.z;
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         |        q1        |        q2         |        z         
 ------------------+-------------------+------------------+-------------------+------------------
               123 |               456 |              123 |               456 |                 
               123 |               456 |              123 |  4567890123456789 |                 
-<<<<<<< HEAD
               123 |               456 | 4567890123456789 | -4567890123456789 |                 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
               123 |               456 | 4567890123456789 |               123 |              123
               123 |               456 | 4567890123456789 |               123 |              123
               123 |               456 | 4567890123456789 |               123 |              123
               123 |               456 | 4567890123456789 |               123 |              123
               123 |               456 | 4567890123456789 |               123 |              123
               123 |               456 | 4567890123456789 |  4567890123456789 |                 
-<<<<<<< HEAD
               123 |  4567890123456789 |              123 |               456 |                 
               123 |  4567890123456789 |              123 |  4567890123456789 |                 
               123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |                 
-=======
-              123 |               456 | 4567890123456789 | -4567890123456789 |                 
-              123 |  4567890123456789 |              123 |               456 |                 
-              123 |  4567890123456789 |              123 |  4567890123456789 |                 
->>>>>>> e472b921406407794bab911c64655b8b82375196
               123 |  4567890123456789 | 4567890123456789 |               123 |              123
               123 |  4567890123456789 | 4567890123456789 |               123 |              123
               123 |  4567890123456789 | 4567890123456789 |               123 |              123
               123 |  4567890123456789 | 4567890123456789 |               123 |              123
               123 |  4567890123456789 | 4567890123456789 |               123 |              123
               123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |                 
-<<<<<<< HEAD
  4567890123456789 | -4567890123456789 |              123 |               456 |                 
  4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
@@ -3677,62 +3384,32 @@ select * from int8_tbl a,
  4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
-=======
-              123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |                 
->>>>>>> e472b921406407794bab911c64655b8b82375196
  4567890123456789 |               123 |              123 |               456 |                 
  4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789
-<<<<<<< HEAD
  4567890123456789 |               123 | 4567890123456789 | -4567890123456789 |                 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  4567890123456789 |               123 | 4567890123456789 |               123 |                 
  4567890123456789 |               123 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |               123 | 4567890123456789 |  4567890123456789 | 4567890123456789
-<<<<<<< HEAD
-=======
- 4567890123456789 |               123 | 4567890123456789 | -4567890123456789 |                 
->>>>>>> e472b921406407794bab911c64655b8b82375196
  4567890123456789 |  4567890123456789 |              123 |               456 |                 
  4567890123456789 |  4567890123456789 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 |              123 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 |              123 |  4567890123456789 | 4567890123456789
-<<<<<<< HEAD
  4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 |                 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  4567890123456789 |  4567890123456789 | 4567890123456789 |               123 |                 
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
-<<<<<<< HEAD
-=======
- 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 |                 
- 4567890123456789 | -4567890123456789 |              123 |               456 |                 
- 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 |               123 |                 
- 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 | -4567890123456789 |                 
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (57 rows)
 
 -- lateral reference to a join alias variable
@@ -3744,7 +3421,6 @@ select * from (select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1,
 (1 row)
 
 select * from (select f1 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1,
-<<<<<<< HEAD
   lateral (values(x)) ss2(y) ORDER BY 1,2,3;
       x      |     f1      |      y      
 -------------+-------------+-------------
@@ -3753,16 +3429,6 @@ select * from (select f1 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1,
            0 |           0 |           0
       123456 |      123456 |      123456
   2147483647 |  2147483647 |  2147483647
-=======
-  lateral (values(x)) ss2(y);
-      x      |     f1      |      y      
--------------+-------------+-------------
-           0 |           0 |           0
-      123456 |      123456 |      123456
-     -123456 |     -123456 |     -123456
-  2147483647 |  2147483647 |  2147483647
- -2147483647 | -2147483647 | -2147483647
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (5 rows)
 
 select * from ((select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1) j,
@@ -3784,7 +3450,6 @@ select * from (values(1)) x(lb),
 (4 rows)
 
 select * from (select f1/1000000000 from int4_tbl) x(lb),
-<<<<<<< HEAD
   lateral generate_series(lb,4) x4 ORDER BY 1, 2;
  lb | x4 
 ----+----
@@ -3809,39 +3474,10 @@ select * from (select f1/1000000000 from int4_tbl) x(lb),
   0 |  3
   0 |  4
   0 |  4
-=======
-  lateral generate_series(lb,4) x4;
- lb | x4 
-----+----
-  0 |  0
-  0 |  1
-  0 |  2
-  0 |  3
-  0 |  4
-  0 |  0
-  0 |  1
-  0 |  2
-  0 |  3
-  0 |  4
-  0 |  0
-  0 |  1
-  0 |  2
-  0 |  3
->>>>>>> e472b921406407794bab911c64655b8b82375196
   0 |  4
   2 |  2
   2 |  3
   2 |  4
-<<<<<<< HEAD
-=======
- -2 | -2
- -2 | -1
- -2 |  0
- -2 |  1
- -2 |  2
- -2 |  3
- -2 |  4
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (25 rows)
 
 select * from (values(1)) x(lb),
@@ -3864,16 +3500,11 @@ select * from (values(1)) x(lb),
 
 select * from
   int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1,
-<<<<<<< HEAD
   lateral (values(x.q1,y.q1,y.q2)) v(xq1,yq1,yq2) ORDER BY 1,2,3,4,5,6,7;
-=======
-  lateral (values(x.q1,y.q1,y.q2)) v(xq1,yq1,yq2);
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         |        q1        |        q2         |       xq1        |       yq1        |        yq2        
 ------------------+-------------------+------------------+-------------------+------------------+------------------+-------------------
               123 |               456 |                  |                   |              123 |                  |                  
               123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |              123 | 4567890123456789 | -4567890123456789
-<<<<<<< HEAD
               123 |  4567890123456789 | 4567890123456789 |               123 |              123 | 4567890123456789 |               123
               123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |              123 | 4567890123456789 |  4567890123456789
  4567890123456789 | -4567890123456789 |                  |                   | 4567890123456789 |                  |                  
@@ -3882,30 +3513,15 @@ select * from
  4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789 | 4567890123456789 | -4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789 | 4567890123456789 |               123
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 |  4567890123456789
-=======
-              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |              123 | 4567890123456789 |  4567890123456789
-              123 |  4567890123456789 | 4567890123456789 |               123 |              123 | 4567890123456789 |               123
- 4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789 |              123 |  4567890123456789
- 4567890123456789 |               123 |              123 |               456 | 4567890123456789 |              123 |               456
- 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789 | 4567890123456789 | -4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 |  4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789 | 4567890123456789 |               123
- 4567890123456789 | -4567890123456789 |                  |                   | 4567890123456789 |                  |                  
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (10 rows)
 
 select * from
   int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1,
-<<<<<<< HEAD
   lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2) ORDER BY 1,2,3,4,5,6,7;
-=======
-  lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2);
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         |        q1        |        q2         |       xq1        |       yq1        |        yq2        
 ------------------+-------------------+------------------+-------------------+------------------+------------------+-------------------
               123 |               456 |                  |                   |              123 |                  |                  
               123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |              123 | 4567890123456789 | -4567890123456789
-<<<<<<< HEAD
               123 |  4567890123456789 | 4567890123456789 |               123 |              123 | 4567890123456789 |               123
               123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |              123 | 4567890123456789 |  4567890123456789
  4567890123456789 | -4567890123456789 |                  |                   | 4567890123456789 |                  |                  
@@ -3914,50 +3530,28 @@ select * from
  4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789 | 4567890123456789 | -4567890123456789
  4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789 | 4567890123456789 |               123
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 |  4567890123456789
-=======
-              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |              123 | 4567890123456789 |  4567890123456789
-              123 |  4567890123456789 | 4567890123456789 |               123 |              123 | 4567890123456789 |               123
- 4567890123456789 |               123 |              123 |  4567890123456789 | 4567890123456789 |              123 |  4567890123456789
- 4567890123456789 |               123 |              123 |               456 | 4567890123456789 |              123 |               456
- 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789 | 4567890123456789 | -4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 |  4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789 | 4567890123456789 |               123
- 4567890123456789 | -4567890123456789 |                  |                   | 4567890123456789 |                  |                  
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (10 rows)
 
 select x.* from
   int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1,
-<<<<<<< HEAD
   lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2) ORDER BY 1,2;
-=======
-  lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2);
->>>>>>> e472b921406407794bab911c64655b8b82375196
         q1        |        q2         
 ------------------+-------------------
               123 |               456
               123 |  4567890123456789
               123 |  4567890123456789
               123 |  4567890123456789
-<<<<<<< HEAD
  4567890123456789 | -4567890123456789
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  4567890123456789 |               123
  4567890123456789 |               123
  4567890123456789 |  4567890123456789
  4567890123456789 |  4567890123456789
  4567890123456789 |  4567890123456789
-<<<<<<< HEAD
-=======
- 4567890123456789 | -4567890123456789
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (10 rows)
 
 select v.* from
   (int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1)
   left join int4_tbl z on z.f1 = x.q2,
-<<<<<<< HEAD
   lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy) ORDER BY 1,2;
         vx         |        vy         
 -------------------+-------------------
@@ -3981,37 +3575,11 @@ select v.* from
   4567890123456789 |  4567890123456789
   4567890123456789 |  4567890123456789
   4567890123456789 |                  
-=======
-  lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy);
-        vx         |        vy         
--------------------+-------------------
-               123 |                  
-               456 |                  
-               123 |  4567890123456789
-  4567890123456789 | -4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |  4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |               123
-               123 |  4567890123456789
-  4567890123456789 |               123
-               123 |               456
-  4567890123456789 |  4567890123456789
-  4567890123456789 | -4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |                  
- -4567890123456789 |                  
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (20 rows)
 
 select v.* from
   (int8_tbl x left join (select q1,(select coalesce(q2,0)) q2 from int8_tbl) y on x.q2 = y.q1)
   left join int4_tbl z on z.f1 = x.q2,
-<<<<<<< HEAD
   lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy) ORDER BY 1,2;
         vx         |        vy         
 -------------------+-------------------
@@ -4035,31 +3603,6 @@ select v.* from
   4567890123456789 |  4567890123456789
   4567890123456789 |  4567890123456789
   4567890123456789 |                  
-=======
-  lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy);
-        vx         |        vy         
--------------------+-------------------
-               123 |                  
-               456 |                  
-               123 |  4567890123456789
-  4567890123456789 | -4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |  4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |               123
-               123 |  4567890123456789
-  4567890123456789 |               123
-               123 |               456
-  4567890123456789 |  4567890123456789
-  4567890123456789 | -4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |                  
- -4567890123456789 |                  
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (20 rows)
 
 create temp table dual();
@@ -4068,7 +3611,6 @@ analyze dual;
 select v.* from
   (int8_tbl x left join (select q1,(select coalesce(q2,0)) q2 from int8_tbl) y on x.q2 = y.q1)
   left join int4_tbl z on z.f1 = x.q2,
-<<<<<<< HEAD
   lateral (select x.q1,y.q1 from dual union all select x.q2,y.q2 from dual) v(vx,vy) ORDER BY 1,2;
         vx         |        vy         
 -------------------+-------------------
@@ -4096,35 +3638,6 @@ select v.* from
 
 -- case requiring nested PlaceHolderVars
 explain (verbose, num_nodes off, nodes off, costs off)
-=======
-  lateral (select x.q1,y.q1 from dual union all select x.q2,y.q2 from dual) v(vx,vy);
-        vx         |        vy         
--------------------+-------------------
-               123 |                  
-               456 |                  
-               123 |  4567890123456789
-  4567890123456789 | -4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |  4567890123456789
-               123 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |               123
-               123 |  4567890123456789
-  4567890123456789 |               123
-               123 |               456
-  4567890123456789 |  4567890123456789
-  4567890123456789 | -4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |  4567890123456789
-  4567890123456789 |               123
-  4567890123456789 |                  
- -4567890123456789 |                  
-(20 rows)
-
--- case requiring nested PlaceHolderVars
-explain (verbose, costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 select * from
   int8_tbl c left join (
     int8_tbl a left join (select q1, coalesce(q2,42) as x from int8_tbl b) ss1
@@ -4145,7 +3658,6 @@ select * from
                ->  Hash Left Join
                      Output: a.q1, a.q2, b.q1, (COALESCE(b.q2, 42::bigint))
                      Hash Cond: (a.q2 = b.q1)
-<<<<<<< HEAD
                      ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
                            Output: a.q1, a.q2
                            Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl a WHERE true
@@ -4165,25 +3677,6 @@ select * from
    ->  Result
          Output: (COALESCE((COALESCE(b.q2, 42::bigint)), d.q2))
 (28 rows)
-=======
-                     ->  Seq Scan on public.int8_tbl a
-                           Output: a.q1, a.q2
-                     ->  Hash
-                           Output: b.q1, (COALESCE(b.q2, 42::bigint))
-                           ->  Seq Scan on public.int8_tbl b
-                                 Output: b.q1, COALESCE(b.q2, 42::bigint)
-               ->  Materialize
-                     Output: d.q1, d.q2
-                     ->  Seq Scan on public.int8_tbl d
-                           Output: d.q1, d.q2
-         ->  Hash
-               Output: c.q1, c.q2
-               ->  Seq Scan on public.int8_tbl c
-                     Output: c.q1, c.q2
-   ->  Result
-         Output: (COALESCE((COALESCE(b.q2, 42::bigint)), d.q2))
-(26 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;

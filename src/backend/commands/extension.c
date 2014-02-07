@@ -1380,12 +1380,9 @@ CreateExtension(CreateExtensionStmt *stmt)
 			csstmt->authid = NULL;		/* will be created by current user */
 			csstmt->schemaElts = NIL;
 			csstmt->if_not_exists = false;
-<<<<<<< HEAD
 #ifdef PGXC
 			CreateSchemaCommand(csstmt, NULL, true);
 #else
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			CreateSchemaCommand(csstmt, NULL);
 #endif
 

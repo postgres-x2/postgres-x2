@@ -5612,7 +5612,6 @@ xact_redo(XLogRecPtr lsn, XLogRecord *record)
 	else
 		elog(PANIC, "xact_redo: unknown op code %u", info);
 }
-<<<<<<< HEAD
 
 #ifdef PGXC
 /*
@@ -5793,5 +5792,3 @@ IsPGXCNodeXactDatanodeDirect(void)
 		   !IsConnFromCoord();
 }
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

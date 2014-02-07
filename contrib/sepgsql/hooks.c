@@ -367,7 +367,6 @@ sepgsql_utility_command(Node *parsetree,
 		if (next_ProcessUtility_hook)
 			(*next_ProcessUtility_hook) (parsetree, queryString,
 										 context, params,
-<<<<<<< HEAD
 										 dest,
 #ifdef PGXC
 										 sentToRemote,
@@ -381,13 +380,6 @@ sepgsql_utility_command(Node *parsetree,
 									sentToRemote,
 #endif
 									completionTag);
-=======
-										 dest, completionTag);
-		else
-			standard_ProcessUtility(parsetree, queryString,
-									context, params,
-									dest, completionTag);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 	PG_CATCH();
 	{

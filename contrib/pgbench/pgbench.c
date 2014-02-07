@@ -151,12 +151,9 @@ char	   *index_tablespace = NULL;
 #define ntellers	10
 #define naccounts	100000
 
-<<<<<<< HEAD
 #ifdef PGXC
 bool		use_branch = false;	/* use branch id in DDL and DML */
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 /*
  * The scale factor at/beyond which 32bit integers are incapable of storing
  * 64bit values.
@@ -374,12 +371,9 @@ usage(void)
 		   "\nInitialization options:\n"
 		   "  -i           invokes initialization mode\n"
 		   "  -F NUM       fill factor\n"
-<<<<<<< HEAD
 #ifdef PGXC
 		   "  -k           distribute by primary key branch id - bid\n"
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		   "  -n           do not run VACUUM after initialization\n"
 		   "  -q           quiet logging (one message each 5 seconds)\n"
 		   "  -s NUM       scaling factor\n"
@@ -1015,7 +1009,6 @@ top:
 				diff = now;
 				INSTR_TIME_SUBTRACT(diff, st->txn_begin);
 				usec = (double) INSTR_TIME_GET_MICROSEC(diff);
-<<<<<<< HEAD
 
 				/* should we aggregate the results or not? */
 				if (agg_interval > 0)
@@ -1030,22 +1023,6 @@ top:
 						agg->sum += usec;
 						agg->sum2 += usec * usec;
 
-=======
-
-				/* should we aggregate the results or not? */
-				if (agg_interval > 0)
-				{
-					/*
-					 * are we still in the same interval? if yes, accumulate
-					 * the values (print them otherwise)
-					 */
-					if (agg->start_time + agg_interval >= INSTR_TIME_GET_DOUBLE(now))
-					{
-						agg->cnt += 1;
-						agg->sum += usec;
-						agg->sum2 += usec * usec;
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 						/* first in this aggregation interval */
 						if ((agg->cnt == 1) || (usec < agg->min_duration))
 							agg->min_duration = usec;
@@ -1541,15 +1518,12 @@ init(bool is_no_vacuum)
 	};
 	struct ddlinfo DDLs[] = {
 		{
-<<<<<<< HEAD
 			"pgbench_branches",
 			"bid int not null,bbalance int,filler char(88)",
 			1
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			"pgbench_history",
 			scale >= SCALE_32BIT_THRESHOLD
 			? "tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)"
@@ -1578,12 +1552,9 @@ init(bool is_no_vacuum)
 			"pgbench_branches",
 			"bid int not null,bbalance int,filler char(88)",
 			1
-<<<<<<< HEAD
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		}
 	};
 
@@ -1599,7 +1570,6 @@ init(bool is_no_vacuum)
 		"alter table pgbench_history add foreign key (tid) references pgbench_tellers",
 		"alter table pgbench_history add foreign key (aid) references pgbench_accounts"
 	};
-<<<<<<< HEAD
 
 #ifdef PGXC
 	static char *DDLAFTERs_bid[] = {
@@ -1608,8 +1578,6 @@ init(bool is_no_vacuum)
 		"alter table pgbench_accounts add primary key (aid,bid)"
 	};
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	PGconn	   *con;
 	PGresult   *res;
@@ -1778,7 +1746,6 @@ init(bool is_no_vacuum)
 	 * create indexes
 	 */
 	fprintf(stderr, "set primary keys...\n");
-<<<<<<< HEAD
 #ifdef PGXC
 	/*
 	 * If all the tables are distributed according to bid, create an index on it
@@ -1808,8 +1775,6 @@ init(bool is_no_vacuum)
 	}
 	else
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	for (i = 0; i < lengthof(DDLAFTERs); i++)
 	{
 		char		buffer[256];
@@ -2326,15 +2291,11 @@ main(int argc, char **argv)
 	state = (CState *) pg_malloc(sizeof(CState));
 	memset(state, 0, sizeof(CState));
 
-<<<<<<< HEAD
 #ifdef PGXC
 	while ((c = getopt_long(argc, argv, "ih:knvp:dSNc:j:Crs:t:T:U:lf:D:F:M:", long_options, &optindex)) != -1)
 #else
 	while ((c = getopt_long(argc, argv, "ih:nvp:dqSNc:j:Crs:t:T:U:lf:D:F:M:", long_options, &optindex)) != -1)
 #endif
-=======
-	while ((c = getopt_long(argc, argv, "ih:nvp:dqSNc:j:Crs:t:T:U:lf:D:F:M:", long_options, &optindex)) != -1)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	{
 		switch (c)
 		{

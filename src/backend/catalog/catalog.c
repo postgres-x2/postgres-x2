@@ -37,13 +37,10 @@
 #include "catalog/pg_shseclabel.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/toasting.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 #include "common/relpath.h"
 #include "miscadmin.h"
 #include "storage/fd.h"

@@ -241,15 +241,11 @@ static void pgss_ExecutorFinish(QueryDesc *queryDesc);
 static void pgss_ExecutorEnd(QueryDesc *queryDesc);
 static void pgss_ProcessUtility(Node *parsetree, const char *queryString,
 					ProcessUtilityContext context, ParamListInfo params,
-<<<<<<< HEAD
 					DestReceiver *dest,
 #ifdef PGXC
 					bool sentToRemote,
 #endif /* PGXC */
 					char *completionTag);
-=======
-					DestReceiver *dest, char *completionTag);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 static uint32 pgss_hash_fn(const void *key, Size keysize);
 static int	pgss_match_fn(const void *key1, const void *key2, Size keysize);
 static uint32 pgss_hash_string(const char *str);
@@ -794,15 +790,11 @@ pgss_ExecutorEnd(QueryDesc *queryDesc)
 static void
 pgss_ProcessUtility(Node *parsetree, const char *queryString,
 					ProcessUtilityContext context, ParamListInfo params,
-<<<<<<< HEAD
 					DestReceiver *dest,
 #ifdef PGXC
 					bool sentToRemote,
 #endif /* PGXC */
 					char *completionTag)
-=======
-					DestReceiver *dest, char *completionTag)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 {
 	/*
 	 * If it's an EXECUTE statement, we don't track it and don't increment the
@@ -836,7 +828,6 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 			if (prev_ProcessUtility)
 				prev_ProcessUtility(parsetree, queryString,
 									context, params,
-<<<<<<< HEAD
 									dest,
 #ifdef PGXC
 									sentToRemote,
@@ -850,13 +841,6 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 										sentToRemote,
 #endif /* PGXC */
 										completionTag);
-=======
-									dest, completionTag);
-			else
-				standard_ProcessUtility(parsetree, queryString,
-										context, params,
-										dest, completionTag);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			nested_level--;
 		}
 		PG_CATCH();
@@ -915,7 +899,6 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 		if (prev_ProcessUtility)
 			prev_ProcessUtility(parsetree, queryString,
 								context, params,
-<<<<<<< HEAD
 								dest,
 #ifdef PGXC
 								sentToRemote,
@@ -929,13 +912,6 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 									sentToRemote,
 #endif /* PGXC */
 									completionTag);
-=======
-								dest, completionTag);
-		else
-			standard_ProcessUtility(parsetree, queryString,
-									context, params,
-									dest, completionTag);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 }
 

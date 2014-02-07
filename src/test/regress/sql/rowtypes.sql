@@ -110,20 +110,11 @@ where (unique1, unique2) < any (select ten, ten from tenk1 where hundred < 3)
 order by 1;
 
 -- Also check row comparison with an indexable condition
-<<<<<<< HEAD
 explain (num_nodes off, nodes off, costs off)
-=======
-explain (costs off)
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
 order by thousand, tenthous;
 
->>>>>>> e472b921406407794bab911c64655b8b82375196
-select thousand, tenthous from tenk1
-where (thousand, tenthous) >= (997, 5000)
-order by thousand, tenthous;
-
-<<<<<<< HEAD
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
 order by thousand, tenthous;
@@ -132,21 +123,11 @@ order by thousand, tenthous;
 select * from int8_tbl i8 where i8 in (row(123,456));  -- fail, type mismatch
 
 explain (num_nodes off, nodes off, costs off)
-=======
--- Check row comparisons with IN
-select * from int8_tbl i8 where i8 in (row(123,456));  -- fail, type mismatch
-
-explain (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
 
 select * from int8_tbl i8
-<<<<<<< HEAD
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)') order by 1, 2;
-=======
-where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 -- Check some corner cases involving empty rowtypes
 select ROW();

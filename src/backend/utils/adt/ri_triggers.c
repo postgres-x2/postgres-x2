@@ -262,7 +262,6 @@ RI_FKey_check(TriggerData *trigdata)
 	SPIPlanPtr	qplan;
 	int			i;
 
-<<<<<<< HEAD
 #ifdef PGXC
 	/* 
 	 * Referential integrity is not supported on Coordinator as it has no data, so
@@ -272,8 +271,6 @@ RI_FKey_check(TriggerData *trigdata)
 		return PointerGetDatum(NULL);
 #endif
 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	/*
 	 * Get arguments.
 	 */
@@ -618,7 +615,6 @@ RI_FKey_noaction_del(PG_FUNCTION_ARGS)
 
 	/*
 	 * Share code with RESTRICT case.
-<<<<<<< HEAD
 	 */
 	return ri_restrict_del((TriggerData *) fcinfo->context, true);
 }
@@ -641,39 +637,10 @@ RI_FKey_restrict_del(PG_FUNCTION_ARGS)
 	 * Check that this is a valid trigger call on the right time and event.
 	 */
 	ri_CheckTrigger(fcinfo, "RI_FKey_restrict_del", RI_TRIGTYPE_DELETE);
-=======
-	 */
-	return ri_restrict_del((TriggerData *) fcinfo->context, true);
-}
->>>>>>> e472b921406407794bab911c64655b8b82375196
-
-/* ----------
- * RI_FKey_restrict_del -
- *
- *	Restrict delete from PK table to rows unreferenced by foreign key.
- *
- *	The SQL standard intends that this referential action occur exactly when
- *	the delete is performed, rather than after.  This appears to be
- *	the only difference between "NO ACTION" and "RESTRICT".  In Postgres
- *	we still implement this as an AFTER trigger, but it's non-deferrable.
- * ----------
- */
-Datum
-RI_FKey_restrict_del(PG_FUNCTION_ARGS)
-{
-	/*
-<<<<<<< HEAD
-	 * Share code with NO ACTION case.
-	 */
-=======
-	 * Check that this is a valid trigger call on the right time and event.
-	 */
-	ri_CheckTrigger(fcinfo, "RI_FKey_restrict_del", RI_TRIGTYPE_DELETE);
 
 	/*
 	 * Share code with NO ACTION case.
 	 */
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	return ri_restrict_del((TriggerData *) fcinfo->context, false);
 }
 

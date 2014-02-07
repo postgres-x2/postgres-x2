@@ -1415,7 +1415,6 @@ EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_normal
 --------------------------------------------------------------------------------
  Nested Loop
    Join Filter: (l.cid = r.cid)
-<<<<<<< HEAD
    ->  Subquery Scan on l
          Filter: f_leak(l.cnum)
          ->  Hash Join
@@ -1426,20 +1425,6 @@ EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_normal
                            Coordinator quals: (name = ("current_user"())::text)
    ->  Data Node Scan on credit_usage "_REMOTE_TABLE_QUERY_"
 (11 rows)
-=======
-   ->  Seq Scan on credit_usage r
-         Filter: ((ymd >= '10-01-2011'::date) AND (ymd < '11-01-2011'::date))
-   ->  Materialize
-         ->  Subquery Scan on l
-               Filter: f_leak(l.cnum)
-               ->  Hash Join
-                     Hash Cond: (r_1.cid = l_1.cid)
-                     ->  Seq Scan on credit_card r_1
-                     ->  Hash
-                           ->  Seq Scan on customer l_1
-                                 Filter: (name = ("current_user"())::text)
-(13 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 SELECT * FROM my_credit_card_usage_secure
        WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01';
@@ -1461,7 +1446,6 @@ EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_secure
    Filter: f_leak(my_credit_card_usage_secure.cnum)
    ->  Nested Loop
          Join Filter: (l.cid = r.cid)
-<<<<<<< HEAD
          ->  Hash Join
                Hash Cond: (r.cid = l.cid)
                ->  Data Node Scan on credit_card "_REMOTE_TABLE_QUERY_"
@@ -1470,18 +1454,6 @@ EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_secure
                            Coordinator quals: (name = ("current_user"())::text)
          ->  Data Node Scan on credit_usage "_REMOTE_TABLE_QUERY_"
 (11 rows)
-=======
-         ->  Seq Scan on credit_usage r
-               Filter: ((ymd >= '10-01-2011'::date) AND (ymd < '11-01-2011'::date))
-         ->  Materialize
-               ->  Hash Join
-                     Hash Cond: (r_1.cid = l.cid)
-                     ->  Seq Scan on credit_card r_1
-                     ->  Hash
-                           ->  Seq Scan on customer l
-                                 Filter: (name = ("current_user"())::text)
-(13 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 --
 -- Test for the case when security_barrier gets changed between rewriter

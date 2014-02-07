@@ -72,11 +72,7 @@ DROP SEQUENCE seq CASCADE;
 
 -- simple updatable view
 
-<<<<<<< HEAD
 CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified') distribute by replication;
-=======
-CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified');
->>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) g(i);
 
 CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a>0;
@@ -98,17 +94,10 @@ INSERT INTO rw_view1 VALUES (3, 'Row 3');
 INSERT INTO rw_view1 (a) VALUES (4);
 UPDATE rw_view1 SET a=5 WHERE a=4;
 DELETE FROM rw_view1 WHERE b='Row 2';
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
 
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view1 SET a=6 WHERE a=5;
 EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view1 WHERE a=5;
-=======
-SELECT * FROM base_tbl;
-
-EXPLAIN (costs off) UPDATE rw_view1 SET a=6 WHERE a=5;
-EXPLAIN (costs off) DELETE FROM rw_view1 WHERE a=5;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 
@@ -135,7 +124,6 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3');
 INSERT INTO rw_view2 (aaa) VALUES (4);
-<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
 UPDATE rw_view2 SET bbb='Row 4' WHERE aaa=4;
 DELETE FROM rw_view2 WHERE aaa=2;
@@ -143,15 +131,6 @@ SELECT * FROM rw_view2 order by 1;
 
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET aaa=5 WHERE aaa=4;
 EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE aaa=4;
-=======
-SELECT * FROM rw_view2;
-UPDATE rw_view2 SET bbb='Row 4' WHERE aaa=4;
-DELETE FROM rw_view2 WHERE aaa=2;
-SELECT * FROM rw_view2;
-
-EXPLAIN (costs off) UPDATE rw_view2 SET aaa=5 WHERE aaa=4;
-EXPLAIN (costs off) DELETE FROM rw_view2 WHERE aaa=4;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 
@@ -234,21 +213,12 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *;
 UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
-<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
 DELETE FROM rw_view2 WHERE a=3 RETURNING *;
 SELECT * FROM rw_view2 order by 1;
 
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET a=3 WHERE a=2;
 EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE a=2;
-=======
-SELECT * FROM rw_view2;
-DELETE FROM rw_view2 WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2;
-
-EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
-EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 
@@ -357,21 +327,12 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *;
 UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
-<<<<<<< HEAD
 SELECT * FROM rw_view2 order by 1;
 DELETE FROM rw_view2 WHERE a=3 RETURNING *;
 SELECT * FROM rw_view2 order by 1;
 
 EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view2 SET a=3 WHERE a=2;
 EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view2 WHERE a=2;
-=======
-SELECT * FROM rw_view2;
-DELETE FROM rw_view2 WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2;
-
-EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
-EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 DROP FUNCTION rw_view1_trig_fn();
@@ -388,15 +349,9 @@ CREATE FUNCTION rw_view1_aa(x rw_view1)
 
 UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2
   RETURNING rw_view1_aa(v), v.bb;
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
 
 EXPLAIN (verbose true, costs off, nodes false)
-=======
-SELECT * FROM base_tbl;
-
-EXPLAIN (costs off)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2
   RETURNING rw_view1_aa(v), v.bb;
 
@@ -408,11 +363,7 @@ CREATE USER view_user1;
 CREATE USER view_user2;
 
 SET SESSION AUTHORIZATION view_user1;
-<<<<<<< HEAD
 CREATE TABLE base_tbl(a int, b text, c float) distribute by replication;
-=======
-CREATE TABLE base_tbl(a int, b text, c float);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO base_tbl VALUES (1, 'Row 1', 1.0);
 CREATE VIEW rw_view1 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
 INSERT INTO rw_view1 VALUES ('Row 2', 2.0, 2);
@@ -425,15 +376,9 @@ RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION view_user2;
 CREATE VIEW rw_view2 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1; -- ok
 SELECT * FROM rw_view1 order by 1; -- ok
 SELECT * FROM rw_view2 order by 1; -- ok
-=======
-SELECT * FROM base_tbl; -- ok
-SELECT * FROM rw_view1; -- ok
-SELECT * FROM rw_view2; -- ok
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 INSERT INTO base_tbl VALUES (3, 'Row 3', 3.0); -- not allowed
 INSERT INTO rw_view1 VALUES ('Row 3', 3.0, 3); -- not allowed
@@ -462,11 +407,7 @@ INSERT INTO rw_view2 VALUES ('Row 4', 4.0, 4); -- ok
 DELETE FROM base_tbl WHERE a=1; -- ok
 DELETE FROM rw_view1 WHERE aa=2; -- not allowed
 DELETE FROM rw_view2 WHERE aa=2; -- ok
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
-=======
-SELECT * FROM base_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION view_user1;
@@ -481,11 +422,7 @@ INSERT INTO rw_view2 VALUES ('Row 6', 6.0, 6); -- not allowed
 DELETE FROM base_tbl WHERE a=3; -- not allowed
 DELETE FROM rw_view1 WHERE aa=3; -- ok
 DELETE FROM rw_view2 WHERE aa=4; -- not allowed
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
-=======
-SELECT * FROM base_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 RESET SESSION AUTHORIZATION;
 
 DROP TABLE base_tbl CASCADE;
@@ -506,11 +443,7 @@ ALTER VIEW rw_view1 ALTER COLUMN bb SET DEFAULT 'View default';
 INSERT INTO rw_view1 VALUES (4, 'Row 4');
 INSERT INTO rw_view1 (aa) VALUES (5);
 
-<<<<<<< HEAD
 SELECT * FROM base_tbl order by 1;
-=======
-SELECT * FROM base_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP TABLE base_tbl CASCADE;
 
@@ -539,11 +472,7 @@ CREATE TRIGGER rw_view1_ins_trig AFTER INSERT ON base_tbl
 CREATE VIEW rw_view1 AS SELECT a AS aa, b AS bb FROM base_tbl;
 
 INSERT INTO rw_view1 VALUES (3, 'Row 3');
-<<<<<<< HEAD
 select * from base_tbl order by 1;
-=======
-select * from base_tbl;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 DROP VIEW rw_view1;
 DROP TRIGGER rw_view1_ins_trig on base_tbl;
@@ -562,11 +491,7 @@ SELECT * FROM rw_view1;
 INSERT INTO rw_view1 VALUES (7,-8);
 SELECT * FROM rw_view1;
 
-<<<<<<< HEAD
 EXPLAIN (verbose, costs off, nodes false) UPDATE rw_view1 SET b = b + 1 RETURNING *;
-=======
-EXPLAIN (verbose, costs off) UPDATE rw_view1 SET b = b + 1 RETURNING *;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 UPDATE rw_view1 SET b = b + 1 RETURNING *;
 SELECT * FROM rw_view1;
 

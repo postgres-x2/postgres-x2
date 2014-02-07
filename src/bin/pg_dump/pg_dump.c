@@ -4403,45 +4403,6 @@ getTables(Archive *fout, int *numTables)
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
 						"array_to_string(c.reloptions, ', ') AS reloptions, "
 						  "array_to_string(array(SELECT 'toast.' || x FROM unnest(tc.reloptions) x), ', ') AS toast_reloptions "
-<<<<<<< HEAD
-						  "FROM pg_class c "
-						  "LEFT JOIN pg_depend d ON "
-						  "(c.relkind = '%c' AND "
-						  "d.classid = c.tableoid AND d.objid = c.oid AND "
-						  "d.objsubid = 0 AND "
-						  "d.refclassid = c.tableoid AND d.deptype = 'a') "
-					   "LEFT JOIN pg_class tc ON (c.reltoastrelid = tc.oid) "
-						  "WHERE c.relkind in ('%c', '%c', '%c', '%c') "
-						  "ORDER BY c.oid",
-						  username_subquery,
-						  RELKIND_SEQUENCE,
-						  RELKIND_RELATION, RELKIND_SEQUENCE,
-						  RELKIND_VIEW, RELKIND_COMPOSITE_TYPE);
-	}
-	else if (fout->remoteVersion >= 80200)
-	{
-		/*
-		 * Left join to pick up dependency info linking sequences to their
-		 * owning column, if any (note this dependency is AUTO as of 8.2)
-		 */
-		appendPQExpBuffer(query,
-						  "SELECT c.tableoid, c.oid, c.relname, "
-						  "c.relacl, c.relkind, c.relnamespace, "
-						  "(%s c.relowner) AS rolname, "
-					  "c.relchecks, (c.reltriggers <> 0) AS relhastriggers, "
-						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
-						  "tc.relfrozenxid AS tfrozenxid, "
-						  "'p' AS relpersistence, 't' as relispopulated, "
-						  "c.relpages, "
-						  "NULL AS reloftype, "
-						  "d.refobjid AS owning_tab, "
-						  "d.refobjsubid AS owning_col, "
-						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
-						"array_to_string(c.reloptions, ', ') AS reloptions, "
-						  "NULL AS toast_reloptions "
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 						  "FROM pg_class c "
 						  "LEFT JOIN pg_depend d ON "
 						  "(c.relkind = '%c' AND "
@@ -13053,7 +13014,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 						/* Skip all the rest, too */
 						continue;
 					}
-<<<<<<< HEAD
 
 					/* Attribute type */
 					if (tbinfo->reloftype && !binary_upgrade)
@@ -13133,87 +13093,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 
 			if (numParents > 0 && !binary_upgrade)
 			{
-=======
-
-					/* Attribute type */
-					if (tbinfo->reloftype && !binary_upgrade)
-					{
-						appendPQExpBuffer(q, " WITH OPTIONS");
-					}
-					else if (fout->remoteVersion >= 70100)
-					{
-						appendPQExpBuffer(q, " %s",
-										  tbinfo->atttypnames[j]);
-					}
-					else
-					{
-						/* If no format_type, fake it */
-						appendPQExpBuffer(q, " %s",
-										  myFormatType(tbinfo->atttypnames[j],
-													   tbinfo->atttypmod[j]));
-					}
-
-					/* Add collation if not default for the type */
-					if (OidIsValid(tbinfo->attcollation[j]))
-					{
-						CollInfo   *coll;
-
-						coll = findCollationByOid(tbinfo->attcollation[j]);
-						if (coll)
-						{
-							/* always schema-qualify, don't try to be smart */
-							appendPQExpBuffer(q, " COLLATE %s.",
-									 fmtId(coll->dobj.namespace->dobj.name));
-							appendPQExpBuffer(q, "%s",
-											  fmtId(coll->dobj.name));
-						}
-					}
-
-					if (has_default)
-						appendPQExpBuffer(q, " DEFAULT %s",
-										  tbinfo->attrdefs[j]->adef_expr);
-
-					if (has_notnull)
-						appendPQExpBuffer(q, " NOT NULL");
-				}
-			}
-
-			/*
-			 * Add non-inherited CHECK constraints, if any.
-			 */
-			for (j = 0; j < tbinfo->ncheck; j++)
-			{
-				ConstraintInfo *constr = &(tbinfo->checkexprs[j]);
-
-				if (constr->separate || !constr->conislocal)
-					continue;
-
-				if (actual_atts == 0)
-					appendPQExpBuffer(q, " (\n    ");
-				else
-					appendPQExpBuffer(q, ",\n    ");
-
-				appendPQExpBuffer(q, "CONSTRAINT %s ",
-								  fmtId(constr->dobj.name));
-				appendPQExpBuffer(q, "%s", constr->condef);
-
-				actual_atts++;
-			}
-
-			if (actual_atts)
-				appendPQExpBuffer(q, "\n)");
-			else if (!(tbinfo->reloftype && !binary_upgrade))
-			{
-				/*
-				 * We must have a parenthesized attribute list, even though
-				 * empty, when not using the OF TYPE syntax.
-				 */
-				appendPQExpBuffer(q, " (\n)");
-			}
-
-			if (numParents > 0 && !binary_upgrade)
-			{
->>>>>>> e472b921406407794bab911c64655b8b82375196
 				appendPQExpBuffer(q, "\nINHERITS (");
 				for (k = 0; k < numParents; k++)
 				{
@@ -14288,7 +14167,6 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 
 	last = PQgetvalue(res, 0, 0);
 	called = (strcmp(PQgetvalue(res, 0, 1), "t") == 0);
-<<<<<<< HEAD
 #ifdef PGXC
     /*                                                                                                                        
      * In Postgres-XC it is possible that the current value of a                                                              
@@ -14317,8 +14195,6 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 
     last = PQgetvalue(res, 0, 0);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	resetPQExpBuffer(query);
 	appendPQExpBuffer(query, "SELECT pg_catalog.setval(");

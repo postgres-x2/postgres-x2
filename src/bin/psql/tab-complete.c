@@ -804,13 +804,10 @@ static const pgsql_thing_t words_after_create[] = {
 	{"GROUP", Query_for_list_of_roles},
 	{"LANGUAGE", Query_for_list_of_languages},
 	{"INDEX", NULL, &Query_for_list_of_indexes},
-<<<<<<< HEAD
 #ifdef PGXC
 	{"NODE", Query_for_list_of_available_nodenames},
 	{"NODE GROUP", Query_for_list_of_available_nodegroup_names},
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	{"MATERIALIZED VIEW", NULL, NULL},
 	{"OPERATOR", NULL, NULL},	/* Querying for this is probably not such a
 								 * good idea. */
@@ -1053,7 +1050,6 @@ psql_completion(char *text, int start, int end)
 		}
 		else
 			COMPLETE_WITH_FUNCTION_ARG(prev2_wd);
-<<<<<<< HEAD
 	}
 #ifdef PGXC
 	/* ALTER NODE */
@@ -1061,8 +1057,6 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev_wd, "NODE") == 0)
 	{
 		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	}
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "NODE") == 0)
@@ -2624,10 +2618,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(drop_CREATE_FOREIGN);
 	}
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* DROP MATERIALIZED VIEW */
 	else if (pg_strcasecmp(prev2_wd, "DROP") == 0 &&

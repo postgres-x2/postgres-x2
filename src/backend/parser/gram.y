@@ -253,11 +253,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		DeallocateStmt PrepareStmt ExecuteStmt
 		DropOwnedStmt ReassignOwnedStmt
 		AlterTSConfigurationStmt AlterTSDictionaryStmt
-<<<<<<< HEAD
 		BarrierStmt AlterNodeStmt CreateNodeStmt DropNodeStmt
 		CreateNodeGroupStmt DropNodeGroupStmt
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		CreateMatViewStmt RefreshMatViewStmt
 
 %type <node>	select_no_parens select_with_parens select_clause
@@ -394,12 +391,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <boolean> opt_freeze opt_default opt_recheck
 %type <defelt>	opt_binary opt_oids copy_delimiter
 
-<<<<<<< HEAD
 /* PGEXC_BEGIN */
 %type <str>		DirectStmt CleanConnDbName CleanConnUserName
 /* PGXC_END */
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 %type <boolean> copy_from opt_program
 
 %type <ival>	opt_column event cursor_options opt_hold opt_set_data
@@ -509,7 +503,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <windef>	window_definition over_clause window_specification
 				opt_frame_clause frame_extent frame_bound
 %type <str>		opt_existing_window_name
-<<<<<<< HEAD
 
 /* PGXC_BEGIN */
 %type <str>		opt_barrier_id OptDistributeType
@@ -517,8 +510,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* PGXC_END */
 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 %type <boolean> opt_if_not_exists
 
 /*
@@ -601,15 +592,11 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	ORDER OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
 	PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
-<<<<<<< HEAD
 
 /* PGXC_BEGIN */
 	PRECEDING PRECISION PREFERRED PRESERVE PREPARE PREPARED PRIMARY
 /* PGXC_END */
 
-=======
-	PRECEDING PRECISION PRESERVE PREPARE PREPARED PRIMARY
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM
 
 	QUOTE
@@ -790,11 +777,8 @@ stmt :
 			| CreateForeignTableStmt
 			| CreateFunctionStmt
 			| CreateGroupStmt
-<<<<<<< HEAD
 			| CreateNodeGroupStmt
 			| CreateNodeStmt
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			| CreateMatViewStmt
 			| CreateOpClassStmt
 			| CreateOpFamilyStmt
@@ -8204,30 +8188,6 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 					n->query = $10;
 					n->replace = true;
 					n->options = $8;
-					$$ = (Node *) n;
-				}
-		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
-				AS SelectStmt
-				{
-					ViewStmt *n = makeNode(ViewStmt);
-					n->view = $5;
-					n->view->relpersistence = $2;
-					n->aliases = $7;
-					n->query = makeRecursiveViewSelect(n->view->relname, n->aliases, $11);
-					n->replace = false;
-					n->options = $9;
-					$$ = (Node *) n;
-				}
-		| CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
-				AS SelectStmt
-				{
-					ViewStmt *n = makeNode(ViewStmt);
-					n->view = $7;
-					n->view->relpersistence = $4;
-					n->aliases = $9;
-					n->query = makeRecursiveViewSelect(n->view->relname, n->aliases, $13);
-					n->replace = true;
-					n->options = $11;
 					$$ = (Node *) n;
 				}
 		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions

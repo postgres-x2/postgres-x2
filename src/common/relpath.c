@@ -19,12 +19,9 @@
 #include "catalog/pg_tablespace.h"
 #include "common/relpath.h"
 #include "storage/backendid.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 #define FORKNAMECHARS	4		/* max chars for a fork name */
 
@@ -133,7 +130,6 @@ relpathbackend(RelFileNode rnode, BackendId backend, ForkNumber forknum)
 		{
 			pathlen = 9 + 1 + OIDCHARS + 1
 				+ strlen(TABLESPACE_VERSION_DIRECTORY) + 1 + OIDCHARS + 1
-<<<<<<< HEAD
 #ifdef PGXC
 				/* Postgres-XC tablespaces include node name */
 				+ strlen(PGXCNodeName) + 1
@@ -153,10 +149,6 @@ relpathbackend(RelFileNode rnode, BackendId backend, ForkNumber forknum)
 						 PGXCNodeName,
 						 rnode.dbNode, rnode.relNode);
 #else
-=======
-				+ OIDCHARS + 1 + FORKNAMECHARS + 1;
-			path = (char *) palloc(pathlen);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			if (forknum != MAIN_FORKNUM)
 				snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/%u_%s",
 						 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
@@ -166,17 +158,13 @@ relpathbackend(RelFileNode rnode, BackendId backend, ForkNumber forknum)
 				snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/%u",
 						 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
 						 rnode.dbNode, rnode.relNode);
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		}
 		else
 		{
 			/* OIDCHARS will suffice for an integer, too */
 			pathlen = 9 + 1 + OIDCHARS + 1
 				+ strlen(TABLESPACE_VERSION_DIRECTORY) + 1 + OIDCHARS + 2
-<<<<<<< HEAD
 #ifdef PGXC
 				+ strlen(PGXCNodeName) + 1
 #endif
@@ -195,10 +183,6 @@ relpathbackend(RelFileNode rnode, BackendId backend, ForkNumber forknum)
 						 PGXCNodeName,
 						 rnode.dbNode, backend, rnode.relNode);
 #else
-=======
-				+ OIDCHARS + 1 + OIDCHARS + 1 + FORKNAMECHARS + 1;
-			path = (char *) palloc(pathlen);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			if (forknum != MAIN_FORKNUM)
 				snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/t%d_%u_%s",
 						 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
@@ -208,10 +192,7 @@ relpathbackend(RelFileNode rnode, BackendId backend, ForkNumber forknum)
 				snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/t%d_%u",
 						 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
 						 rnode.dbNode, backend, rnode.relNode);
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		}
 	}
 	return path;

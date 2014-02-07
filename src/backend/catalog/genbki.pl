@@ -229,15 +229,11 @@ foreach my $catname (@{ $catalogs->{names} })
 					{ cmin     => 'cid' },
 					{ xmax     => 'xid' },
 					{ cmax     => 'cid' },
-<<<<<<< HEAD
                     { tableoid => 'oid' }
 #PGXC_BEGIN
 				   ,{ xc_node_id  => 'int4' }
 #PGXC_END
                 );
-=======
-					{ tableoid => 'oid' });
->>>>>>> e472b921406407794bab911c64655b8b82375196
 				foreach my $attr (@SYS_ATTRS)
 				{
 					$attnum--;

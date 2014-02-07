@@ -366,13 +366,8 @@ DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 
 -- set default update / set null delete
-<<<<<<< HEAD
 CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int, ftest4 int,  CONSTRAINT constrname3
-=======
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
-CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int DEFAULT -2, ftest4 int, CONSTRAINT constrname3
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
 			ON DELETE SET NULL ON UPDATE SET DEFAULT) DISTRIBUTE BY REPLICATION;
 

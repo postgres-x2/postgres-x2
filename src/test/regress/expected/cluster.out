@@ -2,11 +2,7 @@
 --  CLUSTER
 --
 CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY,
-<<<<<<< HEAD
 	b INT) distribute by replication;
-=======
-	b INT);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY,
 	b INT,
 	c TEXT,
@@ -385,11 +381,7 @@ ORDER BY 1;
 
 -- Test MVCC-safety of cluster. There isn't much we can do to verify the
 -- results with a single backend...
-<<<<<<< HEAD
 CREATE TABLE clustertest (key int PRIMARY KEY) distribute by replication;
-=======
-CREATE TABLE clustertest (key int PRIMARY KEY);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 INSERT INTO clustertest VALUES (10);
 INSERT INTO clustertest VALUES (20);
 INSERT INTO clustertest VALUES (30);

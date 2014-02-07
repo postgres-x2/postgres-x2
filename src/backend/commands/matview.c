@@ -20,7 +20,6 @@
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "catalog/pgxc_node.h"
 #endif /* PGXC */
@@ -29,34 +28,25 @@
 #include "commands/copy.h"
 #include "commands/createas.h"
 #endif /* PGXC */
-=======
-#include "commands/cluster.h"
->>>>>>> e472b921406407794bab911c64655b8b82375196
 #include "commands/matview.h"
 #include "commands/tablecmds.h"
 #include "executor/executor.h"
 #include "miscadmin.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/remotecopy.h"
 #include "pgxc/copyops.h"
 #endif /* PGXC */
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 #include "rewrite/rewriteHandler.h"
 #include "storage/smgr.h"
 #include "tcop/tcopprot.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "utils/tqual.h"
 #endif /* PGXC */
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 
 typedef struct
@@ -231,7 +221,6 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	OIDNewHeap = make_new_heap(matviewOid, tableSpace);
 	dest = CreateTransientRelDestReceiver(OIDNewHeap);
 
-<<<<<<< HEAD
 #ifdef PGXC
 	/*
 	 * If the REFRESH command was received from other coordinator, it will also send
@@ -244,8 +233,6 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	}
 	else
 #endif /* PGXC */
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	/* Generate the data, if wanted. */
 	if (!stmt->skipData)
 		refresh_matview_datafill(dest, dataQuery, queryString);
@@ -410,7 +397,6 @@ transientrel_destroy(DestReceiver *self)
 {
 	pfree(self);
 }
-<<<<<<< HEAD
 
 #ifdef PGXC
 /*
@@ -588,5 +574,3 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	return;
 }
 #endif /* PGXC */
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

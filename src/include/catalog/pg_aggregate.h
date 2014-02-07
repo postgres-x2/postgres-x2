@@ -459,9 +459,6 @@ DATA(insert ( 3175	json_agg_transfn	-	json_agg_finalfn		0	2281	_null_ _null_ ));
 //DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	_null_ ));
 #endif
 
-/* json */
-DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	_null_ ));
-
 /*
  * prototypes for functions in pg_aggregate.c
  */

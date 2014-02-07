@@ -179,16 +179,11 @@ COPY testnull FROM stdin WITH NULL AS E'\\0';
 \0	\0
 \.
 
-<<<<<<< HEAD
 SELECT * FROM testnull ORDER BY 1,2;
 
 -- The following block fails in Postgres-XC because it does not suport
 -- Savepoint yet.
 -- Leave the test as is.
-=======
-SELECT * FROM testnull;
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 BEGIN;
 CREATE TABLE vistest (LIKE testeoc);
 COPY vistest FROM stdin CSV;
@@ -196,37 +191,23 @@ a0
 b
 \.
 COMMIT;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 BEGIN;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV;
 a1
 b
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 SAVEPOINT s1;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV;
 d1
 e
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
 COMMIT;
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
-COMMIT;
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 BEGIN;
 TRUNCATE vistest;
@@ -234,26 +215,16 @@ COPY vistest FROM stdin CSV FREEZE;
 a2
 b
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 SAVEPOINT s1;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV FREEZE;
 d2
 e
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
 COMMIT;
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
-COMMIT;
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 BEGIN;
 TRUNCATE vistest;
@@ -261,11 +232,7 @@ COPY vistest FROM stdin CSV FREEZE;
 x
 y
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 COMMIT;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV FREEZE;
@@ -306,7 +273,6 @@ COPY vistest FROM stdin CSV FREEZE;
 d4
 e
 \.
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
 COMMIT;
 SELECT * FROM vistest ORDER BY 1;
@@ -315,13 +281,6 @@ DROP FUNCTION truncate_in_subxact();
 --
 -- End of unsupported savepoint block
 --
-=======
-SELECT * FROM vistest;
-COMMIT;
-SELECT * FROM vistest;
-DROP TABLE vistest;
-DROP FUNCTION truncate_in_subxact();
->>>>>>> e472b921406407794bab911c64655b8b82375196
 DROP TABLE x, y;
 DROP FUNCTION fn_x_before();
 DROP FUNCTION fn_x_after();

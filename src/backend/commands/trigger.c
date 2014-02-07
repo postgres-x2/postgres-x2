@@ -1033,15 +1033,11 @@ ConvertTriggerToFK(CreateTrigStmt *stmt, Oid funcoid)
 		ProcessUtility((Node *) atstmt,
 					   "(generated ALTER TABLE ADD FOREIGN KEY command)",
 					   PROCESS_UTILITY_SUBCOMMAND, NULL,
-<<<<<<< HEAD
 					   None_Receiver,
 #ifdef PGXC
 					   false,
 #endif /* PGXC */
 					   NULL);
-=======
-					   None_Receiver, NULL);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 		/* Remove the matched item from the list */
 		info_list = list_delete_ptr(info_list, info);
@@ -2271,13 +2267,10 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 #endif
 	trigtuple = GetTupleForTrigger(estate, epqstate, relinfo, tupleid,
 								   LockTupleExclusive, &newSlot);
-<<<<<<< HEAD
 #ifdef PGXC
 	}
 #endif
 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	if (trigtuple == NULL)
 		return false;
 
@@ -2339,16 +2332,7 @@ ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 
 	if (trigdesc && trigdesc->trig_delete_after_row)
 	{
-<<<<<<< HEAD
 		HeapTuple	trigtuple;
-=======
-		HeapTuple	trigtuple = GetTupleForTrigger(estate,
-												   NULL,
-												   relinfo,
-												   tupleid,
-												   LockTupleExclusive,
-												   NULL);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
@@ -2535,13 +2519,10 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	Bitmapset  *modifiedCols;
 	Bitmapset  *keyCols;
 	LockTupleMode lockmode;
-<<<<<<< HEAD
 #ifdef PGXC
 	bool			exec_all_triggers;
 	RelationLocInfo	*rel_locinfo = RelationGetLocInfo(relinfo->ri_RelationDesc);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * Compute lock mode to use.  If columns that are part of the key have not
@@ -2554,7 +2535,6 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		lockmode = LockTupleExclusive;
 	else
 		lockmode = LockTupleNoKeyExclusive;
-<<<<<<< HEAD
 
 #ifdef PGXC
 	/*
@@ -2566,8 +2546,6 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	 */
 	exec_all_triggers = pgxc_should_exec_br_trigger(relinfo->ri_RelationDesc,
 													TRIGGER_TYPE_UPDATE);
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * TODO: GetTupleForTrigger() acquires an exclusive row lock on the tuple.
@@ -2697,7 +2675,6 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 
 	if (trigdesc && trigdesc->trig_update_after_row)
 	{
-<<<<<<< HEAD
 		HeapTuple trigtuple;
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
@@ -2728,15 +2705,6 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 #ifdef PGXC
 		}
 #endif
-=======
-		HeapTuple	trigtuple = GetTupleForTrigger(estate,
-												   NULL,
-												   relinfo,
-												   tupleid,
-												   LockTupleExclusive,
-												   NULL);
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		AfterTriggerSaveEvent(estate, relinfo, TRIGGER_EVENT_UPDATE,
 							  true, trigtuple, newtuple, recheckIndexes,
 							  GetModifiedColumns(relinfo, estate));
@@ -3021,13 +2989,9 @@ ltrmark:;
 		tuple.t_len = ItemIdGetLength(lp);
 		tuple.t_self = *tid;
 		tuple.t_tableOid = RelationGetRelid(relation);
-<<<<<<< HEAD
 #ifdef PGXC
 		tuple.t_xc_node_id = PGXCNodeIdentifier;
 #endif
-=======
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 	}
 
@@ -5195,7 +5159,6 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 								  TRIGGER_TYPE_AFTER);
 
 		/*
-<<<<<<< HEAD
 		 * Just save the position where the row would go *if* it gets inserted.
 		 * We are not sure whether it needs to be inserted because possibly in
 		 * the below loop, none of the trigger events will be inserted, in
@@ -5203,11 +5166,6 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 		 * into the rowstore. But we do want to know the row position beforehand
 		 * because the row position needs to be saved in each of the events that
 		 * get inserted below.
-=======
-		 * If the trigger is a foreign key enforcement trigger, there are
-		 * certain cases where we can skip queueing the event because we can
-		 * tell by inspection that the FK constraint will still pass.
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		 */
 		if (is_remote_relation && exec_all_triggers)
 		{

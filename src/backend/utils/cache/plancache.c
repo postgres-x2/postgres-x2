@@ -85,14 +85,6 @@ static void drop_datanode_statements(Plan *plannode);
 	 IsA((plansource)->raw_parse_tree, TransactionStmt))
 
 /*
- * We must skip "overhead" operations that involve database access when the
- * cached plan's subject statement is a transaction control command.
- */
-#define IsTransactionStmtPlan(plansource)  \
-	((plansource)->raw_parse_tree && \
-	 IsA((plansource)->raw_parse_tree, TransactionStmt))
-
-/*
  * This is the head of the backend's list of "saved" CachedPlanSources (i.e.,
  * those that are in long-lived storage and are examined for sinval events).
  * We thread the structs manually instead of using List cells so that we can
@@ -974,7 +966,6 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 		 * Copy plan into the new context.
 		 */
 		MemoryContextSwitchTo(plan_context);
-<<<<<<< HEAD
 
 		plist = (List *) copyObject(plist);
 	}
@@ -1015,13 +1006,6 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 		}
 	}
 #endif
-=======
-
-		plist = (List *) copyObject(plist);
-	}
-	else
-		plan_context = CurrentMemoryContext;
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/*
 	 * Create and fill the CachedPlan struct within the new context.

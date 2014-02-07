@@ -692,7 +692,6 @@ createdb(const CreatedbStmt *stmt)
 	}
 	PG_END_ENSURE_ERROR_CLEANUP(createdb_failure_callback,
 								PointerGetDatum(&fparms));
-<<<<<<< HEAD
 #ifdef PGXC
 	/*
 	 * Even if we are successful, ultimately this transaction can be aborted
@@ -702,8 +701,6 @@ createdb(const CreatedbStmt *stmt)
 	set_dbcleanup_callback(createdb_xact_callback, &fparms.dest_dboid,
 	                      sizeof(fparms.dest_dboid));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	/* Free our snapshot */
 	UnregisterSnapshot(snapshot);

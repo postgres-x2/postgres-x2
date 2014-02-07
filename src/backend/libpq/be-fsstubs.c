@@ -172,7 +172,6 @@ lo_read(int fd, char *buf, int len)
 {
 	int			status;
 	LargeObjectDesc *lobj;
-<<<<<<< HEAD
 
 #ifdef PGXC
 	ereport(ERROR,
@@ -180,8 +179,6 @@ lo_read(int fd, char *buf, int len)
 			 errmsg("Postgres-XC does not support large object yet"),
 			 errdetail("The feature is not currently supported")));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
 		ereport(ERROR,
@@ -216,7 +213,6 @@ lo_write(int fd, const char *buf, int len)
 {
 	int			status;
 	LargeObjectDesc *lobj;
-<<<<<<< HEAD
 
 #ifdef PGXC
 	ereport(ERROR,
@@ -224,8 +220,6 @@ lo_write(int fd, const char *buf, int len)
 			 errmsg("Postgres-XC does not support large object yet"),
 			 errdetail("The feature is not currently supported")));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
 		ereport(ERROR,
@@ -266,8 +260,6 @@ lo_lseek(PG_FUNCTION_ARGS)
 	int32		offset = PG_GETARG_INT32(1);
 	int32		whence = PG_GETARG_INT32(2);
 	int64		status;
-<<<<<<< HEAD
-=======
 
 	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
 		ereport(ERROR,
@@ -276,33 +268,6 @@ lo_lseek(PG_FUNCTION_ARGS)
 
 	status = inv_seek(cookies[fd], offset, whence);
 
-	/* guard against result overflow */
-	if (status != (int32) status)
-		ereport(ERROR,
-				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-		errmsg("lo_lseek result out of range for large-object descriptor %d",
-			   fd)));
-
-	PG_RETURN_INT32((int32) status);
-}
-
-Datum
-lo_lseek64(PG_FUNCTION_ARGS)
-{
-	int32		fd = PG_GETARG_INT32(0);
-	int64		offset = PG_GETARG_INT64(1);
-	int32		whence = PG_GETARG_INT32(2);
-	int64		status;
->>>>>>> e472b921406407794bab911c64655b8b82375196
-
-	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("invalid large-object descriptor: %d", fd)));
-
-	status = inv_seek(cookies[fd], offset, whence);
-
-<<<<<<< HEAD
 	/* guard against result overflow */
 	if (status != (int32) status)
 		ereport(ERROR,
@@ -335,8 +300,6 @@ lo_lseek64(PG_FUNCTION_ARGS)
 
 	status = inv_seek(cookies[fd], offset, whence);
 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	PG_RETURN_INT64(status);
 }
 
@@ -391,7 +354,6 @@ lo_tell(PG_FUNCTION_ARGS)
 {
 	int32		fd = PG_GETARG_INT32(0);
 	int64		offset;
-<<<<<<< HEAD
 
 #ifdef PGXC
 	ereport(ERROR,
@@ -399,8 +361,6 @@ lo_tell(PG_FUNCTION_ARGS)
 			 errmsg("Postgres-XC does not support large object yet"),
 			 errdetail("The feature is not currently supported")));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
 		ereport(ERROR,
@@ -714,7 +674,6 @@ static void
 lo_truncate_internal(int32 fd, int64 len)
 {
 	LargeObjectDesc *lobj;
-<<<<<<< HEAD
 
 #ifdef PGXC
 	ereport(ERROR,
@@ -722,8 +681,6 @@ lo_truncate_internal(int32 fd, int64 len)
 			 errmsg("Postgres-XC does not support large object yet"),
 			 errdetail("The feature is not currently supported")));
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (fd < 0 || fd >= cookies_size || cookies[fd] == NULL)
 		ereport(ERROR,
@@ -736,7 +693,6 @@ lo_truncate_internal(int32 fd, int64 len)
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 			  errmsg("large object descriptor %d was not opened for writing",
 					 fd)));
-<<<<<<< HEAD
 
 	/* Permission checks --- first time through only */
 	if ((lobj->flags & IFS_WR_PERM_OK) == 0)
@@ -753,24 +709,6 @@ lo_truncate_internal(int32 fd, int64 len)
 		lobj->flags |= IFS_WR_PERM_OK;
 	}
 
-=======
-
-	/* Permission checks --- first time through only */
-	if ((lobj->flags & IFS_WR_PERM_OK) == 0)
-	{
-		if (!lo_compat_privileges &&
-			pg_largeobject_aclcheck_snapshot(lobj->id,
-											 GetUserId(),
-											 ACL_UPDATE,
-											 lobj->snapshot) != ACLCHECK_OK)
-			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 errmsg("permission denied for large object %u",
-							lobj->id)));
-		lobj->flags |= IFS_WR_PERM_OK;
-	}
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	inv_truncate(lobj, len);
 }
 

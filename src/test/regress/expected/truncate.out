@@ -31,13 +31,9 @@ SELECT * FROM truncate_a ORDER BY 1;
 
 -- Test foreign-key checks
 CREATE TABLE trunc_b (a int REFERENCES truncate_a);
-<<<<<<< HEAD
 CREATE TABLE trunc_c (a serial PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE will create implicit sequence "trunc_c_a_seq" for serial column "trunc_c.a"
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "trunc_c_pkey" for table "trunc_c"
-=======
-CREATE TABLE trunc_c (a serial PRIMARY KEY);
->>>>>>> e472b921406407794bab911c64655b8b82375196
 CREATE TABLE trunc_d (a int REFERENCES trunc_c);
 CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c);
 TRUNCATE TABLE truncate_a;		-- fail

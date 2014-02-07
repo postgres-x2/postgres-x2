@@ -397,7 +397,7 @@ gtm_standby_connect_to_standby_int(int *report_needed)
 		return NULL;
 	}
 
-	elog(DEBUG1, "Connection established with GTM standby. - %p", n);
+	elog(LOG, "Connection established with GTM standby. - %p", n);
 
 	return standby;
 }

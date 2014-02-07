@@ -77,13 +77,9 @@
 #include "storage/ipc.h"
 #include "utils/guc.h"
 #include "utils/resowner_private.h"
-<<<<<<< HEAD
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #endif
-=======
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 /*
  * We must leave some file descriptors free for system(), the dynamic loader,

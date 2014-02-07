@@ -774,7 +774,6 @@ pnstrdup(const char *in, Size len)
 	out[len] = '\0';
 	return out;
 }
-<<<<<<< HEAD
 #ifdef PGXC
 #include "gen_alloc.h"
 
@@ -798,5 +797,3 @@ Gen_Alloc genAlloc_class = {(void *)MemoryContextAlloc,
 							(void *)allocTopCxt};
 
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

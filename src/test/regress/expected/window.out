@@ -619,7 +619,6 @@ group by ten order by ten;
 (10 rows)
 
 -- window and aggregate with GROUP BY expression (9.2 bug)
-<<<<<<< HEAD
 explain (costs off, nodes off)
 select first_value(max(x)) over (), y
   from (select unique1 as x, ten+four as y from tenk1) ss
@@ -629,17 +628,6 @@ select first_value(max(x)) over (), y
  WindowAgg
    ->  HashAggregate
          ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
-=======
-explain (costs off)
-select first_value(max(x)) over (), y
-  from (select unique1 as x, ten+four as y from tenk1) ss
-  group by y;
-          QUERY PLAN           
--------------------------------
- WindowAgg
-   ->  HashAggregate
-         ->  Seq Scan on tenk1
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (3 rows)
 
 -- test non-default frame specifications

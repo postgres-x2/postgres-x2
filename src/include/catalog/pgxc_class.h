@@ -1,8 +1,5 @@
-/*-----------------------------------------------------------
- *
- * Copyright (c) 2010-2013 Postgres-XC Development Group
- *
- *-----------------------------------------------------------
+/*
+ * Copyright (c) 2004-2007 EnterpriseDB Corporation. All Rights Reserved.
  */
 #ifndef PGXC_CLASS_H
 #define PGXC_CLASS_H

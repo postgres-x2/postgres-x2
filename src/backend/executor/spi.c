@@ -52,13 +52,10 @@ static Portal SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 static void _SPI_prepare_plan(const char *src, SPIPlanPtr plan);
 
 static void _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan);
-<<<<<<< HEAD
 #ifdef PGXC
 static void _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree,
 								   SPIPlanPtr plan);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 static int _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				  Snapshot snapshot, Snapshot crosscheck_snapshot,
@@ -1786,7 +1783,6 @@ spi_printtup(TupleTableSlot *slot, DestReceiver *self)
  */
 static void
 _SPI_prepare_plan(const char *src, SPIPlanPtr plan)
-<<<<<<< HEAD
 {
 #ifdef PGXC
 	_SPI_pgxc_prepare_plan(src, NULL, plan);
@@ -1800,8 +1796,6 @@ _SPI_prepare_plan(const char *src, SPIPlanPtr plan)
  */
 static void
 _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan)
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 {
 #endif
 	List	   *raw_parsetree_list;

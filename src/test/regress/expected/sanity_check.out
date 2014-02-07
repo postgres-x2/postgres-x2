@@ -169,11 +169,7 @@ SELECT relname, relhasindex
  timetz_tbl              | f
  tinterval_tbl           | f
  varchar_tbl             | f
-<<<<<<< HEAD
 (158 rows)
-=======
-(155 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 --
 -- another sanity check: every system catalog that has OIDs should have

@@ -1195,8 +1195,5 @@ select * from self_ref_trigger;
 drop table self_ref_trigger;
 drop function self_ref_trigger_ins_func();
 drop function self_ref_trigger_del_func();
-<<<<<<< HEAD
 
 RESET enforce_two_phase_commit;
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

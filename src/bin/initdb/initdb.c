@@ -39,10 +39,7 @@
  * This code is released under the terms of the PostgreSQL License.
  *
  * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
-<<<<<<< HEAD
  * Portions Copyright (c) 2010-2013 Postgres-XC Development Group
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/bin/initdb/initdb.c
@@ -184,28 +181,6 @@ static const char *backend_options = "--single "
 	                                 "--localxid "
 #endif
 	                                 "-F -O -c search_path=pg_catalog -c exit_on_error=true";
-
-#ifdef WIN32
-char	   *restrict_env;
-#endif
-const char *subdirs[] = {
-	"global",
-	"pg_xlog",
-	"pg_xlog/archive_status",
-	"pg_clog",
-	"pg_notify",
-	"pg_serial",
-	"pg_snapshots",
-	"pg_subtrans",
-	"pg_twophase",
-	"pg_multixact/members",
-	"pg_multixact/offsets",
-	"base",
-	"base/1",
-	"pg_tblspc",
-	"pg_stat",
-	"pg_stat_tmp"
-};
 
 #ifdef WIN32
 char	   *restrict_env;
@@ -2955,7 +2930,6 @@ get_restricted_token(void)
 			 * exitcode.
 			 */
 			DWORD		x;
-<<<<<<< HEAD
 
 			CloseHandle(pi.hThread);
 			WaitForSingleObject(pi.hProcess, INFINITE);
@@ -2997,49 +2971,6 @@ setup_pgdata(void)
 		}
 	}
 
-=======
-
-			CloseHandle(pi.hThread);
-			WaitForSingleObject(pi.hProcess, INFINITE);
-
-			if (!GetExitCodeProcess(pi.hProcess, &x))
-			{
-				fprintf(stderr, _("%s: could not get exit code from subprocess: error code %lu\n"), progname, GetLastError());
-				exit(1);
-			}
-			exit(x);
-		}
-	}
-#endif
-}
-
-void
-setup_pgdata(void)
-{
-	char	   *pgdata_get_env,
-			   *pgdata_set_env;
-
-	if (strlen(pg_data) == 0)
-	{
-		pgdata_get_env = getenv("PGDATA");
-		if (pgdata_get_env && strlen(pgdata_get_env))
-		{
-			/* PGDATA found */
-			pg_data = pg_strdup(pgdata_get_env);
-		}
-		else
-		{
-			fprintf(stderr,
-					_("%s: no data directory specified\n"
-					  "You must identify the directory where the data for this database system\n"
-					  "will reside.  Do this with either the invocation option -D or the\n"
-					  "environment variable PGDATA.\n"),
-					progname);
-			exit(1);
-		}
-	}
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	pgdata_native = pg_strdup(pg_data);
 	canonicalize_path(pg_data);
 
@@ -3298,21 +3229,12 @@ setup_signals(void)
 #endif
 }
 
-<<<<<<< HEAD
 
 void
 create_data_directory(void)
 {
 	int			ret;
 
-=======
-
-void
-create_data_directory(void)
-{
-	int			ret;
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	switch ((ret = pg_check_dir(pg_data)))
 	{
 		case 0:
@@ -3597,12 +3519,9 @@ main(int argc, char *argv[])
 		{"sync-only", no_argument, NULL, 'S'},
 		{"xlogdir", required_argument, NULL, 'X'},
 		{"data-checksums", no_argument, NULL, 'k'},
-<<<<<<< HEAD
 #ifdef PGXC
 		{"nodename", required_argument, NULL, 12},
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 		{NULL, 0, NULL, 0}
 	};
 
@@ -3725,14 +3644,11 @@ main(int argc, char *argv[])
 			case 'X':
 				xlog_dir = pg_strdup(optarg);
 				break;
-<<<<<<< HEAD
 #ifdef PGXC
 			case 12:
 				nodename = pg_strdup(optarg);
 				break;
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 			default:
 				/* getopt_long already emitted a complaint */
 				fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
@@ -3775,7 +3691,6 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-<<<<<<< HEAD
 #ifdef PGXC
 	if (!nodename)
 	{
@@ -3786,8 +3701,6 @@ main(int argc, char *argv[])
 	}
 #endif
 
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 	check_authmethod_unspecified(&authmethodlocal);
 	check_authmethod_unspecified(&authmethodhost);
 
@@ -3832,15 +3745,12 @@ main(int argc, char *argv[])
 		perform_fsync();
 	else
 		printf(_("\nSync to disk skipped.\nThe data directory might become corrupt if the operating system crashes.\n"));
-<<<<<<< HEAD
 
 #ifdef PGXC
 	vacuumfreeze("template0");
 	vacuumfreeze("template1");
 	vacuumfreeze("postgres");
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	if (authwarning != NULL)
 		fprintf(stderr, "%s", authwarning);
@@ -3867,7 +3777,6 @@ main(int argc, char *argv[])
 		   QUOTE_PATH, pgdata_native, QUOTE_PATH,
 	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
 		   QUOTE_PATH, pgdata_native, QUOTE_PATH);
-<<<<<<< HEAD
 #else
 	printf(_("\nSuccess. You can now start the database server of datanode using:\n\n"
              "    %s%s%spostgres%s -D %s%s%s\n"
@@ -3878,8 +3787,6 @@ main(int argc, char *argv[])
 	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
 		   QUOTE_PATH, pgdata_native, QUOTE_PATH);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	return 0;
 }

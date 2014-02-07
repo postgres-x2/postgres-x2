@@ -260,11 +260,7 @@ BEGIN;
 CREATE TABLE vistest (LIKE testeoc);
 COPY vistest FROM stdin CSV;
 COMMIT;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  a0
@@ -274,11 +270,7 @@ SELECT * FROM vistest;
 BEGIN;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  a1
@@ -288,11 +280,7 @@ SELECT * FROM vistest;
 SAVEPOINT s1;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d1
@@ -300,11 +288,7 @@ SELECT * FROM vistest;
 (2 rows)
 
 COMMIT;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d1
@@ -314,11 +298,7 @@ SELECT * FROM vistest;
 BEGIN;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV FREEZE;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  a2
@@ -328,11 +308,7 @@ SELECT * FROM vistest;
 SAVEPOINT s1;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV FREEZE;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d2
@@ -340,11 +316,7 @@ SELECT * FROM vistest;
 (2 rows)
 
 COMMIT;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d2
@@ -354,11 +326,7 @@ SELECT * FROM vistest;
 BEGIN;
 TRUNCATE vistest;
 COPY vistest FROM stdin CSV FREEZE;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a 
 ---
  x
@@ -401,11 +369,7 @@ SELECT truncate_in_subxact();
 (1 row)
 
 COPY vistest FROM stdin CSV FREEZE;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d4
@@ -413,11 +377,7 @@ SELECT * FROM vistest;
 (2 rows)
 
 COMMIT;
-<<<<<<< HEAD
 SELECT * FROM vistest ORDER BY 1;
-=======
-SELECT * FROM vistest;
->>>>>>> e472b921406407794bab911c64655b8b82375196
  a  
 ----
  d4

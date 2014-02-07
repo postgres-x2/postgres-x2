@@ -80,7 +80,6 @@ EXECUTE DIRECT ON ( <replaceable class="parameter">nodename</replaceable> [, ...
      <para>
       This mandatory clause specifies the raw query to launch
       on specified node list <replaceable class="parameter">nodelist</replaceable>.
-      This must be specified as a string literal.
      </para>
     </listitem>
    </varlistentry>

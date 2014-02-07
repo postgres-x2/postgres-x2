@@ -125,9 +125,6 @@ int			VacuumCostBalance = 0;		/* working state for vacuum */
 bool		VacuumCostActive = false;
 
 int			GinFuzzySearchLimit = 0;
-<<<<<<< HEAD
 #ifdef PGXC
 bool useLocalXid = false;
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196

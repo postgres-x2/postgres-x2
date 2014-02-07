@@ -97,12 +97,9 @@ extern Name attnumAttName(Relation rd, int attid);
 extern Oid	attnumTypeId(Relation rd, int attid);
 extern Oid	attnumCollationId(Relation rd, int attid);
 extern bool isQueryUsingTempRelation(Query *query);
-<<<<<<< HEAD
 
 #ifdef PGXC
 extern int	specialAttNum(const char *attname);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 #endif   /* PARSE_RELATION_H */

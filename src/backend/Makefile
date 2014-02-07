@@ -40,17 +40,12 @@ endif
 endif
 
 OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a \
-<<<<<<< HEAD
 	   $(top_builddir)/src/common/libpgcommon_srv.a \
 	   $(top_builddir)/src/gtm/client/libgtmclient.a \
        $(top_builddir)/src/gtm/common/libgtmcommon.a \
        $(top_builddir)/src/interfaces/libpq/libpq.a
 
 
-=======
-       $(top_builddir)/src/common/libpgcommon_srv.a
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 # We put libpgport and libpgcommon into OBJS, so remove it from LIBS; also add
 # libldap
 LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE)

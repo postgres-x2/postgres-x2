@@ -50,12 +50,7 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 static bool isQueryUsingTempRelation_walker(Node *node, void *context);
 #ifndef PGXC
 static int	specialAttNum(const char *attname);
-<<<<<<< HEAD
 #endif
-=======
-static bool isQueryUsingTempRelation_walker(Node *node, void *context);
-
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 /*
  * refnameRangeTblEntry

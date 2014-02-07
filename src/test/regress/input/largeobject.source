@@ -27,21 +27,6 @@ FROM
 	JOIN pg_largeobject_metadata lo ON s.loid = lo.oid
 	JOIN pg_authid rol ON lo.lomowner = rol.oid;
 
--- Test ALTER LARGE OBJECT
-CREATE ROLE regresslo;
-DO $$
-  BEGIN
-    EXECUTE 'ALTER LARGE OBJECT ' || (select loid from lotest_stash_values)
-		|| ' OWNER TO regresslo';
-  END
-$$;
-SELECT
-	rol.rolname
-FROM
-	lotest_stash_values s
-	JOIN pg_largeobject_metadata lo ON s.loid = lo.oid
-	JOIN pg_authid rol ON lo.lomowner = rol.oid;
-
 -- NOTE: large objects require transactions
 BEGIN;
 

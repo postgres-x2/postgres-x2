@@ -377,12 +377,9 @@ typedef enum
 	CheckpointerProcess,
 	WalWriterProcess,
 	WalReceiverProcess,
-<<<<<<< HEAD
 #ifdef PGXC
 	PoolerProcess,
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 	NUM_AUXPROCTYPES			/* Must be last! */
 } AuxProcType;

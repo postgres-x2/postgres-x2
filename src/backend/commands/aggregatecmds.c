@@ -232,7 +232,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 						   aggArgTypes, /* input data type(s) */
 						   numArgs,
 						   transfuncName,		/* step function name */
-<<<<<<< HEAD
 #ifdef PGXC
 						   collectfuncName,	/* collect function name */
 #endif
@@ -245,10 +244,4 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 #else
 						   initval);	/* initial condition */
 #endif
-=======
-						   finalfuncName,		/* final function name */
-						   sortoperatorName,	/* sort operator name */
-						   transTypeId, /* transition data type */
-						   initval);	/* initial condition */
->>>>>>> e472b921406407794bab911c64655b8b82375196
 }

@@ -680,13 +680,10 @@ extern void deparse_targetlist(Query *query, List *targetList, StringInfo buf);
 extern List *deparse_context_for(const char *aliasname, Oid relid);
 extern List *deparse_context_for_planstate(Node *planstate, List *ancestors,
 							  List *rtable, List *rtable_names);
-<<<<<<< HEAD
 #ifdef PGXC
 extern List *deparse_context_for_plan(Node *plan, List *ancestors,
 							  List *rtable);
 #endif
-=======
->>>>>>> e472b921406407794bab911c64655b8b82375196
 extern List *select_rtable_names_for_explain(List *rtable,
 								Bitmapset *rels_used);
 extern const char *quote_identifier(const char *ident);

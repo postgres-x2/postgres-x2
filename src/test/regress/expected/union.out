@@ -480,23 +480,12 @@ explain (num_nodes off, nodes off, costs off)
   UNION ALL
   SELECT * FROM t2) t
  WHERE ab = 'ab';
-<<<<<<< HEAD
                      QUERY PLAN                      
 -----------------------------------------------------
  Append
    ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"
    ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY__1"
 (3 rows)
-=======
-                 QUERY PLAN                  
----------------------------------------------
- Append
-   ->  Index Scan using t1_ab_idx on t1
-         Index Cond: ((a || b) = 'ab'::text)
-   ->  Index Only Scan using t2_pkey on t2
-         Index Cond: (ab = 'ab'::text)
-(5 rows)
->>>>>>> e472b921406407794bab911c64655b8b82375196
 
 explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
@@ -522,17 +511,10 @@ explain (num_nodes off, nodes off, costs off)
    UNION ALL
    SELECT 2 AS t, * FROM tenk1 b) c
  WHERE t = 2;
-<<<<<<< HEAD
                       QUERY PLAN                      
 ------------------------------------------------------
  Append
    ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
-=======
-        QUERY PLAN         
----------------------------
- Append
-   ->  Seq Scan on tenk1 b
->>>>>>> e472b921406407794bab911c64655b8b82375196
 (2 rows)
 
 -- Test that we push quals into UNION sub-selects only when it's safe
