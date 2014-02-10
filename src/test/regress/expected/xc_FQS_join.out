@@ -376,12 +376,21 @@ select * from tab1_mod natural join tab4_rep where tab1_mod.val = 1 order by tab
 (5 rows)
 
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod natural join tab4_rep where tab1_mod.val = 1 order by tab1_mod.val2;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_SORT_QUERY__"
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Sort
    Output: tab1_mod.val, tab1_mod.val2, tab1_mod.val2
-   Remote query: SELECT l.a_1, l.a_2 FROM ((SELECT tab1_mod.val, tab1_mod.val2 FROM ONLY public.tab1_mod WHERE (tab1_mod.val = 1)) l(a_1, a_2) JOIN (SELECT tab4_rep.val, tab4_rep.val2 FROM ONLY public.tab4_rep WHERE (tab4_rep.val = 1)) r(a_1, a_2) ON (true)) WHERE (l.a_2 = r.a_2) ORDER BY 2
-(3 rows)
+   Sort Key: tab1_mod.val2
+   ->  Nested Loop
+         Output: tab1_mod.val, tab1_mod.val2, tab1_mod.val2
+         Join Filter: (tab1_mod.val2 = tab4_rep.val2)
+         ->  Data Node Scan (primary node count=0, node count=1) on tab1_mod "_REMOTE_TABLE_QUERY_"
+               Output: tab1_mod.val, tab1_mod.val2
+               Remote query: SELECT val, val2 FROM ONLY public.tab1_mod WHERE (val = 1)
+         ->  Data Node Scan (primary node count=0, node count=1) on tab4_rep "_REMOTE_TABLE_QUERY__1"
+               Output: tab4_rep.val, tab4_rep.val2
+               Remote query: SELECT val, val2 FROM ONLY public.tab4_rep WHERE (val = 1)
+(12 rows)
 
 -- following join between distributed tables should get FQSed because both of
 -- them reduce to a single node
@@ -398,12 +407,18 @@ select * from tab1_mod join tab2_mod using (val2)
 
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod join tab2_mod using (val2)
 		where tab1_mod.val = 1 and tab2_mod.val = 2 order by tab1_mod.val;
-                                                                                                                                           QUERY PLAN                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "_REMOTE_TABLE_QUERY_"
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Nested Loop
    Output: tab1_mod.val2, tab1_mod.val, tab2_mod.val, tab1_mod.val
-   Remote query: SELECT l.a_1, l.a_2, r.a_1 FROM ((SELECT tab1_mod.val2, tab1_mod.val FROM ONLY public.tab1_mod WHERE (tab1_mod.val = 1)) l(a_1, a_2) JOIN (SELECT tab2_mod.val, tab2_mod.val2 FROM ONLY public.tab2_mod WHERE (tab2_mod.val = 2)) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2)
-(3 rows)
+   Join Filter: (tab1_mod.val2 = tab2_mod.val2)
+   ->  Data Node Scan (primary node count=0, node count=1) on tab1_mod "_REMOTE_TABLE_QUERY_"
+         Output: tab1_mod.val2, tab1_mod.val
+         Remote query: SELECT val2, val FROM ONLY public.tab1_mod WHERE (val = 1)
+   ->  Data Node Scan (primary node count=0, node count=1) on tab2_mod "_REMOTE_TABLE_QUERY__1"
+         Output: tab2_mod.val, tab2_mod.val2
+         Remote query: SELECT val, val2 FROM ONLY public.tab2_mod WHERE (val = 2)
+(9 rows)
 
 -- JOIN involving the distributed table with equi-JOIN on the distributed column
 -- with same kind of distribution on same nodes.
@@ -612,15 +627,24 @@ explain (costs off, verbose on, nodes off)
 select * from tab1_mod left join tab3_mod on (tab1_mod.val = tab3_mod.val and tab1_mod.val2 = tab3_mod.val2)
 			where tab3_mod.val = tab3_mod.val2 or tab3_mod.val is null
 			order by  tab1_mod.val, tab1_mod.val2;
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Sort
    Output: tab1_mod.val, tab1_mod.val2, tab3_mod.val, tab3_mod.val2, tab1_mod.val, tab1_mod.val2
    Sort Key: tab1_mod.val, tab1_mod.val2
-   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+   ->  Hash Left Join
          Output: tab1_mod.val, tab1_mod.val2, tab3_mod.val, tab3_mod.val2, tab1_mod.val, tab1_mod.val2
-         Remote query: SELECT l.a_1, l.a_2, r.a_1, r.a_2 FROM ((SELECT tab1_mod.val, tab1_mod.val2 FROM ONLY public.tab1_mod WHERE true) l(a_1, a_2) LEFT JOIN (SELECT tab3_mod.val, tab3_mod.val2 FROM ONLY public.tab3_mod WHERE true) r(a_1, a_2) ON (((l.a_1 = r.a_1) AND (l.a_2 = r.a_2)))) WHERE ((r.a_1 = r.a_2) OR (r.a_1 IS NULL)) ORDER BY 1, 2
-(6 rows)
+         Hash Cond: ((tab1_mod.val = tab3_mod.val) AND (tab1_mod.val2 = tab3_mod.val2))
+         Filter: ((tab3_mod.val = tab3_mod.val2) OR (tab3_mod.val IS NULL))
+         ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
+               Output: tab1_mod.val, tab1_mod.val2
+               Remote query: SELECT val, val2 FROM ONLY public.tab1_mod WHERE true
+         ->  Hash
+               Output: tab3_mod.val, tab3_mod.val2
+               ->  Data Node Scan on tab3_mod "_REMOTE_TABLE_QUERY__1"
+                     Output: tab3_mod.val, tab3_mod.val2
+                     Remote query: SELECT val, val2 FROM ONLY public.tab3_mod WHERE true
+(15 rows)
 
 -- JOIN condition is not equi-join on distribution column, join is not shippable
 select * from tab1_mod left join tab3_mod using (val2)
@@ -679,15 +703,24 @@ explain (costs off, verbose on, nodes off)
 select * from tab1_mod left join tab1_rep on (tab1_mod.val < tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
 			where tab1_mod.val >= 5
 			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2, tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2
    Sort Key: tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2
-   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+   ->  Hash Right Join
          Output: tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2, tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2
-         Remote query: SELECT l.a_1, l.a_2, r.a_1, r.a_2 FROM ((SELECT tab1_mod.val, tab1_mod.val2 FROM ONLY public.tab1_mod WHERE (tab1_mod.val >= 5)) l(a_1, a_2) LEFT JOIN (SELECT tab1_rep.val, tab1_rep.val2 FROM ONLY public.tab1_rep WHERE true) r(a_1, a_2) ON (((l.a_1 < r.a_1) AND (l.a_2 = r.a_2)))) WHERE true ORDER BY 1, 2, 3, 4
-(6 rows)
+         Hash Cond: (tab1_rep.val2 = tab1_mod.val2)
+         Join Filter: (tab1_mod.val < tab1_rep.val)
+         ->  Data Node Scan on tab1_rep "_REMOTE_TABLE_QUERY_"
+               Output: tab1_rep.val, tab1_rep.val2
+               Remote query: SELECT val, val2 FROM ONLY public.tab1_rep WHERE true
+         ->  Hash
+               Output: tab1_mod.val, tab1_mod.val2
+               ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY__1"
+                     Output: tab1_mod.val, tab1_mod.val2
+                     Remote query: SELECT val, val2 FROM ONLY public.tab1_mod WHERE (val >= 5)
+(15 rows)
 
 -- OUTER side is replicated and inner is distributed, join is not shippable,
 -- just check the EXPLAIN outputs.

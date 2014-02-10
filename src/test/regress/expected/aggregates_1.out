@@ -452,7 +452,7 @@ FROM bool_test;
 --
 analyze tenk1;		-- ensure we get consistent plans here
 -- Basic cases
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select min(unique1) from tenk1;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -466,7 +466,7 @@ select min(unique1) from tenk1;
    0
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique1) from tenk1;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -480,7 +480,7 @@ select max(unique1) from tenk1;
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique1) from tenk1 where unique1 < 42;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -494,7 +494,7 @@ select max(unique1) from tenk1 where unique1 < 42;
   41
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique1) from tenk1 where unique1 > 42;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -508,7 +508,7 @@ select max(unique1) from tenk1 where unique1 > 42;
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique1) from tenk1 where unique1 > 42000;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -523,7 +523,7 @@ select max(unique1) from tenk1 where unique1 > 42000;
 (1 row)
 
 -- multi-column index (uses tenk1_thous_tenthous)
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(tenthous) from tenk1 where thousand = 33;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -537,7 +537,7 @@ select max(tenthous) from tenk1 where thousand = 33;
  9033
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select min(tenthous) from tenk1 where thousand = 33;
                     QUERY PLAN                    
 --------------------------------------------------
@@ -552,7 +552,7 @@ select min(tenthous) from tenk1 where thousand = 33;
 (1 row)
 
 -- check parameter propagation into an indexscan subquery
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
     from int4_tbl;
                            QUERY PLAN                           
@@ -577,7 +577,7 @@ order by f1;
 (5 rows)
 
 -- check some cases that were handled incorrectly in 8.3.0
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select distinct max(unique2) from tenk1;
                        QUERY PLAN                       
 --------------------------------------------------------
@@ -592,7 +592,7 @@ select distinct max(unique2) from tenk1;
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique2) from tenk1 order by 1;
                        QUERY PLAN                       
 --------------------------------------------------------
@@ -608,7 +608,7 @@ select max(unique2) from tenk1 order by 1;
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique2) from tenk1 order by max(unique2);
                        QUERY PLAN                       
 --------------------------------------------------------
@@ -624,7 +624,7 @@ select max(unique2) from tenk1 order by max(unique2);
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique2) from tenk1 order by max(unique2)+1;
                        QUERY PLAN                       
 --------------------------------------------------------
@@ -640,7 +640,7 @@ select max(unique2) from tenk1 order by max(unique2)+1;
  9999
 (1 row)
 
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
                        QUERY PLAN                       
 --------------------------------------------------------
@@ -671,7 +671,7 @@ insert into minmaxtest values(11), (12);
 insert into minmaxtest1 values(13), (14);
 insert into minmaxtest2 values(15), (16);
 insert into minmaxtest3 values(17), (18);
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select min(f1), max(f1) from minmaxtest;
                              QUERY PLAN                             
 --------------------------------------------------------------------
@@ -690,7 +690,7 @@ select min(f1), max(f1) from minmaxtest;
 (1 row)
 
 -- DISTINCT doesn't do anything useful here, but it shouldn't fail
-explain (costs off, nodes off)
+explain (costs off, nodes off, num_nodes off, nodes off)
   select distinct min(f1), max(f1) from minmaxtest;
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
@@ -890,10 +890,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c) AS aggfns                                                                    +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c) AS aggfns                                                                   +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 3) i(i);
 (1 row)
 
@@ -908,10 +908,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.b) AS aggfns                                                       +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.b) AS aggfns                                                      +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 3) i(i);
 (1 row)
 
@@ -974,10 +974,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.a, v.c USING ~<~ NULLS LAST, v.b) AS aggfns                        +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.a, v.c USING ~<~ NULLS LAST, v.b) AS aggfns                       +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 2) i(i);
 (1 row)
 

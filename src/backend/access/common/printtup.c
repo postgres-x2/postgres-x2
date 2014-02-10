@@ -20,14 +20,10 @@
 #include "libpq/pqformat.h"
 #include "tcop/pquery.h"
 #include "utils/lsyscache.h"
-<<<<<<< HEAD
+#include "utils/memutils.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #endif
-=======
-#include "utils/memutils.h"
-
->>>>>>> REL9_3_2
 
 static void printtup_startup(DestReceiver *self, int operation,
 				 TupleDesc typeinfo);

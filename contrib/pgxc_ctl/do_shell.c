@@ -60,7 +60,7 @@ static void prepareStdout(cmdList_t *cmdList);
  */
 jmp_buf *whereToJumpDoShell = NULL;
 jmp_buf dcJmpBufDoShell;
-sighandler_t old_HandlerDoShell = NULL;
+pqsigfunc old_HandlerDoShell = NULL;
 void do_shell_SigHandler(int signum);
 
 /*

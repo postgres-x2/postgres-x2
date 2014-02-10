@@ -451,16 +451,16 @@ insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
-explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
+explain (verbose, costs off, num_nodes off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
-explain (verbose, costs off) select min(1-id) from matest0;
+explain (verbose, costs off, num_nodes off, nodes off) select min(1-id) from matest0;
 select min(1-id) from matest0;
 reset enable_indexscan;
 
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
-explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
+explain (verbose, costs off, num_nodes off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
-explain (verbose, costs off) select min(1-id) from matest0;
+explain (verbose, costs off, num_nodes off, nodes off) select min(1-id) from matest0;
 select min(1-id) from matest0;
 reset enable_seqscan;
 
@@ -515,7 +515,7 @@ SELECT x, y FROM
 ORDER BY x, y;
 
 -- exercise rescan code path via a repeatedly-evaluated subquery
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
 SELECT
     ARRAY(SELECT f.i FROM (
         (SELECT d + g.i FROM generate_series(4, 30, 3) d ORDER BY 1)

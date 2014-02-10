@@ -836,7 +836,7 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 -- another case with equivalence clauses above outer joins (bug #8591)
 --
 
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
 select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
   from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
   where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
@@ -849,7 +849,7 @@ select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
 -- check handling of join aliases when flattening multiple levels of subquery
 --
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
   (values (0),(1)) foo1(join_key)
 left join
@@ -1005,7 +1005,7 @@ explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x cross join lateral (select unique2 from tenk1 where f1 = unique1) ss;
 select unique2, x.*
-from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
+from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true order by 1,2;
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
@@ -1092,34 +1092,34 @@ select v.* from
   left join int4_tbl z on z.f1 = x.q2,
   lateral (select x.q1,y.q1 from dual union all select x.q2,y.q2 from dual) v(vx,vy) ORDER BY 1,2;
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join
   lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
 select * from
   int8_tbl a left join
-  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
-explain (verbose, costs off)
+  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1 order by 1,2,3,4,5;
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join
   lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
 select * from
   int8_tbl a left join
-  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
+  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1 order by 1,2,3,4,5;
 
 -- lateral can result in join conditions appearing below their
 -- real semantic level
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl i left join
   lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
 select * from int4_tbl i left join
-  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
-explain (verbose, costs off)
+  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true order by 1,2;
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl i left join
   lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
 select * from int4_tbl i left join
-  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
-explain (verbose, costs off)
+  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true order by 1,2;
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl a,
   lateral (
     select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
@@ -1127,10 +1127,10 @@ select * from int4_tbl a,
 select * from int4_tbl a,
   lateral (
     select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
-  ) ss;
+  ) ss order by 1,2,3,4;
 
 -- lateral reference in a PlaceHolderVar evaluated at join level
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join lateral
   (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
@@ -1140,7 +1140,7 @@ select * from
   int8_tbl a left join lateral
   (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
    int8_tbl b cross join int8_tbl c) ss
-  on a.q2 = ss.bq1;
+  on a.q2 = ss.bq1, num_nodes off, nodes off;
 
 -- case requiring nested PlaceHolderVars
 explain (verbose, num_nodes off, nodes off, costs off)
@@ -1154,7 +1154,7 @@ select * from
   lateral (select ss2.y) ss3;
 
 -- case that breaks the old ph_may_need optimization
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
   int8_tbl c left join (
     int8_tbl a left join

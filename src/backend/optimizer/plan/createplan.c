@@ -2034,18 +2034,6 @@ create_nestloop_plan(PlannerInfo *root,
 					 Plan *outer_plan,
 					 Plan *inner_plan)
 {
-<<<<<<< HEAD
-    NestLoop   *join_plan;
-    List       *tlist = build_relation_tlist(best_path->path.parent);
-    List       *joinrestrictclauses = best_path->joinrestrictinfo;
-    List       *joinclauses;
-    List       *otherclauses;
-    Relids      outerrelids;
-    List       *nestParams;
-    ListCell   *cell;
-    ListCell   *prev;
-    ListCell   *next;
-=======
 	NestLoop   *join_plan;
 	List	   *tlist = build_path_tlist(root, &best_path->path);
 	List	   *joinrestrictclauses = best_path->joinrestrictinfo;
@@ -2056,7 +2044,6 @@ create_nestloop_plan(PlannerInfo *root,
 	ListCell   *cell;
 	ListCell   *prev;
 	ListCell   *next;
->>>>>>> REL9_3_2
 
 	/* Sort join qual clauses into best execution order */
 	joinrestrictclauses = order_qual_clauses(root, joinrestrictclauses);
@@ -4914,9 +4901,9 @@ pgxc_order_qual_clauses(PlannerInfo *root, List *clauses)
 }
 
 List *
-pgxc_build_relation_tlist(RelOptInfo *rel)
+pgxc_build_path_tlist(PlannerInfo *root, Path *path)
 {
-	return build_relation_tlist(rel);
+	return build_path_tlist(root, path);
 }
 
 void

@@ -267,7 +267,7 @@ create temp table t3 as select generate_series(-1000,1000) as x;
 create index t3i on t3 (expensivefunc(x));
 analyze t3;
 
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
 select * from
   (select * from t3 a union all select * from t3 b) ss
   join int4_tbl on f1 = expensivefunc(x);

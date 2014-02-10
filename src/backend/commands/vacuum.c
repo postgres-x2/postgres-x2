@@ -846,23 +846,7 @@ vac_update_datfrozenxid(void)
 	 * this action will update that too.
 	 */
 	if (dirty || ForceTransactionIdLimitUpdate())
-<<<<<<< HEAD
-		/*
-		 * vac_truncate_clog needs a transaction id to detect wrap-arounds. For
-		 * a autovacuum, this would require the Datanode to contact the GTM or
-		 * the Coordinator and acquire GXID for the vacuum operation.
-		 *
-		 * To avoid this complexity, we disable the CLOG truncation. This is
-		 * perfectly fine for the prototype because we are not handling GXID
-		 * wrap-around in the prototype anyways. In future, this should be
-		 * fixed either by acquiring GXID for the vacuum operation or by
-		 * modifying the wrap-around check logic such that it does not need a
-		 * GXID
-		 */
-		vac_truncate_clog(newFrozenXid, newFrozenMulti);
-=======
 		vac_truncate_clog(newFrozenXid, newMinMulti);
->>>>>>> REL9_3_2
 }
 
 

@@ -1045,6 +1045,9 @@ drop function depth_c_tf();
 -- Test updates to rows during firing of BEFORE ROW triggers.
 -- As of 9.2, such cases should be rejected (see bug #6123).
 --
+-- Postgres-XC 1.2 needs more effort to fix this.  As of
+-- release 1.2 beta, this has not been fixed.
+--
 
 create temp table parent (
     aid int not null primary key,

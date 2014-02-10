@@ -2039,15 +2039,10 @@ SELECT viewname, definition FROM pg_views WHERE schemaname <> 'information_schem
                                  |    FROM (pg_class c                                                                                                                                                                                           +
                                  |    LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))                                                                                                                                                    +
                                  |   WHERE (c.relkind = 'v'::"char");
-<<<<<<< HEAD
- pgxc_prepared_xacts             |  SELECT DISTINCT pgxc_prepared_xact.pgxc_prepared_xact                                                                                                                                                         +
+ pgxc_prepared_xacts             |  SELECT DISTINCT pgxc_prepared_xact.pgxc_prepared_xact                                                                                                                                                        +
                                  |    FROM pgxc_prepared_xact() pgxc_prepared_xact(pgxc_prepared_xact);
- rtest_v1                        |  SELECT rtest_t1.a,                                                                                                                                                                                            +
-                                 |     rtest_t1.b                                                                                                                                                                                                 +
-=======
  rtest_v1                        |  SELECT rtest_t1.a,                                                                                                                                                                                           +
                                  |     rtest_t1.b                                                                                                                                                                                                +
->>>>>>> REL9_3_2
                                  |    FROM rtest_t1;
  rtest_vcomp                     |  SELECT x.part,                                                                                                                                                                                               +
                                  |     (x.size * y.factor) AS size_in_cm                                                                                                                                                                         +
@@ -2592,17 +2587,11 @@ ERROR:  Rule may not use NOTIFY, it is not yet supported
  f2     | integer |           | plain   |              | 
 Rules:
     r1 AS
-    ON UPDATE TO rules_src DO  INSERT INTO rules_log (f1, f2, tag) 
+    ON UPDATE TO rules_src DO  INSERT INTO rules_log (f1, f2, tag)
   VALUES ("*VALUES*".column1, "*VALUES*".column2, "*VALUES*".column3)
     r2 AS
     ON UPDATE TO rules_src DO  VALUES (old.f1,old.f2,'old'::text), (new.f1,new.f2,'new'::text)
-<<<<<<< HEAD
   ORDER BY "*VALUES*".column1, "*VALUES*".column2, "*VALUES*".column3
-=======
-    r3 AS
-    ON DELETE TO rules_src DO
- NOTIFY rules_src_deletion
->>>>>>> REL9_3_2
 Has OIDs: no
 Distribute By: HASH(f1)
 Location Nodes: ALL DATANODES

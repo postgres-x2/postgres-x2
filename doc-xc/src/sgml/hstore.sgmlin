@@ -236,7 +236,7 @@ key =&gt; NULL
 
     <tbody>
      <row>
-      <entry><function>hstore(record)</function></entry>
+      <entry><function>hstore(record)</function><indexterm><primary>hstore</primary></indexterm></entry>
       <entry><type>hstore</type></entry>
       <entry>construct an <type>hstore</> from a record or row</entry>
       <entry><literal>hstore(ROW(1,2))</literal></entry>
@@ -269,7 +269,7 @@ key =&gt; NULL
      </row>
 
      <row>
-      <entry><function>akeys(hstore)</function></entry>
+      <entry><function>akeys(hstore)</function><indexterm><primary>akeys</primary></indexterm></entry>
       <entry><type>text[]</type></entry>
       <entry>get <type>hstore</>'s keys as an array</entry>
       <entry><literal>akeys('a=&gt;1,b=&gt;2')</literal></entry>
@@ -277,7 +277,7 @@ key =&gt; NULL
      </row>
 
      <row>
-      <entry><function>skeys(hstore)</function></entry>
+      <entry><function>skeys(hstore)</function><indexterm><primary>skeys</primary></indexterm></entry>
       <entry><type>setof text</type></entry>
       <entry>get <type>hstore</>'s keys as a set</entry>
       <entry><literal>skeys('a=&gt;1,b=&gt;2')</literal></entry>
@@ -289,7 +289,7 @@ b
      </row>
 
      <row>
-      <entry><function>avals(hstore)</function></entry>
+      <entry><function>avals(hstore)</function><indexterm><primary>avals</primary></indexterm></entry>
       <entry><type>text[]</type></entry>
       <entry>get <type>hstore</>'s values as an array</entry>
       <entry><literal>avals('a=&gt;1,b=&gt;2')</literal></entry>
@@ -297,7 +297,7 @@ b
      </row>
 
      <row>
-      <entry><function>svals(hstore)</function></entry>
+      <entry><function>svals(hstore)</function><indexterm><primary>svals</primary></indexterm></entry>
       <entry><type>setof text</type></entry>
       <entry>get <type>hstore</>'s values as a set</entry>
       <entry><literal>svals('a=&gt;1,b=&gt;2')</literal></entry>
@@ -309,7 +309,7 @@ b
      </row>
 
      <row>
-      <entry><function>hstore_to_array(hstore)</function></entry>
+      <entry><function>hstore_to_array(hstore)</function><indexterm><primary>hstore_to_array</primary></indexterm></entry>
       <entry><type>text[]</type></entry>
       <entry>get <type>hstore</>'s keys and values as an array of alternating
        keys and values</entry>
@@ -318,7 +318,7 @@ b
      </row>
 
      <row>
-      <entry><function>hstore_to_matrix(hstore)</function></entry>
+      <entry><function>hstore_to_matrix(hstore)</function><indexterm><primary>hstore_to_matrix</primary></indexterm></entry>
       <entry><type>text[]</type></entry>
       <entry>get <type>hstore</>'s keys and values as a two-dimensional array</entry>
       <entry><literal>hstore_to_matrix('a=&gt;1,b=&gt;2')</literal></entry>
@@ -326,7 +326,7 @@ b
      </row>
 
      <row>
-      <entry><function>hstore_to_json(hstore)</function></entry>
+      <entry><function>hstore_to_json(hstore)</function><indexterm><primary>hstore_to_json</primary></indexterm></entry>
       <entry><type>json</type></entry>
       <entry>get <type>hstore</type> as a <type>json</type> value</entry>
       <entry><literal>hstore_to_json('"a key"=&gt;1, b=&gt;t, c=&gt;null, d=&gt;12345, e=&gt;012345, f=&gt;1.234, g=&gt;2.345e+4')</literal></entry>
@@ -334,7 +334,7 @@ b
      </row>
 
      <row>
-      <entry><function>hstore_to_json_loose(hstore)</function></entry>
+      <entry><function>hstore_to_json_loose(hstore)</function><indexterm><primary>hstore_to_json_loose</primary></indexterm></entry>
       <entry><type>json</type></entry>
       <entry>get <type>hstore</type> as a <type>json</type> value, but attempting to distinguish numerical and Boolean values so they are unquoted in the JSON</entry>
       <entry><literal>hstore_to_json_loose('"a key"=&gt;1, b=&gt;t, c=&gt;null, d=&gt;12345, e=&gt;012345, f=&gt;1.234, g=&gt;2.345e+4')</literal></entry>
@@ -342,7 +342,7 @@ b
      </row>
 
      <row>
-      <entry><function>slice(hstore, text[])</function></entry>
+      <entry><function>slice(hstore, text[])</function><indexterm><primary>slice</primary></indexterm></entry>
       <entry><type>hstore</type></entry>
       <entry>extract a subset of an <type>hstore</></entry>
       <entry><literal>slice('a=&gt;1,b=&gt;2,c=&gt;3'::hstore, ARRAY['b','c','x'])</literal></entry>
@@ -350,7 +350,7 @@ b
      </row>
 
      <row>
-      <entry><function>each(hstore)</function></entry>
+      <entry><function>each(hstore)</function><indexterm><primary>each</primary></indexterm></entry>
       <entry><type>setof(key text, value text)</type></entry>
       <entry>get <type>hstore</>'s keys and values as a set</entry>
       <entry><literal>select * from each('a=&gt;1,b=&gt;2')</literal></entry>
@@ -364,7 +364,7 @@ b
      </row>
 
      <row>
-      <entry><function>exist(hstore,text)</function></entry>
+      <entry><function>exist(hstore,text)</function><indexterm><primary>exist</primary></indexterm></entry>
       <entry><type>boolean</type></entry>
       <entry>does <type>hstore</> contain key?</entry>
       <entry><literal>exist('a=&gt;1','a')</literal></entry>
@@ -372,7 +372,7 @@ b
      </row>
 
      <row>
-      <entry><function>defined(hstore,text)</function></entry>
+      <entry><function>defined(hstore,text)</function><indexterm><primary>defined</primary></indexterm></entry>
       <entry><type>boolean</type></entry>
       <entry>does <type>hstore</> contain non-<literal>NULL</> value for key?</entry>
       <entry><literal>defined('a=&gt;NULL','a')</literal></entry>
@@ -380,7 +380,7 @@ b
      </row>
 
      <row>
-      <entry><function>delete(hstore,text)</function></entry>
+      <entry><function>delete(hstore,text)</function><indexterm><primary>delete</primary></indexterm></entry>
       <entry><type>hstore</type></entry>
       <entry>delete pair with matching key</entry>
       <entry><literal>delete('a=&gt;1,b=&gt;2','b')</literal></entry>
@@ -404,7 +404,7 @@ b
      </row>
 
      <row>
-      <entry><function>populate_record(record,hstore)</function></entry>
+      <entry><function>populate_record(record,hstore)</function><indexterm><primary>populate_record</primary></indexterm></entry>
       <entry><type>record</type></entry>
       <entry>replace fields in <type>record</> with matching values from <type>hstore</></entry>
       <entry>see Examples section</entry>

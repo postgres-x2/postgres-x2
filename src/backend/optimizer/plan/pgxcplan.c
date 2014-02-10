@@ -273,10 +273,7 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 * Build the target list for this relation. We included only the Vars to
 	 * start with.
 	 */
-	tlist = pgxc_build_relation_tlist(baserel);
-	/* Take care of parameterization in the target list */
-	if (rqpath->path.param_info)
-		tlist = (List *) pgxc_replace_nestloop_params(root, (Node *) tlist);
+	tlist = pgxc_build_path_tlist(root, &(rqpath->path));
 
 	tlist = pull_var_clause((Node *)tlist, PVC_REJECT_AGGREGATES,
 										PVC_RECURSE_PLACEHOLDERS);
@@ -476,7 +473,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 * targetlist need to be restamped with the right varno (left or right) and
 	 * varattno to match the columns of the JOINing queries.
 	 */
-	tlist = pgxc_build_relation_tlist(rqpath->path.parent);
+	tlist = pgxc_build_path_tlist(root, &(rqpath->path));
 	varlist = list_concat(pull_var_clause((Node *)tlist, PVC_REJECT_AGGREGATES,
 											PVC_RECURSE_PLACEHOLDERS),
 						pull_var_clause((Node *)*unshippable_quals, PVC_REJECT_AGGREGATES,
@@ -723,10 +720,7 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	char			*rte_name;
 
 	/* Get the target list required from this plan */
-	tlist = pgxc_build_relation_tlist(rel);
-	/* Replace the lateral refrences if any */
-	if (best_path->path.param_info)
-		tlist = (List *)pgxc_replace_nestloop_params(root, (Node *)tlist);
+	tlist = pgxc_build_path_tlist(root, &(best_path->path));
 	result_node = makeNode(RemoteQuery);
 	result_node->scan.plan.targetlist = tlist;
 	pgxc_build_shippable_query(root, best_path, result_node);
@@ -1748,7 +1742,7 @@ pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr, Index ressortgroupref)
 			 * ressortgroupref, the optimizations will fail, which at least
 			 * doesn't have any correctness issue.
 			 */
-			if (remote_tle->ressortgroupref != ressortgroupref);
+			if (remote_tle->ressortgroupref != ressortgroupref)
 				remote_tle->ressortgroupref = 0;
 		}
 	}

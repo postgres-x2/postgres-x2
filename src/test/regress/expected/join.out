@@ -2947,24 +2947,22 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 --
 -- another case with equivalence clauses above outer joins (bug #8591)
 --
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
 select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
   from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
   where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                             QUERY PLAN                              
+---------------------------------------------------------------------
  Nested Loop Left Join
-   ->  Nested Loop Left Join
+   Join Filter: (c.unique2 = COALESCE(b.twothousand, a.twothousand))
+   ->  Hash Right Join
+         Hash Cond: (b.thousand = a.unique1)
          Filter: (COALESCE(b.twothousand, a.twothousand) = 44)
-         ->  Index Scan using tenk1_unique2 on tenk1 a
-               Index Cond: (unique2 = 5530)
-         ->  Bitmap Heap Scan on tenk1 b
-               Recheck Cond: (thousand = a.unique1)
-               ->  Bitmap Index Scan on tenk1_thous_tenthous
-                     Index Cond: (thousand = a.unique1)
-   ->  Index Scan using tenk1_unique2 on tenk1 c
-         Index Cond: ((unique2 = COALESCE(b.twothousand, a.twothousand)) AND (unique2 = 44))
-(11 rows)
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+         ->  Hash
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__2"
+(9 rows)
 
 select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
   from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
@@ -2976,7 +2974,7 @@ select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
 --
 -- check handling of join aliases when flattening multiple levels of subquery
 --
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
   (values (0),(1)) foo1(join_key)
 left join
@@ -2989,23 +2987,27 @@ left join
    using (join_key)
   ) foo3
 using (join_key);
-                                QUERY PLAN                                
---------------------------------------------------------------------------
- Nested Loop Left Join
-   Output: "*VALUES*".column1, i1.f1, (666)
-   Join Filter: ("*VALUES*".column1 = i1.f1)
-   ->  Values Scan on "*VALUES*"
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Hash Right Join
+   Output: "*VALUES*".column1, f1, (666)
+   Hash Cond: (f1 = "*VALUES*".column1)
+   ->  Hash Left Join
+         Output: f1, 666
+         Hash Cond: (f1 = unique2)
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+               Output: f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl i1 WHERE true
+         ->  Hash
+               Output: unique2
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+                     Output: unique2
+                     Remote query: SELECT unique2 FROM ONLY public.tenk1 i2 WHERE true
+   ->  Hash
          Output: "*VALUES*".column1
-   ->  Materialize
-         Output: i1.f1, (666)
-         ->  Nested Loop Left Join
-               Output: i1.f1, 666
-               ->  Seq Scan on public.int4_tbl i1
-                     Output: i1.f1
-               ->  Index Only Scan using tenk1_unique2 on public.tenk1 i2
-                     Output: i2.unique2
-                     Index Cond: (i2.unique2 = i1.f1)
-(14 rows)
+         ->  Values Scan on "*VALUES*"
+               Output: "*VALUES*".column1
+(18 rows)
 
 select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
   (values (0),(1)) foo1(join_key)
@@ -3272,10 +3274,14 @@ from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x;
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x;
-                QUERY PLAN                
-------------------------------------------
- Data Node Scan on "_REMOTE_TABLE_QUERY_"
-(1 row)
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Hash Join
+   Hash Cond: (a.unique1 = b.f1)
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__1"
+(5 rows)
 
 select unique2, x.*
 from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
@@ -3287,46 +3293,49 @@ from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss;
-                QUERY PLAN                
-------------------------------------------
- Data Node Scan on "_REMOTE_TABLE_QUERY_"
-(1 row)
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Hash Join
+   Hash Cond: (x.f1 = tenk1.unique1)
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
+(5 rows)
 
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x cross join lateral (select unique2 from tenk1 where f1 = unique1) ss;
-                QUERY PLAN                
-------------------------------------------
- Data Node Scan on "_REMOTE_TABLE_QUERY_"
-(1 row)
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Hash Join
+   Hash Cond: (x.f1 = tenk1.unique1)
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
+(5 rows)
 
 select unique2, x.*
-from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
+from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true order by 1,2;
  unique2 |     f1      
 ---------+-------------
     9998 |           0
-         |      123456
-         |     -123456
-         |  2147483647
          | -2147483647
+         |     -123456
+         |      123456
+         |  2147483647
 (5 rows)
 
 explain (costs off, num_nodes off, nodes off)
   select unique2, x.*
   from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true;
-                       QUERY PLAN                        
----------------------------------------------------------
- Nested Loop Left Join
-<<<<<<< HEAD
-   Filter: (x.f1 = tenk1.unique1)
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Hash Left Join
+   Hash Cond: (x.f1 = tenk1.unique1)
    ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
-   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
-=======
-   ->  Seq Scan on int4_tbl x
-   ->  Index Scan using tenk1_unique1 on tenk1
-         Index Cond: (x.f1 = unique1)
->>>>>>> REL9_3_2
-(4 rows)
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
+(5 rows)
 
 -- check scoping of lateral versus parent references
 -- the first of these should return int8_tbl.q2, the second int8_tbl.q1
@@ -3741,255 +3750,271 @@ select v.* from
   4567890123456789 |                  
 (20 rows)
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join
   lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
-                QUERY PLAN                
-------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Nested Loop Left Join
    Output: a.q1, a.q2, b.q1, b.q2, (a.q2)
-   ->  Seq Scan on public.int8_tbl a
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
          Output: a.q1, a.q2
-   ->  Seq Scan on public.int8_tbl b
+         Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl a WHERE true
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
          Output: b.q1, b.q2, a.q2
-         Filter: (a.q2 = b.q1)
-(7 rows)
+         Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl b WHERE true
+(8 rows)
 
 select * from
   int8_tbl a left join
-  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1;
-        q1        |        q2         |        q1        |        q2         |        x         
-------------------+-------------------+------------------+-------------------+------------------
-              123 |               456 |                  |                   |                 
-              123 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789
-              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
-              123 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789
- 4567890123456789 |               123 |              123 |               456 |              123
- 4567890123456789 |               123 |              123 |  4567890123456789 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |                  |                   |                 
-(10 rows)
+  lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1 order by 1,2,3,4,5;
+        q1        |        q2         |        q1        |        q2         |         x         
+------------------+-------------------+------------------+-------------------+-------------------
+              123 |               456 |              123 |               456 |               456
+              123 |               456 |              123 |  4567890123456789 |               456
+              123 |               456 | 4567890123456789 | -4567890123456789 |               456
+              123 |               456 | 4567890123456789 |               123 |               456
+              123 |               456 | 4567890123456789 |  4567890123456789 |               456
+              123 |  4567890123456789 |              123 |               456 |  4567890123456789
+              123 |  4567890123456789 |              123 |  4567890123456789 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 |               123 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789 |              123 |               456 | -4567890123456789
+ 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 | -4567890123456789 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 |               123 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | -4567890123456789
+ 4567890123456789 |               123 |              123 |               456 |               123
+ 4567890123456789 |               123 |              123 |  4567890123456789 |               123
+ 4567890123456789 |               123 | 4567890123456789 | -4567890123456789 |               123
+ 4567890123456789 |               123 | 4567890123456789 |               123 |               123
+ 4567890123456789 |               123 | 4567890123456789 |  4567890123456789 |               123
+ 4567890123456789 |  4567890123456789 |              123 |               456 |  4567890123456789
+ 4567890123456789 |  4567890123456789 |              123 |  4567890123456789 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 |  4567890123456789
+(25 rows)
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join
   lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
-                           QUERY PLAN                           
-----------------------------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Nested Loop Left Join
    Output: a.q1, a.q2, b.q1, b.q2, (COALESCE(a.q2, 42::bigint))
-   ->  Seq Scan on public.int8_tbl a
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
          Output: a.q1, a.q2
-   ->  Seq Scan on public.int8_tbl b
+         Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl a WHERE true
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
          Output: b.q1, b.q2, COALESCE(a.q2, 42::bigint)
-         Filter: (a.q2 = b.q1)
-(7 rows)
+         Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl b WHERE true
+(8 rows)
 
 select * from
   int8_tbl a left join
-  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1;
-        q1        |        q2         |        q1        |        q2         |        x         
-------------------+-------------------+------------------+-------------------+------------------
-              123 |               456 |                  |                   |                 
-              123 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789
-              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
-              123 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789
- 4567890123456789 |               123 |              123 |               456 |              123
- 4567890123456789 |               123 |              123 |  4567890123456789 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |                  |                   |                 
-(10 rows)
+  lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1 order by 1,2,3,4,5;
+        q1        |        q2         |        q1        |        q2         |         x         
+------------------+-------------------+------------------+-------------------+-------------------
+              123 |               456 |              123 |               456 |               456
+              123 |               456 |              123 |  4567890123456789 |               456
+              123 |               456 | 4567890123456789 | -4567890123456789 |               456
+              123 |               456 | 4567890123456789 |               123 |               456
+              123 |               456 | 4567890123456789 |  4567890123456789 |               456
+              123 |  4567890123456789 |              123 |               456 |  4567890123456789
+              123 |  4567890123456789 |              123 |  4567890123456789 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 | -4567890123456789 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 |               123 |  4567890123456789
+              123 |  4567890123456789 | 4567890123456789 |  4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789 |              123 |               456 | -4567890123456789
+ 4567890123456789 | -4567890123456789 |              123 |  4567890123456789 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 | -4567890123456789 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 |               123 | -4567890123456789
+ 4567890123456789 | -4567890123456789 | 4567890123456789 |  4567890123456789 | -4567890123456789
+ 4567890123456789 |               123 |              123 |               456 |               123
+ 4567890123456789 |               123 |              123 |  4567890123456789 |               123
+ 4567890123456789 |               123 | 4567890123456789 | -4567890123456789 |               123
+ 4567890123456789 |               123 | 4567890123456789 |               123 |               123
+ 4567890123456789 |               123 | 4567890123456789 |  4567890123456789 |               123
+ 4567890123456789 |  4567890123456789 |              123 |               456 |  4567890123456789
+ 4567890123456789 |  4567890123456789 |              123 |  4567890123456789 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 | -4567890123456789 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 |               123 |  4567890123456789
+ 4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789 |  4567890123456789
+(25 rows)
 
 -- lateral can result in join conditions appearing below their
 -- real semantic level
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl i left join
   lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
-                QUERY PLAN                 
--------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Hash Left Join
    Output: i.f1, j.f1
    Hash Cond: (i.f1 = j.f1)
-   ->  Seq Scan on public.int4_tbl i
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
          Output: i.f1
+         Remote query: SELECT f1 FROM ONLY public.int4_tbl i WHERE true
    ->  Hash
          Output: j.f1
-         ->  Seq Scan on public.int2_tbl j
+         ->  Data Node Scan on int2_tbl "_REMOTE_TABLE_QUERY__1"
                Output: j.f1
-(9 rows)
+               Remote query: SELECT f1 FROM ONLY public.int2_tbl j WHERE true
+(11 rows)
 
 select * from int4_tbl i left join
-  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true;
+  lateral (select * from int2_tbl j where i.f1 = j.f1) k on true order by 1,2;
      f1      | f1 
 -------------+----
+ -2147483647 |   
+     -123456 |   
            0 |  0
       123456 |   
-     -123456 |   
   2147483647 |   
- -2147483647 |   
 (5 rows)
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl i left join
   lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
-             QUERY PLAN              
--------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Nested Loop Left Join
    Output: i.f1, (COALESCE(i.*))
-   ->  Seq Scan on public.int4_tbl i
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
          Output: i.f1, i.*
-   ->  Seq Scan on public.int2_tbl j
+         Remote query: SELECT f1, i.*::public.int4_tbl FROM ONLY public.int4_tbl i WHERE true
+   ->  Data Node Scan on int2_tbl "_REMOTE_TABLE_QUERY__1"
          Output: j.f1, COALESCE(i.*)
-         Filter: (i.f1 = j.f1)
-(7 rows)
+         Remote query: SELECT f1 FROM ONLY public.int2_tbl j WHERE true
+(8 rows)
 
 select * from int4_tbl i left join
-  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true;
-     f1      | coalesce 
--------------+----------
+  lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true order by 1,2;
+     f1      |   coalesce    
+-------------+---------------
+ -2147483647 | (-2147483647)
+ -2147483647 | (-2147483647)
+ -2147483647 | (-2147483647)
+ -2147483647 | (-2147483647)
+ -2147483647 | (-2147483647)
+     -123456 | (-123456)
+     -123456 | (-123456)
+     -123456 | (-123456)
+     -123456 | (-123456)
+     -123456 | (-123456)
            0 | (0)
-      123456 | 
-     -123456 | 
-  2147483647 | 
- -2147483647 | 
-(5 rows)
+           0 | (0)
+           0 | (0)
+           0 | (0)
+           0 | (0)
+      123456 | (123456)
+      123456 | (123456)
+      123456 | (123456)
+      123456 | (123456)
+      123456 | (123456)
+  2147483647 | (2147483647)
+  2147483647 | (2147483647)
+  2147483647 | (2147483647)
+  2147483647 | (2147483647)
+  2147483647 | (2147483647)
+(25 rows)
 
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from int4_tbl a,
   lateral (
     select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
   ) ss;
-                   QUERY PLAN                    
--------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Nested Loop
    Output: a.f1, b.f1, c.q1, c.q2
-   ->  Seq Scan on public.int4_tbl a
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
          Output: a.f1
+         Remote query: SELECT f1 FROM ONLY public.int4_tbl a WHERE true
    ->  Hash Left Join
          Output: b.f1, c.q1, c.q2
          Hash Cond: (b.f1 = c.q1)
-         ->  Seq Scan on public.int4_tbl b
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__1"
                Output: b.f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl b WHERE true
          ->  Hash
                Output: c.q1, c.q2
-               ->  Seq Scan on public.int8_tbl c
+               ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
                      Output: c.q1, c.q2
-                     Filter: (a.f1 = c.q2)
-(14 rows)
+                     Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl c WHERE true
+                     Coordinator quals: (a.f1 = c.q2)
+(17 rows)
 
 select * from int4_tbl a,
   lateral (
     select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2)
-  ) ss;
+  ) ss order by 1,2,3,4;
      f1      |     f1      | q1 | q2 
 -------------+-------------+----+----
-           0 |           0 |    |   
-           0 |      123456 |    |   
-           0 |     -123456 |    |   
-           0 |  2147483647 |    |   
-           0 | -2147483647 |    |   
-      123456 |           0 |    |   
-      123456 |      123456 |    |   
-      123456 |     -123456 |    |   
-      123456 |  2147483647 |    |   
-      123456 | -2147483647 |    |   
-     -123456 |           0 |    |   
-     -123456 |      123456 |    |   
-     -123456 |     -123456 |    |   
-     -123456 |  2147483647 |    |   
-     -123456 | -2147483647 |    |   
-  2147483647 |           0 |    |   
-  2147483647 |      123456 |    |   
-  2147483647 |     -123456 |    |   
-  2147483647 |  2147483647 |    |   
-  2147483647 | -2147483647 |    |   
+ -2147483647 | -2147483647 |    |   
+ -2147483647 |     -123456 |    |   
  -2147483647 |           0 |    |   
  -2147483647 |      123456 |    |   
- -2147483647 |     -123456 |    |   
  -2147483647 |  2147483647 |    |   
- -2147483647 | -2147483647 |    |   
+     -123456 | -2147483647 |    |   
+     -123456 |     -123456 |    |   
+     -123456 |           0 |    |   
+     -123456 |      123456 |    |   
+     -123456 |  2147483647 |    |   
+           0 | -2147483647 |    |   
+           0 |     -123456 |    |   
+           0 |           0 |    |   
+           0 |      123456 |    |   
+           0 |  2147483647 |    |   
+      123456 | -2147483647 |    |   
+      123456 |     -123456 |    |   
+      123456 |           0 |    |   
+      123456 |      123456 |    |   
+      123456 |  2147483647 |    |   
+  2147483647 | -2147483647 |    |   
+  2147483647 |     -123456 |    |   
+  2147483647 |           0 |    |   
+  2147483647 |      123456 |    |   
+  2147483647 |  2147483647 |    |   
 (25 rows)
 
 -- lateral reference in a PlaceHolderVar evaluated at join level
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   int8_tbl a left join lateral
   (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
    int8_tbl b cross join int8_tbl c) ss
   on a.q2 = ss.bq1;
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Nested Loop Left Join
    Output: a.q1, a.q2, b.q1, c.q1, (LEAST(a.q1, b.q1, c.q1))
-   ->  Seq Scan on public.int8_tbl a
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
          Output: a.q1, a.q2
+         Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl a WHERE true
    ->  Nested Loop
          Output: b.q1, c.q1, LEAST(a.q1, b.q1, c.q1)
          Join Filter: (a.q2 = b.q1)
-         ->  Seq Scan on public.int8_tbl b
-               Output: b.q1, b.q2
-         ->  Materialize
+         ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
+               Output: b.q1
+               Remote query: SELECT q1 FROM ONLY public.int8_tbl b WHERE true
+         ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
                Output: c.q1
-               ->  Seq Scan on public.int8_tbl c
-                     Output: c.q1
-(13 rows)
+               Remote query: SELECT q1 FROM ONLY public.int8_tbl c WHERE true
+(14 rows)
 
 select * from
   int8_tbl a left join lateral
   (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from
    int8_tbl b cross join int8_tbl c) ss
-  on a.q2 = ss.bq1;
-        q1        |        q2         |       bq1        |       cq1        |      least       
-------------------+-------------------+------------------+------------------+------------------
-              123 |               456 |                  |                  |                 
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 |              123 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
-              123 |  4567890123456789 | 4567890123456789 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 |              123 |              123
- 4567890123456789 |               123 |              123 |              123 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 |              123 |              123
- 4567890123456789 |               123 |              123 |              123 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |               123 |              123 | 4567890123456789 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 |              123 |              123
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 |  4567890123456789 | 4567890123456789 | 4567890123456789 | 4567890123456789
- 4567890123456789 | -4567890123456789 |                  |                  |                 
-(42 rows)
-
+  on a.q2 = ss.bq1, num_nodes off, nodes off;
+ERROR:  relation "num_nodes" does not exist
+LINE 5:   on a.q2 = ss.bq1, num_nodes off, nodes off;
+                            ^
 -- case requiring nested PlaceHolderVars
 explain (verbose, num_nodes off, nodes off, costs off)
 select * from
@@ -4019,15 +4044,10 @@ select * from
                            Output: b.q1, (COALESCE(b.q2, 42::bigint))
                            ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
                                  Output: b.q1, COALESCE(b.q2, 42::bigint)
-<<<<<<< HEAD
                                  Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl b WHERE true
                ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
-                     Output: d.q1, d.q2
-                     Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl d WHERE true
-=======
-               ->  Seq Scan on public.int8_tbl d
                      Output: d.q1, COALESCE((COALESCE(b.q2, 42::bigint)), d.q2)
->>>>>>> REL9_3_2
+                     Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl d WHERE true
          ->  Hash
                Output: c.q1, c.q2
                ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__3"
@@ -4035,13 +4055,10 @@ select * from
                      Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl c WHERE true
    ->  Result
          Output: (COALESCE((COALESCE(b.q2, 42::bigint)), d.q2))
-<<<<<<< HEAD
 (28 rows)
-=======
-(24 rows)
 
 -- case that breaks the old ph_may_need optimization
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
   int8_tbl c left join (
     int8_tbl a left join
@@ -4068,28 +4085,29 @@ select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
                      ->  Nested Loop
                            Output: b.q1, COALESCE(b.q2, (b2.f1)::bigint)
                            Join Filter: (b.q1 < b2.f1)
-                           ->  Seq Scan on public.int8_tbl b
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
                                  Output: b.q1, b.q2
-                           ->  Materialize
+                                 Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl b WHERE true
+                           ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__1"
                                  Output: b2.f1
-                                 ->  Seq Scan on public.int4_tbl b2
-                                       Output: b2.f1
+                                 Remote query: SELECT f1 FROM ONLY public.int4_tbl b2 WHERE true
                      ->  Hash
                            Output: a.q1, a.q2
-                           ->  Seq Scan on public.int8_tbl a
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
                                  Output: a.q1, a.q2
-               ->  Seq Scan on public.int8_tbl d
+                                 Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl a WHERE true
+               ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__3"
                      Output: d.q1, COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2)
+                     Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl d WHERE true
          ->  Hash
                Output: c.q1, c.q2
-               ->  Seq Scan on public.int8_tbl c
+               ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__4"
                      Output: c.q1, c.q2
-   ->  Materialize
+                     Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl c WHERE true
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__5"
          Output: i.f1
-         ->  Seq Scan on public.int4_tbl i
-               Output: i.f1
-(34 rows)
->>>>>>> REL9_3_2
+         Remote query: SELECT f1 FROM ONLY public.int4_tbl i WHERE true
+(36 rows)
 
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;

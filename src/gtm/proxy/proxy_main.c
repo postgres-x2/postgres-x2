@@ -1471,6 +1471,9 @@ setjmp_again:
 		{
 			GTMProxy_CommandInfo *cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 
+			GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
+			thrinfo->thr_conn = conninfo;
+
 			/*
 			 * If this is a continuation of a multi-part command response, we
 			 * don't need to read another result from the stream. The previous
@@ -1524,8 +1527,6 @@ setjmp_again:
 
 	/* can't get here because the above loop never exits */
 	Assert(false);
-
-	return thrinfo;
 }
 
 /*
@@ -1790,6 +1791,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_beginmessage(&buf, 'S');
 				pq_sendint(&buf, TXN_COMMIT_RESULT, 4);
 				pq_sendbytes(&buf, (char *)&cmdinfo->ci_data.cd_rc.gxid, sizeof (GlobalTransactionId));
+				pq_sendint(&buf, STATUS_OK, sizeof (int));
 				pq_endmessage(cmdinfo->ci_conn->con_port, &buf);
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
@@ -1824,6 +1826,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_beginmessage(&buf, 'S');
 				pq_sendint(&buf, TXN_ROLLBACK_RESULT, 4);
 				pq_sendbytes(&buf, (char *)&cmdinfo->ci_data.cd_rc.gxid, sizeof (GlobalTransactionId));
+				pq_sendint(&buf, STATUS_OK, sizeof (int));
 				pq_endmessage(cmdinfo->ci_conn->con_port, &buf);
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
@@ -1955,7 +1958,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
 			ReleaseCmdBackup(cmdinfo);
 			break;
-			
+
 		default:
 			ReleaseCmdBackup(cmdinfo);
 			ereport(FATAL,
@@ -2331,7 +2334,7 @@ ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	 *
 	 * Write the message, but don't flush it just yet.
 	 */
-	return GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
+	GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 }
 
 static void
@@ -2345,7 +2348,7 @@ ProcessBarrierCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	 *
 	 * Write the message, but don't flush it just yet.
 	 */
-	return GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
+	GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 }
 
 
@@ -2573,6 +2576,7 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 	Recovery_PGXCNodeDisconnect(conninfo->con_port);
 
 	 /* Start the message. */
+	proxyhdr.ph_conid = conninfo->con_id;
 	if (gtmpqPutMsgStart('C', true, gtm_conn) ||
 		gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
 		gtmpqPutInt(MSG_BACKEND_DISCONNECT, sizeof (GTM_MessageType), gtm_conn) ||
@@ -3193,7 +3197,7 @@ UnregisterProxy(void)
 	return;
 
 failed:
-	return elog(ERROR, "can not Unregister Proxy on GTM");
+	elog(ERROR, "can not Unregister Proxy on GTM");
 }
 
 /*
@@ -3293,7 +3297,7 @@ failed:
 	{
 		elog(NOTICE, "could not register Proxy on GTM. Trying to unregister myself and then retry.");
 		UnregisterProxy();
-		return RegisterProxy(is_reconnect, true);
+		RegisterProxy(is_reconnect, true);
 	}
 	else
 		elog(ERROR, "can not register Proxy on GTM");

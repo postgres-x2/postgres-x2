@@ -29,6 +29,18 @@
   which does the same thing for any array type.
  </para>
 
+ <indexterm>
+  <primary>int_array_aggregate</primary>
+ </indexterm>
+
+ <indexterm>
+  <primary>array_agg</primary>
+ </indexterm>
+
+ <indexterm>
+  <primary>int_array_enum</primary>
+ </indexterm>
+
  <para>
   The enumerator is a function
   <function>int_array_enum(integer[])</>

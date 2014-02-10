@@ -506,14 +506,14 @@ CREATE VIEW rw_view1 AS SELECT * FROM base_tbl;
 
 UPDATE rw_view1 SET arr[1] = 42, arr[2] = 77 WHERE a = 3;
 
-SELECT * FROM rw_view1;
+SELECT * FROM rw_view1 ORDER BY 1;
 
 DROP TABLE base_tbl CASCADE;
 
 -- inheritance tests
 
-CREATE TABLE base_tbl_parent (a int);
-CREATE TABLE base_tbl_child (CHECK (a > 0)) INHERITS (base_tbl_parent);
+CREATE TABLE base_tbl_parent (a int) distribute by replication;
+CREATE TABLE base_tbl_child (CHECK (a > 0)) INHERITS (base_tbl_parent) distribute by replication;
 INSERT INTO base_tbl_parent SELECT * FROM generate_series(-8, -1);
 INSERT INTO base_tbl_child SELECT * FROM generate_series(1, 8);
 

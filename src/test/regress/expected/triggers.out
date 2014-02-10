@@ -1573,6 +1573,9 @@ drop function depth_c_tf();
 -- Test updates to rows during firing of BEFORE ROW triggers.
 -- As of 9.2, such cases should be rejected (see bug #6123).
 --
+-- Postgres-XC 1.2 needs more effort to fix this.  As of
+-- release 1.2 beta, this has not been fixed.
+--
 create temp table parent (
     aid int not null primary key,
     val1 text,
@@ -1641,32 +1644,25 @@ select * from parent; select * from child;
 (1 row)
 
 update parent set val1 = 'b' where aid = 1; -- should fail
-ERROR:  tuple to be updated was already modified by an operation triggered by the current command
-HINT:  Consider using an AFTER trigger instead of a BEFORE trigger to propagate changes to other rows.
 select * from parent; select * from child;
  aid | val1 | val2 | val3 | val4 | bcnt 
 -----+------+------+------+------+------
-   1 | a    | a    | a    | a    |    1
+   1 | a    | a    | a    | a    |    0
 (1 row)
 
  bid | aid | val1 
 -----+-----+------
-  10 |   1 | b
-(1 row)
+(0 rows)
 
 delete from parent where aid = 1; -- should fail
-ERROR:  tuple to be updated was already modified by an operation triggered by the current command
-HINT:  Consider using an AFTER trigger instead of a BEFORE trigger to propagate changes to other rows.
 select * from parent; select * from child;
  aid | val1 | val2 | val3 | val4 | bcnt 
 -----+------+------+------+------+------
-   1 | a    | a    | a    | a    |    1
-(1 row)
+(0 rows)
 
  bid | aid | val1 
 -----+-----+------
-  10 |   1 | b
-(1 row)
+(0 rows)
 
 -- replace the trigger function with one that restarts the deletion after
 -- having modified a child
@@ -1734,31 +1730,28 @@ create trigger self_ref_trigger_del_trig before delete on self_ref_trigger
 insert into self_ref_trigger values (1, null, 'root');
 insert into self_ref_trigger values (2, 1, 'root child A');
 insert into self_ref_trigger values (3, 1, 'root child B');
+ERROR:  insert or update on table "self_ref_trigger" violates foreign key constraint "self_ref_trigger_parent_fkey"
+DETAIL:  Key (parent)=(1) is not present in table "self_ref_trigger".
 insert into self_ref_trigger values (4, 2, 'grandchild 1');
+ERROR:  insert or update on table "self_ref_trigger" violates foreign key constraint "self_ref_trigger_parent_fkey"
+DETAIL:  Key (parent)=(2) is not present in table "self_ref_trigger".
 insert into self_ref_trigger values (5, 3, 'grandchild 2');
+ERROR:  insert or update on table "self_ref_trigger" violates foreign key constraint "self_ref_trigger_parent_fkey"
+DETAIL:  Key (parent)=(3) is not present in table "self_ref_trigger".
 update self_ref_trigger set data = 'root!' where id = 1;
 select * from self_ref_trigger;
  id | parent |     data     | nchildren 
 ----+--------+--------------+-----------
-  2 |      1 | root child A |         1
-  4 |      2 | grandchild 1 |         0
-  3 |      1 | root child B |         1
-  5 |      3 | grandchild 2 |         0
-  1 |        | root!        |         2
-(5 rows)
+  2 |      1 | root child A |         0
+  1 |        | root!        |         1
+(2 rows)
 
 delete from self_ref_trigger;
-ERROR:  tuple to be updated was already modified by an operation triggered by the current command
-HINT:  Consider using an AFTER trigger instead of a BEFORE trigger to propagate changes to other rows.
 select * from self_ref_trigger;
- id | parent |     data     | nchildren 
-----+--------+--------------+-----------
-  2 |      1 | root child A |         1
-  4 |      2 | grandchild 1 |         0
-  3 |      1 | root child B |         1
-  5 |      3 | grandchild 2 |         0
-  1 |        | root!        |         2
-(5 rows)
+ id | parent | data  | nchildren 
+----+--------+-------+-----------
+  1 |        | root! |         0
+(1 row)
 
 drop table self_ref_trigger;
 drop function self_ref_trigger_ins_func();

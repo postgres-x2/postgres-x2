@@ -1714,14 +1714,10 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		heapTuple->t_data = (HeapTupleHeader) PageGetItem(dp, lp);
 		heapTuple->t_len = ItemIdGetLength(lp);
 		heapTuple->t_tableOid = relation->rd_id;
-<<<<<<< HEAD
 #ifdef PGXC
 		heapTuple->t_xc_node_id = PGXCNodeIdentifier;
 #endif
-		heapTuple->t_self = *tid;
-=======
 		ItemPointerSetOffsetNumber(&heapTuple->t_self, offnum);
->>>>>>> REL9_3_2
 
 		/*
 		 * Shouldn't see a HEAP_ONLY tuple at chain start.

@@ -135,15 +135,23 @@ select * from xc_sort1_hash natural join xc_sort2_hash order by val, val2;
 (7 rows)
 
 explain (costs off, verbose on, nodes off) select * from xc_sort1_hash natural join xc_sort2_hash order by val, val2;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
  Sort
    Output: xc_sort1_hash.val, xc_sort1_hash.val2
    Sort Key: xc_sort1_hash.val, xc_sort1_hash.val2
-   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+   ->  Hash Join
          Output: xc_sort1_hash.val, xc_sort1_hash.val2
-         Remote query: SELECT l.a_1, l.a_2 FROM ((SELECT xc_sort1_hash.val, xc_sort1_hash.val2 FROM ONLY public.xc_sort1_hash WHERE true) l(a_1, a_2) JOIN (SELECT xc_sort2_hash.val, xc_sort2_hash.val2 FROM ONLY public.xc_sort2_hash WHERE true) r(a_1, a_2) ON (true)) WHERE ((l.a_1 = r.a_1) AND (l.a_2 = r.a_2)) ORDER BY 1, 2
-(6 rows)
+         Hash Cond: ((xc_sort1_hash.val = xc_sort2_hash.val) AND (xc_sort1_hash.val2 = xc_sort2_hash.val2))
+         ->  Data Node Scan on xc_sort1_hash "_REMOTE_TABLE_QUERY_"
+               Output: xc_sort1_hash.val, xc_sort1_hash.val2
+               Remote query: SELECT val, val2 FROM ONLY public.xc_sort1_hash WHERE true
+         ->  Hash
+               Output: xc_sort2_hash.val, xc_sort2_hash.val2
+               ->  Data Node Scan on xc_sort2_hash "_REMOTE_TABLE_QUERY__1"
+                     Output: xc_sort2_hash.val, xc_sort2_hash.val2
+                     Remote query: SELECT val, val2 FROM ONLY public.xc_sort2_hash WHERE true
+(14 rows)
 
 -- unshippable sort tests
 select sum(val) over w, array_agg(val) over w from xc_sort1_hash window w as (order by val, val2 rows 2 preceding) order by 1; 
@@ -288,12 +296,23 @@ select * from xc_sort1_rep natural join xc_sort2_rep order by val, val2;
 (7 rows)
 
 explain (costs off, verbose on, nodes off) select * from xc_sort1_rep natural join xc_sort2_rep order by val, val2;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_SORT_QUERY__"
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Sort
    Output: xc_sort1_rep.val, xc_sort1_rep.val2
-   Remote query: SELECT l.a_1, l.a_2 FROM ((SELECT xc_sort1_rep.val, xc_sort1_rep.val2 FROM ONLY public.xc_sort1_rep WHERE true) l(a_1, a_2) JOIN (SELECT xc_sort2_rep.val, xc_sort2_rep.val2 FROM ONLY public.xc_sort2_rep WHERE true) r(a_1, a_2) ON (true)) WHERE ((l.a_1 = r.a_1) AND (l.a_2 = r.a_2)) ORDER BY 1, 2
-(3 rows)
+   Sort Key: xc_sort1_rep.val, xc_sort1_rep.val2
+   ->  Hash Join
+         Output: xc_sort1_rep.val, xc_sort1_rep.val2
+         Hash Cond: ((xc_sort1_rep.val = xc_sort2_rep.val) AND (xc_sort1_rep.val2 = xc_sort2_rep.val2))
+         ->  Data Node Scan on xc_sort1_rep "_REMOTE_TABLE_QUERY_"
+               Output: xc_sort1_rep.val, xc_sort1_rep.val2
+               Remote query: SELECT val, val2 FROM ONLY public.xc_sort1_rep WHERE true
+         ->  Hash
+               Output: xc_sort2_rep.val, xc_sort2_rep.val2
+               ->  Data Node Scan on xc_sort2_rep "_REMOTE_TABLE_QUERY__1"
+                     Output: xc_sort2_rep.val, xc_sort2_rep.val2
+                     Remote query: SELECT val, val2 FROM ONLY public.xc_sort2_rep WHERE true
+(14 rows)
 
 -- unshippable sort tests
 select sum(val) over w, array_agg(val) over w from xc_sort1_rep window w as (order by val, val2 rows 2 preceding) order by 1; 
