@@ -493,7 +493,7 @@ SELECT * FROM rw_view1;
 
 EXPLAIN (verbose, costs off, nodes false) UPDATE rw_view1 SET b = b + 1 RETURNING *;
 UPDATE rw_view1 SET b = b + 1 RETURNING *;
-SELECT * FROM rw_view1;
+SELECT * FROM rw_view1 ORDER BY 1,2;
 
 DROP TABLE base_tbl CASCADE;
 
@@ -506,6 +506,6 @@ CREATE VIEW rw_view1 AS SELECT * FROM base_tbl;
 
 UPDATE rw_view1 SET arr[1] = 42, arr[2] = 77 WHERE a = 3;
 
-SELECT * FROM rw_view1;
+SELECT * FROM rw_view1 ORDER BY 1,2;
 
 DROP TABLE base_tbl CASCADE;
