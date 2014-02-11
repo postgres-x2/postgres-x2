@@ -178,6 +178,7 @@
 <!## XC>
 <!ENTITY release-xc-1.0 SYSTEM "release-xc-1.0.sgml">
 <!ENTITY release-xc-1.1 SYSTEM "release-xc-1.1.sgml">
+<!ENTITY release-xc-1.2 SYSTEM "release-xc-1.2.sgml">
 <!## end>
 <!## PG>
 <!ENTITY release-9.3    SYSTEM "release-9.3.sgml">

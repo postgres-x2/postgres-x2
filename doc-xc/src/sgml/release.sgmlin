@@ -96,6 +96,7 @@ can be created without links to the main documentation.  Don't use <xref>.
   subsets can easily be copied into back branches.
 -->
 <!## XC>
+&release-xc-1.2;
 &release-xc-1.1;
 &release-xc-1.0;
 <!## end>
