@@ -3206,8 +3206,13 @@ pgxc_collect_RTE_walker(Node *node, collect_RTE_context *crte_context)
 	if (IsA(node, Query))
 	{
 		Query *query = (Query *)node;
+
+		/*
+		 * create a copy of query's range table, so that it can be
+		 * linked with other RTEs in the collector's context.
+		 */
 		crte_context->crte_rtable = list_concat(crte_context->crte_rtable,
-												query->rtable);
+												list_copy(query->rtable));
 		return query_tree_walker(query, pgxc_collect_RTE_walker, crte_context,
 									0);
 	}
