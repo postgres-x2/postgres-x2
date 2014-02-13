@@ -417,6 +417,9 @@ LockGXact(const char *gid, Oid user)
 {
 	int			i;
 
+#ifdef PGXC
+	GetTopTransactionId();
+#endif
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
 
 	for (i = 0; i < TwoPhaseState->numPrepXacts; i++)
