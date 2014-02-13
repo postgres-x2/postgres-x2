@@ -217,8 +217,6 @@ MainThreadInit()
 
 	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
 
-	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
-
 	if (SetMyThreadInfo(thrinfo))
 	{
 		fprintf(stderr, "SetMyThreadInfo failed: %d", errno);
@@ -2603,8 +2601,6 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 		StreamClose(conninfo->con_port->sock);
 	ConnFree(conninfo->con_port);
 	conninfo->con_port = NULL;
-
-	proxyhdr.ph_conid = conninfo->con_id;
 
 	return;
 }
