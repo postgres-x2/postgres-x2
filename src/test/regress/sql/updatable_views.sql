@@ -492,7 +492,10 @@ INSERT INTO rw_view1 VALUES (7,-8);
 SELECT * FROM rw_view1;
 
 EXPLAIN (verbose, costs off, nodes false) UPDATE rw_view1 SET b = b + 1 RETURNING *;
-UPDATE rw_view1 SET b = b + 1 RETURNING *;
+WITH t AS
+(
+UPDATE rw_view1 SET b = b + 1 RETURNING *
+) SELECT * FROM t ORDER BY 1,2;
 SELECT * FROM rw_view1;
 
 DROP TABLE base_tbl CASCADE;
