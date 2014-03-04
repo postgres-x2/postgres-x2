@@ -147,9 +147,6 @@ SELECT '2006-08-13 12:34:56'::timestamptz;
 --
 -- Test DISCARD TEMP
 --
--- Enforce use of COMMIT instead of 2PC for temporary objects
-SET enforce_two_phase_commit TO off;
-
 CREATE TEMP TABLE reset_test ( data text ) ON COMMIT DELETE ROWS;
 SELECT relname FROM pg_class WHERE relname = 'reset_test';
 DISCARD TEMP;

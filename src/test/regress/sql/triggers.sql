@@ -206,8 +206,6 @@ drop sequence ttdummy_seq;
 -- tests for per-statement triggers
 --
 
-SET enforce_two_phase_commit TO off;
-
 CREATE TABLE log_table (tstamp timestamp default timeofday()::timestamp);
 
 CREATE TABLE main_table (a int, b int) distribute by replication;
@@ -1195,5 +1193,3 @@ select * from self_ref_trigger;
 drop table self_ref_trigger;
 drop function self_ref_trigger_ins_func();
 drop function self_ref_trigger_del_func();
-
-RESET enforce_two_phase_commit;
