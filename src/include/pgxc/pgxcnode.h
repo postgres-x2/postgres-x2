@@ -24,6 +24,7 @@
 
 #define NO_SOCKET -1
 
+#define PGXCNODE_CANCEL_DELAY 10	/* Cancel delay duration in millisecond */
 
 /* Connection to Datanode maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;

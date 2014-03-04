@@ -868,6 +868,16 @@ cancel_query(void)
 			handle->state = DN_CONNECTION_STATE_IDLE;
 		}
 	}
+		/*
+		 * Hack to wait a moment to cancel requests are processed in other nodes.
+		 * If we send a new query to nodes before cancel requests get to be
+		 * processed, the query will get unanticipated failure.
+		 * As we have no way to know when to the request processed, we can't not
+		 * wait an experimental duration (10ms).
+		 */
+#if PGXC_CANCEL_DELAY > 0
+		pg_usleep(PGXC_CANCEL_DELAY * 1000);
+#endif
 }
 /*
  * This method won't return until all network buffers are empty
