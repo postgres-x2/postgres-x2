@@ -170,22 +170,12 @@ select count(*) from (select * from xc_limit_tab1 join xc_limit_tab2 using (val)
 (1 row)
 
 explain (costs off, verbose on, nodes off) select * from xc_limit_tab1 join xc_limit_tab2 using (val) limit 2;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                    QUERY PLAN                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_LIMIT_QUERY__"
    Output: xc_limit_tab1.val, xc_limit_tab1.val2, xc_limit_tab2.val2
-   ->  Hash Join
-         Output: xc_limit_tab1.val, xc_limit_tab1.val2, xc_limit_tab2.val2
-         Hash Cond: (xc_limit_tab1.val = xc_limit_tab2.val)
-         ->  Data Node Scan on xc_limit_tab1 "_REMOTE_TABLE_QUERY_"
-               Output: xc_limit_tab1.val, xc_limit_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY public.xc_limit_tab1 WHERE true
-         ->  Hash
-               Output: xc_limit_tab2.val2, xc_limit_tab2.val
-               ->  Data Node Scan on xc_limit_tab2 "_REMOTE_TABLE_QUERY__1"
-                     Output: xc_limit_tab2.val2, xc_limit_tab2.val
-                     Remote query: SELECT val2, val FROM ONLY public.xc_limit_tab2 WHERE true
-(13 rows)
+   Remote query: SELECT l.a_1, l.a_2, r.a_1 FROM ((SELECT xc_limit_tab1.val, xc_limit_tab1.val2 FROM ONLY public.xc_limit_tab1 WHERE true) l(a_1, a_2) JOIN (SELECT xc_limit_tab2.val2, xc_limit_tab2.val FROM ONLY public.xc_limit_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) LIMIT 2::bigint
+(3 rows)
 
 drop table xc_limit_tab1;
 drop table xc_limit_tab2;
@@ -369,22 +359,14 @@ select count(*) from (select * from xc_limit_tab1 join xc_limit_tab2 using (val)
 (1 row)
 
 explain (costs off, verbose on, nodes off) select * from xc_limit_tab1 join xc_limit_tab2 using (val) limit 2;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: xc_limit_tab1.val, xc_limit_tab1.val2, xc_limit_tab2.val2
-   ->  Hash Join
+   ->  Data Node Scan on "__REMOTE_LIMIT_QUERY__"
          Output: xc_limit_tab1.val, xc_limit_tab1.val2, xc_limit_tab2.val2
-         Hash Cond: (xc_limit_tab1.val = xc_limit_tab2.val)
-         ->  Data Node Scan on xc_limit_tab1 "_REMOTE_TABLE_QUERY_"
-               Output: xc_limit_tab1.val, xc_limit_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY public.xc_limit_tab1 WHERE true
-         ->  Hash
-               Output: xc_limit_tab2.val2, xc_limit_tab2.val
-               ->  Data Node Scan on xc_limit_tab2 "_REMOTE_TABLE_QUERY__1"
-                     Output: xc_limit_tab2.val2, xc_limit_tab2.val
-                     Remote query: SELECT val2, val FROM ONLY public.xc_limit_tab2 WHERE true
-(13 rows)
+         Remote query: SELECT l.a_1, l.a_2, r.a_1 FROM ((SELECT xc_limit_tab1.val, xc_limit_tab1.val2 FROM ONLY public.xc_limit_tab1 WHERE true) l(a_1, a_2) JOIN (SELECT xc_limit_tab2.val2, xc_limit_tab2.val FROM ONLY public.xc_limit_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) LIMIT 2::bigint
+(5 rows)
 
 drop table xc_limit_tab1;
 drop table xc_limit_tab2;
