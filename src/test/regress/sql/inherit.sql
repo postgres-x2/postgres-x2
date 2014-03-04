@@ -2,9 +2,6 @@
 -- Test inheritance features
 --
 
--- Enforce use of COMMIT instead of 2PC for temporary objects
-SET enforce_two_phase_commit TO off;
-
 CREATE TABLE a (aa TEXT) distribute by round robin;
 CREATE TABLE b (bb TEXT) INHERITS (a) distribute by round robin;
 CREATE TABLE c (cc TEXT) INHERITS (a) distribute by round robin;

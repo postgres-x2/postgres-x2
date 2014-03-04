@@ -2022,8 +2022,6 @@ ERROR:  bind message supplies 1 parameters, but prepared statement "" requires 0
 CONTEXT:  SQL statement "select        unique1 from tenk1 where unique2 =
 			(select unique2 from tenk1 b where ten = $1)"
 PL/pgSQL function "trap_matching_test" line 9 at SQL statement
--- Enforce use of COMMIT instead of 2PC for temporary objects
-SET enforce_two_phase_commit TO off;
 create temp table foo (f1 int);
 create function blockme() returns int as $$
 declare x int;
@@ -3240,7 +3238,7 @@ begin
 end;
 $$ language plpgsql;
 select forc01();
-NOTICE:  1, 1
+NOTICE:  3, 3
 ERROR:  WHERE CURRENT OF clause not yet supported
 CONTEXT:  SQL statement "update forc_test set i = i * 100, j = r.j * 2 where current of c"
 PL/pgSQL function "forc01" line 7 at SQL statement
@@ -3275,7 +3273,7 @@ begin
 end;
 $$ language plpgsql;
 select forc01();
-NOTICE:  1, 1
+NOTICE:  3, 3
 ERROR:  WHERE CURRENT OF clause not yet supported
 CONTEXT:  SQL statement "update forc_test set i = i * 100, j = r.j * 2 where current of c"
 PL/pgSQL function "forc01" line 11 at SQL statement
