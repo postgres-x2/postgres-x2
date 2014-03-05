@@ -121,6 +121,11 @@ typedef struct
 	bool			has_row_marks;		/* Did SELECT had FOR UPDATE/SHARE? */
 	bool			rq_save_command_id;	/* Save the command ID to be used in
 										 * some special cases */
+	bool			rq_use_pk_for_rep_change;	/* Are we using primary key or
+												 * unique index defined on
+												 * the replicated table to
+												 * perform update/delete?
+												 */
 } RemoteQuery;
 
 extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,

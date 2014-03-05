@@ -337,3 +337,76 @@ UPDATE pcu_base_tbl set a = pcu_base_tbl.a, b=pcu_base_tbl2.b from pcu_base_tbl2
 
 drop table pcu_base_tbl cascade;
 drop table pcu_base_tbl2 cascade;
+
+
+------------------------------------------------------------------------------
+-- Check that the updates / deletes are using primary key when appropriate
+-- to perfomr the operation
+------------------------------------------------------------------------------
+
+create table xc_t41(a int, b int) distribute by replication;
+create table xc_t42(a int primary key, b int) distribute by replication;
+create table xc_t43(a int, b int primary key) distribute by replication;
+create table xc_t44(a int, b int, constraint pk PRIMARY KEY (a,b)) distribute by replication;
+
+insert into xc_t41 values(1,2);
+insert into xc_t41 values(3,4);
+insert into xc_t41 values(5,6);
+
+insert into xc_t42 values(1,2);
+insert into xc_t42 values(3,4);
+insert into xc_t42 values(5,6);
+
+insert into xc_t43 values(1,2);
+insert into xc_t43 values(3,4);
+insert into xc_t43 values(5,6);
+
+insert into xc_t44 values(1,2);
+insert into xc_t44 values(3,4);
+insert into xc_t44 values(5,6);
+
+set enable_fast_query_shipping=false;
+
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t41 where a = 1;
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t42 where a = 1;
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t43 where a = 1;
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t44 where a = 1;
+
+delete from xc_t41 where a = 1;
+delete from xc_t42 where a = 1;
+delete from xc_t43 where a = 1;
+delete from xc_t44 where a = 1;
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t41 set b = b + 1 where a = 3;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t42 set b = b + 1 where a = 3;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t43 set b = b + 1 where a = 3;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t44 set b = b + 1 where a = 3;
+
+update xc_t41 set b = b + 1 where a = 3;
+update xc_t42 set b = b + 1 where a = 3;
+update xc_t43 set b = b + 1 where a = 3;
+update xc_t44 set b = b + 1 where a = 3;
+
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t41 set a = a + 1 where b = 6;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t42 set a = a + 1 where b = 6;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t43 set a = a + 1 where b = 6;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t44 set a = a + 1 where b = 6;
+
+update xc_t41 set a = a + 1 where b = 6;
+update xc_t42 set a = a + 1 where b = 6;
+update xc_t43 set a = a + 1 where b = 6;
+update xc_t44 set a = a + 1 where b = 6;
+
+select * from xc_t41 order by 1, 2;
+select * from xc_t42 order by 1, 2;
+select * from xc_t43 order by 1, 2;
+select * from xc_t44 order by 1, 2;
+
+set enable_fast_query_shipping=true;
+
+drop table xc_t41;
+drop table xc_t42;
+drop table xc_t43;
+drop table xc_t44;
+

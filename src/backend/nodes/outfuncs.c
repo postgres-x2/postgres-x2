@@ -492,6 +492,7 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	WRITE_NODE_FIELD(query_var_tlist);
 	WRITE_BOOL_FIELD(rq_save_command_id);
 	WRITE_BOOL_FIELD(rq_params_internal);
+	WRITE_BOOL_FIELD(rq_save_command_id);
 }
 
 static void

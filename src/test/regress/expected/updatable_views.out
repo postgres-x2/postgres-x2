@@ -283,7 +283,7 @@ EXPLAIN (verbose true, costs off, nodes false) UPDATE rw_view1 SET a=6 WHERE a=5
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  Update on public.base_tbl
-   Remote query: UPDATE ONLY public.base_tbl SET a = $1, b = $2 WHERE (base_tbl.ctid = $3)
+   Remote query: UPDATE ONLY public.base_tbl SET a = $1, b = $2 WHERE ((base_tbl.ctid = $3))
    ->  Data Node Scan on base_tbl "_REMOTE_TABLE_QUERY_"
          Output: 6, base_tbl.b, base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.ctid
          Remote query: SELECT b, a, ctid FROM ONLY public.base_tbl WHERE ((a > 0) AND (a = 5))
@@ -293,7 +293,7 @@ EXPLAIN (verbose true, costs off, nodes false) DELETE FROM rw_view1 WHERE a=5;
                                          QUERY PLAN                                         
 --------------------------------------------------------------------------------------------
  Delete on public.base_tbl
-   Remote query: DELETE FROM ONLY public.base_tbl WHERE (base_tbl.ctid = $1)
+   Remote query: DELETE FROM ONLY public.base_tbl WHERE ((base_tbl.a = $1))
    ->  Data Node Scan on base_tbl "_REMOTE_TABLE_QUERY_"
          Output: base_tbl.a, base_tbl.a, base_tbl.a, base_tbl.ctid
          Remote query: SELECT a, ctid FROM ONLY public.base_tbl WHERE ((a > 0) AND (a = 5))
