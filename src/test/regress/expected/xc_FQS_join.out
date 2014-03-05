@@ -794,10 +794,10 @@ explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 
 explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from tab2_rep
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Update on public.tab1_rep
-   Remote query: UPDATE ONLY public.tab1_rep SET val = $1, val2 = $2 WHERE (tab1_rep.ctid = $3)
+   Remote query: UPDATE ONLY public.tab1_rep SET val = $1, val2 = $2 WHERE ((tab1_rep.ctid = $3))
    ->  Hash Join
          Output: tab1_rep.val, 1000, tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, ctid
          Hash Cond: ((tab1_rep.val = val) AND (tab1_rep.val2 = val2))
@@ -816,7 +816,7 @@ explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  Delete on public.tab1_rep
-   Remote query: DELETE FROM ONLY public.tab1_rep WHERE (tab1_rep.ctid = $1)
+   Remote query: DELETE FROM ONLY public.tab1_rep WHERE ((tab1_rep.ctid = $1))
    ->  Hash Join
          Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, ctid
          Hash Cond: ((tab1_rep.val = val) AND (tab1_rep.val2 = val2))

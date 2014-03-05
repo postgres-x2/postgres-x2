@@ -556,3 +556,189 @@ UPDATE pcu_base_tbl set a = pcu_base_tbl.a, b=pcu_base_tbl2.b from pcu_base_tbl2
 drop table pcu_base_tbl cascade;
 NOTICE:  drop cascades to view rw_view1
 drop table pcu_base_tbl2 cascade;
+------------------------------------------------------------------------------
+-- Check that the updates / deletes are using primary key when appropriate
+-- to perfomr the operation
+------------------------------------------------------------------------------
+create table xc_t41(a int, b int) distribute by replication;
+create table xc_t42(a int primary key, b int) distribute by replication;
+create table xc_t43(a int, b int primary key) distribute by replication;
+create table xc_t44(a int, b int, constraint pk PRIMARY KEY (a,b)) distribute by replication;
+insert into xc_t41 values(1,2);
+insert into xc_t41 values(3,4);
+insert into xc_t41 values(5,6);
+insert into xc_t42 values(1,2);
+insert into xc_t42 values(3,4);
+insert into xc_t42 values(5,6);
+insert into xc_t43 values(1,2);
+insert into xc_t43 values(3,4);
+insert into xc_t43 values(5,6);
+insert into xc_t44 values(1,2);
+insert into xc_t44 values(3,4);
+insert into xc_t44 values(5,6);
+set enable_fast_query_shipping=false;
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t41 where a = 1;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Delete on public.xc_t41
+   Remote query: DELETE FROM ONLY public.xc_t41 WHERE ((xc_t41.ctid = $1))
+   ->  Data Node Scan on xc_t41 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t41.a, xc_t41.ctid
+         Remote query: SELECT a, ctid FROM ONLY public.xc_t41 WHERE (a = 1)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t42 where a = 1;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Delete on public.xc_t42
+   Remote query: DELETE FROM ONLY public.xc_t42 WHERE ((xc_t42.a = $1))
+   ->  Data Node Scan on xc_t42 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t42.a, xc_t42.ctid
+         Remote query: SELECT a, ctid FROM ONLY public.xc_t42 WHERE (a = 1)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t43 where a = 1;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Delete on public.xc_t43
+   Remote query: DELETE FROM ONLY public.xc_t43 WHERE ((xc_t43.b = $2))
+   ->  Data Node Scan on xc_t43 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t43.a, xc_t43.b, xc_t43.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t43 WHERE (a = 1)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) delete from xc_t44 where a = 1;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Delete on public.xc_t44
+   Remote query: DELETE FROM ONLY public.xc_t44 WHERE ((xc_t44.a = $1) AND (xc_t44.b = $2))
+   ->  Data Node Scan on xc_t44 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t44.a, xc_t44.b, xc_t44.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t44 WHERE (a = 1)
+(5 rows)
+
+delete from xc_t41 where a = 1;
+delete from xc_t42 where a = 1;
+delete from xc_t43 where a = 1;
+delete from xc_t44 where a = 1;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t41 set b = b + 1 where a = 3;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t41
+   Remote query: UPDATE ONLY public.xc_t41 SET a = $1, b = $2 WHERE ((xc_t41.ctid = $3))
+   ->  Data Node Scan on xc_t41 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t41.a, (xc_t41.b + 1), xc_t41.a, xc_t41.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t41 WHERE (a = 3)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t42 set b = b + 1 where a = 3;
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
+ Update on public.xc_t42
+   Remote query: UPDATE ONLY public.xc_t42 SET a = $1, b = $2 WHERE ((xc_t42.a = $1))
+   ->  Data Node Scan on xc_t42 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t42.a, (xc_t42.b + 1), xc_t42.a, xc_t42.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t42 WHERE (a = 3)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t43 set b = b + 1 where a = 3;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t43
+   Remote query: UPDATE ONLY public.xc_t43 SET a = $1, b = $2 WHERE ((xc_t43.ctid = $3))
+   ->  Data Node Scan on xc_t43 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t43.a, (xc_t43.b + 1), xc_t43.a, xc_t43.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t43 WHERE (a = 3)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t44 set b = b + 1 where a = 3;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t44
+   Remote query: UPDATE ONLY public.xc_t44 SET a = $1, b = $2 WHERE ((xc_t44.ctid = $3))
+   ->  Data Node Scan on xc_t44 "_REMOTE_TABLE_QUERY_"
+         Output: xc_t44.a, (xc_t44.b + 1), xc_t44.a, xc_t44.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t44 WHERE (a = 3)
+(5 rows)
+
+update xc_t41 set b = b + 1 where a = 3;
+update xc_t42 set b = b + 1 where a = 3;
+update xc_t43 set b = b + 1 where a = 3;
+update xc_t44 set b = b + 1 where a = 3;
+EXPLAIN (verbose true, costs off, nodes false) update xc_t41 set a = a + 1 where b = 6;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t41
+   Remote query: UPDATE ONLY public.xc_t41 SET a = $1, b = $2 WHERE ((xc_t41.ctid = $3))
+   ->  Data Node Scan on xc_t41 "_REMOTE_TABLE_QUERY_"
+         Output: (xc_t41.a + 1), xc_t41.b, xc_t41.b, xc_t41.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t41 WHERE (b = 6)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t42 set a = a + 1 where b = 6;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t42
+   Remote query: UPDATE ONLY public.xc_t42 SET a = $1, b = $2 WHERE ((xc_t42.ctid = $3))
+   ->  Data Node Scan on xc_t42 "_REMOTE_TABLE_QUERY_"
+         Output: (xc_t42.a + 1), xc_t42.b, xc_t42.b, xc_t42.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t42 WHERE (b = 6)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t43 set a = a + 1 where b = 6;
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
+ Update on public.xc_t43
+   Remote query: UPDATE ONLY public.xc_t43 SET a = $1, b = $2 WHERE ((xc_t43.b = $2))
+   ->  Data Node Scan on xc_t43 "_REMOTE_TABLE_QUERY_"
+         Output: (xc_t43.a + 1), xc_t43.b, xc_t43.b, xc_t43.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t43 WHERE (b = 6)
+(5 rows)
+
+EXPLAIN (verbose true, costs off, nodes false) update xc_t44 set a = a + 1 where b = 6;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Update on public.xc_t44
+   Remote query: UPDATE ONLY public.xc_t44 SET a = $1, b = $2 WHERE ((xc_t44.ctid = $3))
+   ->  Data Node Scan on xc_t44 "_REMOTE_TABLE_QUERY_"
+         Output: (xc_t44.a + 1), xc_t44.b, xc_t44.b, xc_t44.ctid
+         Remote query: SELECT a, b, ctid FROM ONLY public.xc_t44 WHERE (b = 6)
+(5 rows)
+
+update xc_t41 set a = a + 1 where b = 6;
+update xc_t42 set a = a + 1 where b = 6;
+update xc_t43 set a = a + 1 where b = 6;
+update xc_t44 set a = a + 1 where b = 6;
+select * from xc_t41 order by 1, 2;
+ a | b 
+---+---
+ 3 | 5
+ 6 | 6
+(2 rows)
+
+select * from xc_t42 order by 1, 2;
+ a | b 
+---+---
+ 3 | 5
+ 6 | 6
+(2 rows)
+
+select * from xc_t43 order by 1, 2;
+ a | b 
+---+---
+ 3 | 5
+ 6 | 6
+(2 rows)
+
+select * from xc_t44 order by 1, 2;
+ a | b 
+---+---
+ 3 | 5
+ 6 | 6
+(2 rows)
+
+set enable_fast_query_shipping=true;
+drop table xc_t41;
+drop table xc_t42;
+drop table xc_t43;
+drop table xc_t44;

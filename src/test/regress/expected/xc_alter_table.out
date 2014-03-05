@@ -147,7 +147,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET b =
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
-   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3 WHERE (xc_alter_table_2.ctid = $6)
+   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3 WHERE ((xc_alter_table_2.ctid = $6))
    ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
          Output: NULL::integer, 'Morphee'::character varying(20), false, NULL::integer, NULL::integer, xc_alter_table_2.b, xc_alter_table_2.ctid
          Remote query: SELECT b, ctid FROM ONLY public.xc_alter_table_2 WHERE ((b)::text = 'Neo'::text)
@@ -192,7 +192,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET a =
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
-   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3, a = $6, a2 = $7 WHERE (xc_alter_table_2.ctid = $8)
+   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3, a = $6, a2 = $7 WHERE ((xc_alter_table_2.ctid = $8))
    ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
          Output: NULL::integer, xc_alter_table_2.b, xc_alter_table_2.c, NULL::integer, NULL::integer, 200, 'CTO'::character varying(20), xc_alter_table_2.b, xc_alter_table_2.ctid
          Remote query: SELECT b, c, ctid FROM ONLY public.xc_alter_table_2 WHERE ((b)::text = 'John'::text)

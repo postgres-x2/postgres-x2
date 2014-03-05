@@ -363,7 +363,12 @@ ExecDelete(ItemPointer tupleid,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
 		   EState *estate,
+#ifndef PGXC
 		   bool canSetTag)
+#else
+		   bool canSetTag,
+		   TupleTableSlot *pslot)
+#endif
 {
 	ResultRelInfo *resultRelInfo;
 	Relation	resultRelationDesc;
@@ -455,7 +460,18 @@ ldelete:;
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			slot = ExecProcNodeDMLInXC(estate, planSlot, NULL);
+			/*
+			 * Pass in the source plan slot, we may attributes other than ctid
+			 * in case delete is based on primay key or other unique column.
+			 * planSlot can't be passed in place of pslot here because of the
+			 * following test case failure
+			 * create table t2(a int, b int) distribute by replication;
+			 * insert into t2 values(1,2), (3,4), (5,6);
+			 * set enable_fast_query_shipping=false;
+			 * delete from t2 where a = 1;
+			 * ERROR:  operator does not exist: tid = integer
+			 */
+			slot = ExecProcNodeDMLInXC(estate, planSlot, pslot);
 		}
 		else
 		{
@@ -1007,10 +1023,11 @@ ExecModifyTable(ModifyTableState *node)
 	ResultRelInfo *saved_resultRelInfo;
 	ResultRelInfo *resultRelInfo;
 	PlanState  *subplanstate;
-#ifdef PGXC	
+#ifdef PGXC
 	PlanState  *remoterelstate;
 	PlanState  *saved_resultRemoteRel;
-#endif	
+	RemoteQuery		*step = NULL;
+#endif
 	JunkFilter *junkfilter;
 	TupleTableSlot *slot;
 	TupleTableSlot *planSlot;
@@ -1054,6 +1071,8 @@ ExecModifyTable(ModifyTableState *node)
 #ifdef PGXC
 	/* Initialize remote plan state */
 	remoterelstate = node->mt_remoterels[node->mt_whichplan];
+	if (!IS_PGXC_DATANODE && remoterelstate != NULL)
+		step = (RemoteQuery *)((RemoteQueryState *)remoterelstate)->ss.ps.plan;
 #endif
 	junkfilter = resultRelInfo->ri_junkFilter;
 
@@ -1177,8 +1196,14 @@ ExecModifyTable(ModifyTableState *node)
 			/*
 			 * apply the junkfilter if needed.
 			 */
+#ifndef PGXC
 			if (operation != CMD_DELETE)
+#else
+			if (operation != CMD_DELETE ||
+				(!IS_PGXC_DATANODE && step != NULL &&
+					!step->rq_use_pk_for_rep_change))
 				slot = ExecFilterJunk(junkfilter, slot);
+#endif
 		}
 #ifdef PGXC
 		estate->es_result_remoterel = remoterelstate;
@@ -1194,7 +1219,11 @@ ExecModifyTable(ModifyTableState *node)
 				break;
 			case CMD_DELETE:
 				slot = ExecDelete(tupleid, oldtuple, planSlot,
+#ifndef PGXC
 								&node->mt_epqstate, estate, node->canSetTag);
+#else
+								&node->mt_epqstate, estate, node->canSetTag, slot);
+#endif
 				break;
 			default:
 				elog(ERROR, "unknown operation");

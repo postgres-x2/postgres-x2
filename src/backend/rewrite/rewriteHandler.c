@@ -38,6 +38,8 @@
 #include "optimizer/var.h"
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
+#include "utils/syscache.h"
+#include "access/htup_details.h"
 #endif
 
 
@@ -1256,6 +1258,9 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 #ifdef PGXC
 	List *var_list = NIL;
 	ListCell *elt;
+	bool can_use_pk_for_rep_change = false;
+	int16 *indexed_col_numbers = NULL;
+	int index_col_count = 0;
 
 	/*
 	 * In Postgres-XC, we need to evaluate quals of the parse tree and determine
@@ -1290,6 +1295,86 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 
 		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(target_relation) != NULL
+		&& target_relation->rd_rel->relkind == RELKIND_RELATION)
+	{
+		can_use_pk_for_rep_change = IsRelationReplicated(RelationGetLocInfo(
+															target_relation));
+		if (can_use_pk_for_rep_change)
+		{
+			index_col_count = pgxc_find_unique_index(target_relation->rd_id,
+													&indexed_col_numbers);
+			if (index_col_count <= 0)
+				can_use_pk_for_rep_change = false;
+
+			if (can_use_pk_for_rep_change)
+			{
+				if (is_pk_being_changed(parsetree, indexed_col_numbers,
+										index_col_count))
+				{
+					can_use_pk_for_rep_change = false;
+				}
+			}
+		}
+
+		if (can_use_pk_for_rep_change)
+		{
+			int i;
+
+			for (i = 0; i < index_col_count; i++)
+			{
+				int			pkattno = indexed_col_numbers[i];
+				bool		found = false;
+				TargetEntry	*qtle;
+				char		*pkattname = get_attname(target_rte->relid, pkattno);
+
+				/*
+				 * Is it so that the primary key is already in the target list?
+				 */
+				foreach(elt, parsetree->targetList)
+				{
+					qtle = lfirst(elt);
+
+					if (qtle->resname == NULL)
+						continue;
+
+					if (!strcmp(qtle->resname, pkattname))
+					{
+						found = true;
+						break;
+					}
+				}
+
+				/*
+				 * Add all the primary key columns to the target list of the
+				 * query if one is not already there.
+				 */
+				if (!found)
+				{
+					TargetEntry		*tle;
+					Var				*var;
+					Oid				var_type;
+					int32			var_typmod;
+					Oid				var_collid;
+
+					get_rte_attribute_type(target_rte, pkattno, &var_type,
+							&var_typmod, &var_collid);
+
+					var = makeVar(parsetree->resultRelation, pkattno, var_type,
+									var_typmod, var_collid, 0);
+
+					tle = makeTargetEntry((Expr *) var,
+										list_length(parsetree->targetList) + 1,
+										pkattname, true);
+
+					parsetree->targetList = lappend(parsetree->targetList, tle);
+				}
+			}
+		}
+	}
+	if (indexed_col_numbers != NULL)
+		pfree(indexed_col_numbers);
 #endif
 
 	if (target_relation->rd_rel->relkind == RELKIND_RELATION ||
@@ -3496,6 +3581,139 @@ QueryRewriteCTAS(Query *parsetree)
 	return pg_analyze_and_rewrite(linitial(raw_parsetree_list), cquery.data,
 			NULL, 0);
 }
+
+/*
+ * pgxc_find_unique_index finds either primary key or unique index
+ * defined for the passed relation.
+ * Returns the number of columns in the primary key or unique index
+ * ZERO means no primary key or unique index is defined.
+ * The column attributes of the primary key or unique index are returned
+ * in the passed indexed_col_numbers.
+ * The function allocates space for indexed_col_numbers, the caller is
+ * supposed to free it after use.
+ */
+int
+pgxc_find_unique_index(Oid relid, int16 **indexed_col_numbers)
+{
+	HeapTuple		indexTuple = NULL;
+	HeapTuple		indexUnique = NULL;
+	Form_pg_index	indexStruct;
+	ListCell		*item;
+	int				i;
+
+	/* Get necessary information about relation */
+	Relation rel = relation_open(relid, AccessShareLock);
+
+	foreach(item, RelationGetIndexList(rel))
+	{
+		Oid			indexoid = lfirst_oid(item);
+
+		indexTuple = SearchSysCache1(INDEXRELID,
+									ObjectIdGetDatum(indexoid));
+		if (!HeapTupleIsValid(indexTuple))
+			elog(ERROR, "cache lookup failed for index %u", indexoid);
+
+		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
+
+		if (indexStruct->indisprimary)
+		{
+			indexUnique = indexTuple;
+			ReleaseSysCache(indexTuple);
+			break;
+		}
+
+		/* In case we do not have a primary key, use a unique index */
+		if (indexStruct->indisunique)
+		{
+			indexUnique = indexTuple;
+		}
+
+		ReleaseSysCache(indexTuple);
+	}
+	relation_close(rel, AccessShareLock);
+
+	if (!indexUnique)
+		return 0;
+
+	indexStruct = (Form_pg_index) GETSTRUCT(indexUnique);
+
+	*indexed_col_numbers = palloc0(indexStruct->indnatts * sizeof(int16));
+
+	/*
+	 * Now get the list of PK attributes from the indkey definition (we
+	 * assume a primary key cannot have expressional elements)
+	 */
+	for (i = 0; i < indexStruct->indnatts; i++)
+	{
+		(*indexed_col_numbers)[i] = indexStruct->indkey.values[i];
+	}
+	return indexStruct->indnatts;
+}
+
+/*
+ * is_pk_being_changed determines whether the query is changing primary key
+ * or unique index.
+ * The attributes of the primary key / unique index and their count is
+ * passed to the function along with the query
+ * Returns true if the query is changing the primary key / unique index
+ * The function takes care of the fact that just having the primary key
+ * in set caluse does not mean that it is being changed unless the RHS
+ * is different that the LHS of the set caluse i.e. set pk = pk
+ * is taken as no change to the column
+ */
+bool
+is_pk_being_changed(const Query *query, int16 *indexed_col_numbers, int count)
+{
+	ListCell *lc;
+	int i;
+
+	if (query == NULL || query->rtable == NULL || indexed_col_numbers == NULL)
+		return false;
+
+	if (query->commandType != CMD_UPDATE)
+		return false;
+
+	for (i = 0; i < count; i++)
+	{
+		foreach(lc, query->targetList)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			/* Nothing to do for a junk entry */
+			if (tle->resjunk)
+				continue;
+
+			/*
+			 * The TargetEntry::resno is the same as the attribute number
+			 * of the column being updated, if the attribute number of the
+			 * column being updated and the attribute of the primary key of
+			 * the table is same means this set clause entry is updating the
+			 * primary key column of the target table.
+			 */
+			if (indexed_col_numbers[i] == tle->resno)
+			{
+				Var *v;
+				/*
+				 * Although the set caluse contains pk column, but if it is
+				 * not being modified, we can use pk for updating the row
+				 */
+				if (!IsA(tle->expr, Var))
+					return true;
+
+				v = (Var *)tle->expr;
+				if (v->varno == query->resultRelation &&
+					v->varattno == tle->resno)
+				{
+					return false;
+				}
+				else
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 #endif
-
-

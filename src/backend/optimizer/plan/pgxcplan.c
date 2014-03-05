@@ -48,6 +48,7 @@
 #include "pgxc/pgxcnode.h"
 #include "pgxc/execRemote.h"
 #include "rewrite/rewriteManip.h"
+#include "rewrite/rewriteHandler.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
@@ -1073,6 +1074,9 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	int				col_att = 0;
 	int				ctid_param_num;
 	ListCell		*lc;
+	bool			can_use_pk_for_rep_change = false;
+	int16			*indexed_col_numbers = NULL;
+	int				index_col_count = 0;
 
 	/* Make sure we are dealing with DMLs */
 	if (cmdtype != CMD_UPDATE &&
@@ -1134,6 +1138,28 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 
 	query_to_deparse->jointree = makeNode(FromExpr);
 
+	can_use_pk_for_rep_change = (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE) &&
+				IsRelationReplicated(GetRelationLocInfo(res_rel->relid));
+
+	if (can_use_pk_for_rep_change)
+	{
+		index_col_count = pgxc_find_unique_index(res_rel->relid,
+												&indexed_col_numbers);
+		if (index_col_count <= 0)
+			can_use_pk_for_rep_change = false;
+
+		if (can_use_pk_for_rep_change)
+		{
+			if (is_pk_being_changed(root->parse, indexed_col_numbers,
+									index_col_count))
+			{
+				can_use_pk_for_rep_change = false;
+			}
+		}
+	}
+
+	rqplan->rq_use_pk_for_rep_change = can_use_pk_for_rep_change;
+
 	/*
 	 * Prepare a param list for INSERT queries
 	 * While doing so note the position of ctid, xc_node_id in source data
@@ -1146,7 +1172,8 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		col_att++;
 
 		/* The position of ctid/xc_node_id is not required for INSERT */
-		if (tle->resjunk && (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE))
+		if (!can_use_pk_for_rep_change && tle->resjunk &&
+			(cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE))
 		{
 			Var *v = (Var *)tle->expr;
 
@@ -1232,41 +1259,88 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		 * the n table attributes, followed by ctid and optionally node_id. So
 		 * we know that the ctid has to be n + 1.
 		 */
-		ctid_param_num = natts + 1;
+		if (!can_use_pk_for_rep_change)
+		{
+			ctid_param_num = natts + 1;
+		}
 	}
-	else if (cmdtype == CMD_DELETE)
+	if (cmdtype == CMD_DELETE)
 	{
-		/*
-		 * Since there is no data to update, the first param is going to be
-		 * ctid.
-		 */
-		ctid_param_num = 1;
+		if (!can_use_pk_for_rep_change)
+		{
+			/*
+			 * Since there is no data to update, the first param is going to be
+			 * ctid.
+			 */
+			ctid_param_num = 1;
+		}
 	}
 
 	/* Add quals like ctid = $4 AND xc_node_id = $6 to the UPDATE/DELETE query */
 	if (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE)
 	{
-		if (!ctid_found)
-			elog(ERROR, "Source data plan's target list does not contain ctid colum");
-
 		/*
-		 * Beware, the ordering of ctid and node_id is important ! ctid should
-		 * be followed by node_id, not vice-versa, so as to be consistent with
-		 * the data row to be generated while binding the parameters for the
-		 * update statement.
+		 * If it is not replicated, we can use CTID, otherwise we need
+		 * to use a defined primary key
 		 */
-		pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
-						SelfItemPointerAttributeNumber, resultRelationIndex);
-
-		if (node_id_found)
+		if (!can_use_pk_for_rep_change)
 		{
-			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num + 1,
-							XC_NodeIdAttributeNumber, resultRelationIndex);
+			if (!ctid_found)
+				elog(ERROR, "Source data plan's target list does not contain ctid colum");
 
-			query_to_deparse->jointree->quals = (Node *)make_andclause(
-								(List *)query_to_deparse->jointree->quals);
+			/*
+			 * Beware, the ordering of ctid and node_id is important ! ctid should
+			 * be followed by node_id, not vice-versa, so as to be consistent with
+			 * the data row to be generated while binding the parameters for the
+			 * update statement.
+			 */
+			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
+							SelfItemPointerAttributeNumber, resultRelationIndex);
+
+			if (node_id_found)
+			{
+				pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num + 1,
+								XC_NodeIdAttributeNumber, resultRelationIndex);
+			}
 		}
+		else
+		{
+			/*
+			 * Add all the columns of the primary key or unique index
+			 * in the where clause of update / delete on the replicated table
+			 */
+			int i;
+			for (i = 0; i < index_col_count; i++)
+			{
+				int			pkattno = indexed_col_numbers[i];
+
+				col_att = 0;
+				foreach(elt, sourceTargetList)
+				{
+					TargetEntry	*tle = lfirst(elt);
+					Var *v;
+			
+					col_att++;
+			
+					v = (Var *)tle->expr;
+		
+					if (v->varno == resultRelationIndex &&
+						v->varattno == pkattno)
+					{
+						break;
+					}
+				}
+
+				pgxc_dml_add_qual_to_query(query_to_deparse, col_att,
+							pkattno, resultRelationIndex);
+			}
+		}
+		query_to_deparse->jointree->quals = (Node *)make_andclause(
+						(List *)query_to_deparse->jointree->quals);
 	}
+
+	if (indexed_col_numbers != NULL)
+		pfree(indexed_col_numbers);
 
 	/* pgxc_add_returning_list copied returning list in base_tlist */
 	if (rqplan->base_tlist)

@@ -4956,7 +4956,6 @@ void AtEOXact_DBCleanup(bool isCommit)
  * and the ctid/nodeid values to be supplied for the WHERE clause of the
  * query. The data values are present in dataSlot whereas the ctid/nodeid
  * are available in sourceSlot as junk attributes.
- * For DELETEs, the dataSlot is NULL.
  * sourceSlot is used only to retrieve ctid/nodeid, so it does not get
  * used for INSERTs, although it will never be NULL.
  * The slots themselves are undisturbed.
@@ -5054,10 +5053,6 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 		appendBinaryStringInfo(&buf, (char *) &params_nbo, sizeof(params_nbo));
 	}
 
-	/*
-	 * The data attributes would not be present for DELETE. In such case,
-	 * dataSlot will be NULL.
-	 */
 	if (dataSlot)
 	{
 		TupleDesc	 	tdesc = dataSlot->tts_tupleDescriptor;
