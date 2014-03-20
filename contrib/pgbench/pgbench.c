@@ -308,9 +308,9 @@ static char *tpc_b_bid = {
 	"\\setrandom tid 1 :ntellers\n"
 	"\\setrandom delta -5000 5000\n"
 	"BEGIN;\n"
-	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid AND bid = :bid;\n"
-	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid AND bid = :bid\n"
-	"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid AND bid = :bid;\n"
+	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;\n"
+	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
+	"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid;\n"
 	"UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;\n"
 	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
 	"END;\n"
@@ -344,8 +344,8 @@ static char *simple_update_bid = {
 	"\\setrandom tid 1 :ntellers\n"
 	"\\setrandom delta -5000 5000\n"
 	"BEGIN;\n"
-	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid AND bid = :bid;\n"
-	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid AND bid = :bid;\n"
+	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;\n"
+	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
 	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
 	"END;\n"
 };
@@ -372,7 +372,7 @@ usage(void)
 		   "  -i           invokes initialization mode\n"
 		   "  -F NUM       fill factor\n"
 #ifdef PGXC
-		   "  -k           distribute by primary key branch id - bid\n"
+		   "  -k           distribute each table by primary key\n"
 #endif
 		   "  -n           do not run VACUUM after initialization\n"
 		   "  -q           quiet logging (one message each 5 seconds)\n"
@@ -392,7 +392,7 @@ usage(void)
 		   "               define variable for use by custom script\n"
 		   "  -f FILENAME  read transaction script from FILENAME\n"
 #ifdef PGXC
-		   "  -k           query with default key and additional key branch id (bid)\n"
+		   "  -k           query with primary key that is used for distribution\n"
 #endif
 		   "  -j NUM       number of threads (default: 1)\n"
 		   "  -l           write transaction times to log file\n"
@@ -1535,7 +1535,7 @@ init(bool is_no_vacuum)
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (bid)"
+			, "distribute by hash (tid)"
 #endif
 		},
 		{
@@ -1545,7 +1545,7 @@ init(bool is_no_vacuum)
 			: "aid    int not null,bid int,abalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (bid)"
+			, "distribute by hash (aid)"
 #endif
 		},
 		{
@@ -1553,7 +1553,7 @@ init(bool is_no_vacuum)
 			"bid int not null,bbalance int,filler char(88)",
 			1
 #ifdef PGXC
-			, "distribute by hash (bid)"
+			, "distribute by hash (aid)"
 #endif
 		}
 	};
@@ -1574,8 +1574,8 @@ init(bool is_no_vacuum)
 #ifdef PGXC
 	static char *DDLAFTERs_bid[] = {
 		"alter table pgbench_branches add primary key (bid)",
-		"alter table pgbench_tellers add primary key (tid,bid)",
-		"alter table pgbench_accounts add primary key (aid,bid)"
+		"alter table pgbench_tellers add primary key (tid)",
+		"alter table pgbench_accounts add primary key (aid)"
 	};
 #endif
 
