@@ -1559,6 +1559,16 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		check_pgxc_maintenance_mode, NULL, NULL
 	},
+	{
+		{"require_replicated_table_pkey", PGC_USERSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("When set, non-FQS UPDATEs & DELETEs to replicated tables without"
+					" primary key or a unique key are prohibited"),
+			NULL
+		},
+		&RequirePKeyForRepTab,
+		true,
+		NULL, NULL, NULL
+	},
 #endif
 
 	{

@@ -403,10 +403,36 @@ select * from xc_t42 order by 1, 2;
 select * from xc_t43 order by 1, 2;
 select * from xc_t44 order by 1, 2;
 
-set enable_fast_query_shipping=true;
+reset enable_fast_query_shipping;
 
 drop table xc_t41;
 drop table xc_t42;
 drop table xc_t43;
 drop table xc_t44;
+
+------------------------------------------------------------------------------
+-- Check that the GUC require_replicated_table_pkey changes the behavior
+-- of updates and deletes to replicated tables as expected
+------------------------------------------------------------------------------
+
+create table xc_r1(a int, b int) distribute by replication;
+insert into xc_r1 values(1,2),(3,4),(5,6);
+set enable_fast_query_shipping = false;
+set require_replicated_table_pkey = true;
+update xc_r1 set b = b+1 where a = 1;
+create table xc_r2(a int primary key, b int) distribute by replication;
+insert into xc_r2 values(1,2),(3,4),(5,6);
+update xc_r2 set b = b+1 where a = 1;
+update xc_r2 set a = a+1 where b = 1;
+
+set require_replicated_table_pkey = false;
+update xc_r1 set b = b+1 where a = 1;
+update xc_r2 set b = b+1 where a = 1;
+update xc_r2 set a = a+1 where b = 1;
+
+reset enable_fast_query_shipping;
+reset require_replicated_table_pkey;
+
+drop table xc_r1;
+drop table xc_r2;
 

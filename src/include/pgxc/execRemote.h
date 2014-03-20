@@ -29,6 +29,7 @@
 
 /* GUC parameters */
 extern bool EnforceTwoPhaseCommit;
+extern bool RequirePKeyForRepTab;
 
 /* Outputs of handle_response() */
 #define RESPONSE_EOF EOF

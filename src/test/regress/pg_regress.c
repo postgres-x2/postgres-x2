@@ -846,6 +846,15 @@ set_node_config_file(PGXCNodeTypeNum node)
 	 */
 	fputs("max_prepared_transactions = 50\n", pg_conf);
 
+	/*
+	 * By default non-FQS update and delete to a replicated table without
+	 * any primary key or unique index is an error, but regression tests
+	 * have many examples where updates and deletes are non-FQS but table
+	 * is replicated, so let those DMLs run without error during regression
+	 * tests
+	 */
+	fputs("require_replicated_table_pkey = false\n", pg_conf);
+
 	/* Set GTM connection information */
 	fputs("gtm_host = 'localhost'\n", pg_conf);
 	snprintf(buf, sizeof(buf), "gtm_port = %d\n", get_port_number(PGXC_GTM));
@@ -2950,6 +2959,15 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		}
 		fputs("\n# Configuration added by pg_regress\n\n", pg_conf);
 		fputs("max_prepared_transactions = 2\n", pg_conf);
+
+		/*
+		 * By default non-FQS update and delete to a replicated table without
+		 * any primary key or unique index is an error, but regression tests
+		 * have many examples where updates and deletes are non-FQS but table
+		 * is replicated, so let those DMLs run without error during regression
+		 * tests
+		 */
+		fputs("require_replicated_table_pkey = false\n", pg_conf);
 
 		if (temp_config != NULL)
 		{

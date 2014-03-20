@@ -57,6 +57,12 @@
 bool EnforceTwoPhaseCommit = true;
 
 /*
+ * non-FQS UPDATE & DELETE to a replicated table without any primary key or
+ * unique key should be prohibited (true) or allowed (false)
+ */
+bool RequirePKeyForRepTab = true;
+
+/*
  * Max to begin flushing data to datanodes, max to stop flushing data to datanodes.
  */
 #define MAX_SIZE_TO_FORCE_FLUSH (2^10 * 64 * 2)

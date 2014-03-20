@@ -1140,13 +1140,19 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		index_col_count = pgxc_find_unique_index(res_rel->relid,
 												&indexed_col_numbers);
 		if (index_col_count <= 0)
+		{
+			if (RequirePKeyForRepTab)
+				elog(ERROR, "Either primary key/unique index is required for a non-FQS DML on a replicated table");
 			can_use_pk_for_rep_change = false;
+		}
 
 		if (can_use_pk_for_rep_change)
 		{
 			if (is_pk_being_changed(root->parse, indexed_col_numbers,
 									index_col_count))
 			{
+				if (RequirePKeyForRepTab)
+					elog(ERROR, "The primary key/column included in the unique index cannot be updated in a non-FQS query for a replicated table");
 				can_use_pk_for_rep_change = false;
 			}
 		}
