@@ -1516,7 +1516,7 @@ init(bool is_no_vacuum)
 		char	   *distribute_by;
 #endif
 	};
-	struct ddlinfo DDLs[] = {
+    struct ddlinfo DDLs[] = {
 		{
 			"pgbench_branches",
 			"bid int not null,bbalance int,filler char(88)",
@@ -1524,36 +1524,29 @@ init(bool is_no_vacuum)
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
-			"pgbench_history",
-			scale >= SCALE_32BIT_THRESHOLD
-			? "tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)"
-			: "tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
-			0
 		},
 		{
 			"pgbench_tellers",
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (tid)"
+			, "distribute by hash (bid)"
 #endif
 		},
 		{
 			"pgbench_accounts",
-			scale >= SCALE_32BIT_THRESHOLD
-			? "aid bigint not null,bid int,abalance int,filler char(84)"
-			: "aid    int not null,bid int,abalance int,filler char(84)",
+			"aid int not null,bid int,abalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (aid)"
+			, "distribute by hash (bid)"
 #endif
 		},
 		{
-			"pgbench_branches",
-			"bid int not null,bbalance int,filler char(88)",
-			1
+			"pgbench_history",
+			"tid int,bid int,aid int,delta int,mtime timestamp,filler char(22)",
+			0
 #ifdef PGXC
-			, "distribute by hash (aid)"
+			, "distribute by hash (bid)"
 #endif
 		}
 	};
