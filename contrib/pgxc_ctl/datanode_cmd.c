@@ -278,7 +278,7 @@ cmd_t *prepare_initDatanodeSlave(char *nodeName)
 			"#==========================================\n"
 			"# Added to initialize the slave, %s\n"
 			"standby_mode = on\n"
-			"primary_conninfo = 'host = %s port = %sd user = %s application_name = %s'\n"
+			"primary_conninfo = 'host = %s port = %s user = %s application_name = %s'\n"
 			"restore_command = 'cp %s/%%f %%p'\n"
 			"archive_cleanup_command = 'pg_archivecleanup %s %%r'\n",		
 			timeStampString(timestamp, MAXTOKEN),
@@ -803,9 +803,15 @@ static int failover_oneDatanode(int datanodeIdx)
 			continue;
 		}
 		fprintf(f,
+#if 0 /* Current alter node does't work well in this context */
 				"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
+#else
+				"DROP NODE %s;\n"
+				"CREATE NODE %s WITH (type = datanode, HOST='%s', PORT=%s);\n"
+#endif
 				"select pgxc_pool_reload();\n"
 				"\\q\n",
+				aval(VAR_datanodeNames)[datanodeIdx],
 				aval(VAR_datanodeNames)[datanodeIdx], aval(VAR_datanodeMasterServers)[datanodeIdx], aval(VAR_datanodePorts)[datanodeIdx]);
 		fclose(f);
 	}
