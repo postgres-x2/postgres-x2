@@ -993,6 +993,12 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
           Datanode of the <productname>Postgres-XC</> database
           cluster.
          </para>
+	     <para>
+	      It is highly recommended to have a primary key in every replicated table to avoid
+	      conflict among its replica.
+		  When a primary key is not available and the planner has to choose CTID to locate
+		  the target rows, the statement will fail.
+	     </para>
         </listitem>
        </varlistentry>
 

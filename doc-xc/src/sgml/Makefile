@@ -143,7 +143,7 @@ bookindex.sgml: HTML.index
 # Please note that XC version needs manual maintenance here.
 version.sgml: $(top_srcdir)/configure
 	{ \
-	  echo "<!ENTITY version \"1.2devel\">"; \
+	  echo "<!ENTITY version \"1.2\">"; \
 	  echo "<!ENTITY majorversion \"1.2\">"; \
 	} > $@
 

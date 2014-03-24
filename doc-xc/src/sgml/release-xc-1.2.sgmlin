@@ -6,7 +6,7 @@
 
   <note>
    <title>Release Date</title>
-   <simpara>2014-02-12</simpara>
+   <simpara>2014-03-25</simpara>
   </note>
 
   <para>
@@ -14,7 +14,7 @@
   </para>
 
   <sect2>
-   <title>Migration to Version 1.2 beta</title>
+   <title>Migration to Version 1.2</title>
 
    <para>
     A dump/restore is not required for those running 1.1.X or 1.0.x.
@@ -152,6 +152,12 @@
     <listitem>
      <para>
       Additonal tests in xc_FQL regression. by Ashutosh Bapat.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Enabled TEMP objects in implicit 2PC transactions, by K.Suzuki.
      </para>
     </listitem>
 
@@ -356,6 +362,48 @@
      </para>
     </listitem>
 
+    <listitem>
+     <para>
+      Fix incorrect statment with -k option in pgbench, by Tetsuo Sakata.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix master/slave configuretion in the coordinator, by Koichi Suzuki.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix data inconsistency caused by updating/deleting replicated tables, by Abbas But.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix incorrect query generation to datanodes where "AND" tokens are replaced by ",", by Masataka Saito.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix VPATH compilation failure, by Masataka Saito.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix GTM and GTM Proxy failure, by Masataka Saito.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Improve statement cancellation behavir consistent.   Reduce the chance of random failures in the regression test, by Masataka Saito.
+     </para>
+    </listitem>
+
    </itemizedlist>
 
   </sect2>
@@ -538,6 +586,26 @@
       such that its transition function returns different type of row from the final row.
      </para>
     </listitem>
+
+    <listitem>
+     <para>
+      <application>pg_basebackup</application> does not work with coordinators.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <command>ALTER NODE</command> may not work when <literal>pgxc_pool_reload()</literal> is required.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      When a replication table does not have a primary key and the plan has no key other than CTID, the statement will fail.
+	  To fix this, add a primary key.
+     </para>
+    </listitem>
+
 
    </itemizedlist>
 
