@@ -230,7 +230,25 @@ int init_coordinator_slave_all(void)
 
 cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 {
-	cmd_t *cmd, *cmdBuildDir, *cmdStartMaster, *cmdBaseBkup, *cmdRecoveryConf, *cmdPgConf;
+	cmd_t *cmd,
+		  *cmdBuildDir,
+		  *cmdStartMaster,
+#if 0
+		  *cmdBaseBkup,
+#else
+		  /*
+		   * As of PostgreSQL 9.3 or later, pg_basebackup does now work with coordinator,
+		   * because each coordinator backend needs dbname to read pgxc_node info into
+		   * cache and pg_basebackup does not specify the database name.
+		   * The following uses more primitive means to use pg_start_backup() and pg_stop_backup().
+		   */
+		  *cmdStartBkup,
+		  *cmdBuildAndSendTar,
+		  *cmdUntar,
+		  *cmdStopBkup,
+#endif
+		  *cmdRecoveryConf,
+		  *cmdPgConf;
 	int idx;
 	FILE *f;
 	char localStdin[MAXPATH+1];
@@ -268,11 +286,67 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 	/*
 	 * Obtain base backup of the master
 	 */
+#if 0
 	appendCmdEl(cmdBuildDir, (cmdBaseBkup = initCmd(aval(VAR_coordSlaveServers)[idx])));
 	snprintf(newCommand(cmdBaseBkup), MAXLINE,
 			 "pg_basebackup -p %s -h %s -D %s -x",
 			 aval(VAR_coordPorts)[idx], aval(VAR_coordMasterServers)[idx], aval(VAR_coordSlaveDirs)[idx]);
-
+#else
+	/*
+	 * As of PostgreSQL-9.3 or later, pg_basebackup does not run with coordinators, beacuse each coordinator
+	 * needs database name to read pgxc_node info into the cache and pg_basebackup does not specify this.
+	 * Current workaround is to use more primitive pg_start_backup() and pg_stop_backup().
+	 */
+	/* Start backup */
+	appendCmdEl(cmdBuildDir, (cmdStartBkup = initCmd(aval(VAR_coordMasterServers)[idx])));
+	/*
+	 * Here, we specify "quick and spike" CHECKPOINT because it is coordinator and we do not expect
+	 * much updating transactions against coordinators.
+	 */
+	snprintf(newCommand(cmdStartBkup), MAXLINE,
+			"psql -h localhost -p %s postgres",
+			aval(VAR_coordPorts)[idx]);
+	if ((f = prepareLocalStdin((cmdStartBkup->localStdin = Malloc(MAXPATH+1)), MAXPATH, NULL)) == NULL)
+	{
+		cleanCmd(cmd);
+		return(NULL);
+	}
+	fprintf(f,
+			"select pg_start_backup('%s', true);\n\\q\n",
+			nodeName);
+	fclose(f);
+	/* Build tar and send it */
+	appendCmdEl(cmdBuildDir, (cmdBuildAndSendTar = initCmd(aval(VAR_coordMasterServers)[idx])));
+	snprintf(newCommand(cmdBuildAndSendTar), MAXLINE,
+			"rm -f %s/%s.tgz;"		/* We remove this just in case the file does not have write privilege */
+			"cd %s;"
+			"tar czf %s/%s.tgz . ;"
+			"scp %s/%s.tgz %s@%s:%s;"
+			"rm -f %s/%s.tgz",
+			sval(VAR_tmpDir), nodeName,
+			aval(VAR_coordMasterDirs)[idx],
+			sval(VAR_tmpDir), nodeName,
+			sval(VAR_tmpDir), nodeName, sval(VAR_pgxcUser), aval(VAR_coordSlaveServers)[idx], sval(VAR_tmpDir),
+			sval(VAR_tmpDir), nodeName);
+	/* Stop backup */
+	appendCmdEl(cmdBuildDir, (cmdStopBkup = initCmd(aval(VAR_coordMasterServers)[idx])));
+	snprintf(newCommand(cmdStopBkup), MAXLINE,
+			"psql -h localhost -p %s postgres -c 'select pg_stop_backup()'",
+			aval(VAR_coordPorts)[idx]);
+	/* Untar */
+	appendCmdEl(cmdBuildDir, (cmdUntar = initCmd(aval(VAR_coordSlaveServers)[idx])));
+	snprintf(newCommand(cmdUntar), MAXLINE,
+			"rm -rf %s;"
+			"mkdir -p %s;"
+			"cd %s;"
+			"tar xzf %s/%s.tgz;"
+			"rm -rf %s/%s.tgz",
+			aval(VAR_coordSlaveDirs)[idx],
+			aval(VAR_coordSlaveDirs)[idx],
+			aval(VAR_coordSlaveDirs)[idx],
+			sval(VAR_tmpDir), nodeName,
+			sval(VAR_tmpDir), nodeName);
+#endif
 	/* Configure recovery.conf file at the slave */
 	appendCmdEl(cmdBuildDir, (cmdRecoveryConf = initCmd(aval(VAR_coordSlaveServers)[idx])));
 	if ((f = prepareLocalStdin(localStdin, MAXPATH, NULL)) == NULL)
@@ -940,6 +1014,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	else
 	{
 		fprintf(f, "ALTER NODE %s WITH (host='%s', PORT=%d);\n", name, host, port);
+		fprintf(f, "select pgxc_pool_reload();\n");
 		fprintf(f, "\\q\n");
 		fclose(f);
 	}
@@ -1077,9 +1152,54 @@ int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 				"pg_ctl stop -Z coordinator -D %s -m fast", aval(VAR_coordMasterDirs)[idx]);
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
 				"pg_ctl start -Z coordinator -D %s", aval(VAR_coordMasterDirs)[idx]);
+#if 0
 	/* pg_basebackup */
 	doImmediate(host, NULL, "pg_basebackup -p %s -h %s -D %s -x",
 				aval(VAR_coordPorts)[idx], aval(VAR_coordMasterServers)[idx], dir);
+#else
+	/* 
+	 * As of PostgreSQL-9.3 or later, pg_basebackup does not run with coordinators.
+	 * Now pg_basebackup runs without specifying database name.   In each coordinator,
+	 * we need (at present) database name to load node information into chache.
+	 * More primitive means (pg_start_backup and pg_stop_backup) works as a work around.
+	 */ 
+	/*
+	 * Stop backup
+	 * we specify quick and spike checkpoint here because this is just after the restart
+	 * and we expect coordinator is static so there should not be much updates
+	 */
+	doImmediate(aval(VAR_coordMasterServers)[idx], NULL,
+				"psql -h localhost -p %s postgres \"select pg_start_backup\\('%s', true\\)\"",
+				aval(VAR_coordPorts)[idx], name);
+	/* Build and send it */
+	doImmediate(aval(VAR_coordMasterServers)[idx], NULL,
+				"rm -f %s/%s.tgz;"		/* We remove this just in case the file does not have write privilege */
+				"cd %s;"
+				"tar czf %s/%s.tgz . ;"
+				"scp %s/%s.tgz %s@%s:%s;"
+				"rm -f %s/%s.tgz",
+				sval(VAR_tmpDir), name,
+				aval(VAR_coordMasterDirs)[idx],
+				sval(VAR_tmpDir), name,
+				sval(VAR_tmpDir), name, sval(VAR_pgxcUser), host, sval(VAR_tmpDir),
+				sval(VAR_tmpDir), name);
+	/* Stop Backup */
+	doImmediate(aval(VAR_coordMasterServers)[idx], NULL,
+				"psql -h localhost -p %s postgres -c 'select pg_stop_backup()'",
+				aval(VAR_coordPorts)[idx]);
+	/* Untar */
+	doImmediate(aval(VAR_coordSlaveServers)[idx], NULL,
+				"rm -rf %s;"
+				"mkdir -p %s;"
+				"cd %s;"
+				"tar xzf %s/%s.tgz;"
+				"rm -rf %s/%s.tgz",
+				dir,
+				dir,
+				dir,
+				sval(VAR_tmpDir), name,
+				sval(VAR_tmpDir), name);
+#endif
 	/* Update the slave configuration with hot standby and port */
 	if ((f = pgxc_popen_w(host, "cat >> %s/postgresql.conf", dir)) == NULL)
 	{
@@ -1800,23 +1920,48 @@ static int failover_oneCoordinator(int coordIdx)
 				 aval(VAR_coordNames)[jj]);
 			continue;
 		}
-		if ((f = pgxc_popen_wRaw("psql -p %s -h %s %s %s",
-								 aval(VAR_coordPorts)[jj],
-								 aval(VAR_coordMasterServers)[jj],
-								 sval(VAR_defaultDatabase),
-								 sval(VAR_pgxcOwner)))
-			== NULL)
+		if (jj != coordIdx)
 		{
-			elog(ERROR, "ERROR: failed to start psql for coordinator %s, %s\n", aval(VAR_coordNames)[jj], strerror(errno));
-			continue;
+			if ((f = pgxc_popen_wRaw("psql -p %s -h %s %s %s",
+									 aval(VAR_coordPorts)[jj],
+									 aval(VAR_coordMasterServers)[jj],
+									 sval(VAR_defaultDatabase),
+									 sval(VAR_pgxcOwner)))
+				== NULL)
+			{
+				elog(ERROR, "ERROR: failed to start psql for coordinator %s, %s\n", aval(VAR_coordNames)[jj], strerror(errno));
+				continue;
+			}
+			fprintf(f,
+#if 0 /* Now alter node dies not work well in this context. */
+					"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
+#else
+					"DROP NODE %s;\n"
+					"CREATE NODE %s WITH (type = coordinator, HOST='%s', PORT=%s);\n"
+#endif
+					"select pgxc_pool_reload();\n"
+					"\\q\n",
+					aval(VAR_coordNames)[coordIdx],
+					aval(VAR_coordNames)[coordIdx], aval(VAR_coordMasterServers)[coordIdx], aval(VAR_coordPorts)[coordIdx]);
+			fclose(f);
 		}
-		fprintf(f,
-				"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
-				"select pgxc_pool_reload();\n"
-				"\\q\n",
-				aval(VAR_coordNames)[coordIdx], aval(VAR_coordMasterServers)[coordIdx], aval(VAR_coordPorts)[coordIdx]);
-		fclose(f);
 	}
+	/* Now update myself */
+	if ((f = pgxc_popen_wRaw("psql -p %s -h %s %s %s",
+							 aval(VAR_coordPorts)[coordIdx],
+							 aval(VAR_coordMasterServers)[coordIdx],
+							 sval(VAR_defaultDatabase),
+							 sval(VAR_pgxcOwner)))
+		== NULL)
+	{
+		elog(ERROR, "ERROR: failed to start psql for coordinator %s, %s\n", aval(VAR_coordNames)[coordIdx], strerror(errno));
+	}
+	fprintf(f,
+			"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
+			"select pgxc_pool_reload();\n"
+			"\\q\n",
+			aval(VAR_coordNames)[coordIdx], aval(VAR_coordMasterServers)[coordIdx], aval(VAR_coordPorts)[coordIdx]);
+	fclose(f);
 	return(rc);
 
 #	undef checkRc
