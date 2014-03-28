@@ -262,7 +262,7 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 		/* Master is not running. Must start it first */
 		appendCmdEl(cmdBuildDir, (cmdStartMaster = initCmd(aval(VAR_coordMasterServers)[idx])));
 		snprintf(newCommand(cmdStartMaster), MAXLINE,
-				 "pg_ctl start -Z coordinator -D %s -o -i",
+				 "pg_ctl start -Z coordinator -D %s -o -i -w",
 				 aval(VAR_coordMasterDirs)[idx]);
 	}
 	/*
@@ -903,7 +903,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 				   aval(VAR_coordPorts)[0], aval(VAR_coordMasterServers)[0], pgdumpall_out);
 
 	/* Start the new coordinator */
-	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i", dir);
+	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i -w", dir);
 
 	/* Restore the backup */
 	doImmediateRaw("psql -h %s -p %d -d %s -f %s", host, port, sval(VAR_defaultDatabase), pgdumpall_out);
@@ -1076,7 +1076,7 @@ int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
 				"pg_ctl stop -Z coordinator -D %s -m fast", aval(VAR_coordMasterDirs)[idx]);
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
-				"pg_ctl start -Z coordinator -D %s", aval(VAR_coordMasterDirs)[idx]);
+				"pg_ctl start -Z coordinator -D %s -w", aval(VAR_coordMasterDirs)[idx]);
 	/* pg_basebackup */
 	doImmediate(host, NULL, "pg_basebackup -p %s -h %s -D %s -x",
 				aval(VAR_coordPorts)[idx], aval(VAR_coordMasterServers)[idx], dir);
@@ -1119,7 +1119,7 @@ int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 	fclose(f);
 
 	/* Start the slave */
-	doImmediate(host, NULL, "pg_ctl start -Z coordinator -D %s", dir);
+	doImmediate(host, NULL, "pg_ctl start -Z coordinator -D %s -w", dir);
 	return 0;
 }
 
@@ -1382,7 +1382,7 @@ cmd_t *prepare_startCoordinatorMaster(char *nodeName)
 	}
 	cmd = cmdPgCtl = initCmd(aval(VAR_coordMasterServers)[idx]);
 	snprintf(newCommand(cmdPgCtl), MAXLINE,
-			 "pg_ctl start -Z coordinator -D %s -o -i",
+			 "pg_ctl start -Z coordinator -D %s -o -i -w",
 			 aval(VAR_coordMasterDirs)[idx]);
 	return(cmd);
 }
@@ -1442,7 +1442,7 @@ cmd_t *prepare_startCoordinatorSlave(char *nodeName)
 	}
 	cmd = cmdPgCtlStart = initCmd(aval(VAR_coordSlaveServers)[idx]);
 	snprintf(newCommand(cmdPgCtlStart), MAXLINE,
-			 "pg_ctl start -Z coordinator -D %s -o -i",
+			 "pg_ctl start -Z coordinator -D %s -o -i -w",
 			 aval(VAR_coordSlaveDirs)[idx]);
 
 	/* Postgresql.conf at the Master */

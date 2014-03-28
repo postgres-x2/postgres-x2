@@ -28,10 +28,12 @@
 #include "config.h"
 #include "variables.h"
 #include "varnames.h"
+#include "sys/time.h"
 
 static int Malloc_ed = 0;
 static int Strdup_ed = 0;
 static int Freed = 0;
+static void myUsleep(long microsec);
 
 void *Malloc(size_t size)
 {
@@ -308,6 +310,9 @@ int pingNode(char *host, char *port)
 	PGPing status;
 	char conninfo[MAXLINE+1];
 	char editBuf[MAXPATH+1];
+#define RETRY 3
+#define sleepMicro 100*1000	/* 100 millisec */
+	int retry;
 
 	conninfo[0] = 0;
 	if (host)
@@ -322,14 +327,22 @@ int pingNode(char *host, char *port)
 	}
 	if (conninfo[0])
 	{
-		status = PQping(conninfo);
-		if (status == PQPING_OK)
-			return 0;
-		else
-			return 1;
+		for (retry = RETRY; retry; retry--){
+			status = PQping(conninfo);
+			if (status == PQPING_OK)
+				return 0;
+			else
+			{
+				myUsleep(sleepMicro);
+				continue;
+			}
+		}
+		return 1;
 	}
 	else
 		return -1;
+#undef RETRY
+#undef sleepMicro
 }
 
 void trimNl(char *s)
@@ -378,4 +391,15 @@ char *getIpAddress(char *hostName)
 	trimNl(ipAddr);
 	return ipAddr;
 }
-	
+
+static void myUsleep(long microsec)
+{
+	struct timeval delay;
+
+	if (microsec <= 0)
+		return;
+
+	delay.tv_sec = microsec / 1000000L;
+	delay.tv_usec = microsec % 1000000L;
+	(void) select(0, NULL, NULL, NULL, &delay);
+}
