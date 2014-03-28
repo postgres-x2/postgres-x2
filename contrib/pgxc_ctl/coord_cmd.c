@@ -275,7 +275,7 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 	 * a master which can handle the request.   So GTM should be running. We can test all of them by
 	 * single 'select 1' command.
 	 */
-	if (pingNode(aval(VAR_coordMasterServers)[idx], aval(VAR_coordPorts)[idx]) != -2)
+	if (pingNode(aval(VAR_coordMasterServers)[idx], aval(VAR_coordPorts)[idx]) != 0)
 	{
 		/* Master is not running. Must start it first */
 		appendCmdEl(cmdBuildDir, (cmdStartMaster = initCmd(aval(VAR_coordMasterServers)[idx])));
