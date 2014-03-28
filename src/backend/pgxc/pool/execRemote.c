@@ -4967,11 +4967,14 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 {
 	StringInfoData	buf;
 	uint16			numparams = 0;
+	RemoteQuery		*step = (RemoteQuery *) rq_state->ss.ps.plan;
 
 	Assert(sourceSlot);
 
 	/* Calculate the total number of parameters */
-	if (dataSlot)
+	if (step->rq_max_param_num > 0)
+		numparams = step->rq_max_param_num;
+	else if (dataSlot)
 		numparams = dataSlot->tts_tupleDescriptor->natts;
 	/* Add number of junk attributes */
 	if (junkfilter)
@@ -5009,6 +5012,10 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 		{
 			TupleDesc tdesc = dataSlot->tts_tupleDescriptor;
 			int numatts = tdesc->natts;
+
+			if (step->rq_max_param_num > 0)
+				numatts = step->rq_max_param_num;
+
 			for (attindex = 0; attindex < numatts; attindex++)
 			{
 				rq_state->rqs_param_types[attindex] =
@@ -5057,12 +5064,16 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 	{
 		TupleDesc	 	tdesc = dataSlot->tts_tupleDescriptor;
 		int				attindex;
+		int				numatts = tdesc->natts;
 
 		/* Append the data attributes */
 
+		if (step->rq_max_param_num > 0)
+			numatts = step->rq_max_param_num;
+
 		/* ensure we have all values */
 		slot_getallattrs(dataSlot);
-		for (attindex = 0; attindex < tdesc->natts; attindex++)
+		for (attindex = 0; attindex < numatts; attindex++)
 		{
 			uint32 n32;
 			Assert(attindex < numparams);
