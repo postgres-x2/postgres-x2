@@ -1048,7 +1048,8 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_SCALAR_FIELD(has_row_marks);
 	COPY_SCALAR_FIELD(rq_save_command_id);
 	COPY_SCALAR_FIELD(rq_params_internal);
-	COPY_SCALAR_FIELD(rq_save_command_id);
+	COPY_SCALAR_FIELD(rq_use_pk_for_rep_change);
+	COPY_SCALAR_FIELD(rq_max_param_num);
 
 	return newnode;
 }

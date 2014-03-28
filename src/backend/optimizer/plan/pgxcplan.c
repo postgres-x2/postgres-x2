@@ -1334,6 +1334,18 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 				pgxc_dml_add_qual_to_query(query_to_deparse, col_att,
 							pkattno, resultRelationIndex);
 			}
+
+			/*
+			 * Save the maximum number of parameters that should be sent down
+			 * to the datanode while executing this delete. Sending extra
+			 * parametrs causes problems in case those extra contain composite
+			 * types, because input of annon composite types is not implemented
+			 * For example see the delete query in JDBC regression
+			 * File : XC_02_AbsenteesTest.java
+			 * Function : testDeletePersonnel_3
+			 */
+			if (cmdtype == CMD_DELETE)
+				rqplan->rq_max_param_num = col_att;
 		}
 		query_to_deparse->jointree->quals = (Node *)make_andclause(
 						(List *)query_to_deparse->jointree->quals);
