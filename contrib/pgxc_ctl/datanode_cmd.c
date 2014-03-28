@@ -370,7 +370,7 @@ cmd_t *prepare_startDatanodeMaster(char *nodeName)
 	}
 	cmdStartDatanodeMaster = initCmd(aval(VAR_datanodeMasterServers)[idx]);
 	snprintf(newCommand(cmdStartDatanodeMaster), MAXLINE,
-			 "pg_ctl start -Z datanode -D %s -o -i", aval(VAR_datanodeMasterDirs)[idx]);
+			 "pg_ctl start -Z datanode -D %s -o -i -w", aval(VAR_datanodeMasterDirs)[idx]);
 	return(cmdStartDatanodeMaster);
 }
 
@@ -429,7 +429,7 @@ cmd_t *prepare_startDatanodeSlave(char *nodeName)
 	
 	cmd = cmdStartDatanodeSlave = initCmd(aval(VAR_datanodeSlaveServers)[idx]);
 	snprintf(newCommand(cmdStartDatanodeSlave), MAXLINE,
-			 "pg_ctl start -Z datanode -D %s",
+			 "pg_ctl start -Z datanode -D %s -w",
 			 aval(VAR_datanodeSlaveDirs)[idx]);
 	
 	/* Change the master to synchronous mode */
@@ -986,7 +986,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 				   aval(VAR_datanodePorts)[0], aval(VAR_datanodeMasterServers)[0], pgdumpall_out);
 
 	/* Start the new datanode */
-	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i", dir);
+	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i -w", dir);
 
 	/* Restore the backup */
 	doImmediateRaw("psql -h %s -p %d -d %s -f %s", host, port, sval(VAR_defaultDatabase), pgdumpall_out);
@@ -1156,7 +1156,7 @@ int add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
 				"pg_ctl stop -Z datanode -D %s -m fast", aval(VAR_datanodeMasterDirs)[idx]);
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
-				"pg_ctl start -Z datanode -D %s", aval(VAR_datanodeMasterDirs)[idx]);
+				"pg_ctl start -Z datanode -D %s -w", aval(VAR_datanodeMasterDirs)[idx]);
 	/* pg_basebackup */
 	doImmediate(host, NULL, "pg_basebackup -p %s -h %s -D %s -x",
 				aval(VAR_datanodePorts)[idx], aval(VAR_datanodeMasterServers)[idx], dir);
@@ -1198,7 +1198,7 @@ int add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			aval(VAR_datanodeArchLogDirs)[idx], aval(VAR_datanodeArchLogDirs)[idx]);
 	fclose(f);
 	/* Start the slave */
-	doImmediate(host, NULL, "pg_ctl start -Z datanode -D %s", dir);
+	doImmediate(host, NULL, "pg_ctl start -Z datanode -D %s -w", dir);
 	return 0;
 }
 
