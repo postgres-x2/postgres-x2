@@ -77,6 +77,10 @@ typedef enum NodeTag
 	T_SetOp,
 	T_LockRows,
 	T_Limit,
+	/* these aren't subclasses of Plan: */
+	T_NestLoopParam,
+	T_PlanRowMark,
+	T_PlanInvalItem,
 #ifdef PGXC
 	/*
 	 * TAGS FOR PGXC NODES
@@ -92,10 +96,6 @@ typedef enum NodeTag
 	T_CreateGroupStmt,
 	T_DropGroupStmt,
 #endif
-	/* these aren't subclasses of Plan: */
-	T_NestLoopParam,
-	T_PlanRowMark,
-	T_PlanInvalItem,
 
 	/*
 	 * TAGS FOR PLAN STATE NODES (execnodes.h)
@@ -347,9 +347,6 @@ typedef enum NodeTag
 	T_ConstraintsSetStmt,
 	T_ReindexStmt,
 	T_CheckPointStmt,
-#ifdef PGXC
-	T_BarrierStmt,
-#endif
 	T_CreateSchemaStmt,
 	T_AlterDatabaseStmt,
 	T_AlterDatabaseSetStmt,
@@ -393,6 +390,9 @@ typedef enum NodeTag
 	T_CreateEventTrigStmt,
 	T_AlterEventTrigStmt,
 	T_RefreshMatViewStmt,
+#ifdef PGXC
+	T_BarrierStmt,
+#endif
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
