@@ -143,8 +143,8 @@ bookindex.sgml: HTML.index
 # Please note that XC version needs manual maintenance here.
 version.sgml: $(top_srcdir)/configure
 	{ \
-	  echo "<!ENTITY version \"1.2\">"; \
-	  echo "<!ENTITY majorversion \"1.2\">"; \
+	  echo "<!ENTITY version \"1.2.1\">"; \
+	  echo "<!ENTITY majorversion \"1.2.1\">"; \
 	} > $@
 
 features-supported.sgml: $(top_srcdir)/src/backend/catalog/sql_feature_packages.txt $(top_srcdir)/src/backend/catalog/sql_features.txt

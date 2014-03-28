@@ -1,23 +1,27 @@
-<!-- doc/src/sgml/release-xc-1.1.sgml -->
+<!-- doc/src/sgml/release-xc-1.2.1.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
- <sect1 id="release-xc-1-2">
-  <title>Release 1.2 beta</title>
+ <sect1 id="release-xc-1-2-1">
+  <title>Release 1.2.1</title>
 
   <note>
    <title>Release Date</title>
-   <simpara>2014-03-25</simpara>
+   <simpara>2014-03-28</simpara>
   </note>
 
   <para>
-   This release contains new feature in and a variety of fixes in 1.2.
+   This release contains new feature in and a variety of fixes in 1.2.1.
+  </para>
+  <para>
+   Because of several important fixes are applied just after 1.2.0 material was prepared, 
+   the first available GA of version 1.2 of <application>Postgres-XC</application> is 1.2.1.
   </para>
 
   <sect2>
-   <title>Migration to Version 1.2</title>
+   <title>Migration to Version 1.2.1</title>
 
    <para>
-    A dump/restore is not required for those running 1.1.X or 1.0.x.
+    A dump/restore is required for those running 1.1.X or 1.0.x.
    </para>
 
   </sect2>
@@ -98,7 +102,7 @@
     Koichi Suzuki is the original project lead.
    </para>
    <para>
-    Core member at the time of Version 1.2 released is Koichi Suzuki, Ashutosh Bapat, 
+    Core member at the time of Version 1.2.1 released is Koichi Suzuki, Ashutosh Bapat, 
     Ababs Butt, Ahsan Hadi, Masataka Saito, Tetsuo Sakata, 
     Masaki Hisada and Hitoshi Hemmi.
    </para>
@@ -403,6 +407,27 @@
       Improve statement cancellation behavir consistent.   Reduce the chance of random failures in the regression test, by Masataka Saito.
      </para>
     </listitem>
+
+    <listitem>
+     <para>
+      Fix incorrect datanode statement creation with a case of subquery. By Abbas But.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed internal node type identifier to be compatible with PostgreSQL 9.3.2 to provide better binary compatibility to
+	  <application>PostgreSQL</application> extensions.
+      Suggestion by Krzysztof Nienartowicz.
+     </para>
+    </listitem> 
+
+    <listitem>
+     <para>
+      <application>pgxc_ctl</application> improvement to add <lateral>-w</lateral> option to <lateral>pg_ctl start</lateral> command
+	  for better synchronization.
+     </para>
+    </listitem> 
 
    </itemizedlist>
 
