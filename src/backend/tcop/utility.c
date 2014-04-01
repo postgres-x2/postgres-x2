@@ -2465,6 +2465,13 @@ IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
 											 * Otherwise system would try to acquire a shared
 											 * advisory lock on the crashed node.
 											 */
+		case T_AlterNodeStmt:				/*
+											 * This has to be allowed so that ALTER
+											 * can be issued to alter a node that has crashed
+											 * and may be failed over.
+											 * Otherwise system would try to acquire a shared
+											 * advisory lock on the crashed node.
+											 */
 		case T_TransactionStmt:
 		case T_PlannedStmt:
 		case T_ClosePortalStmt:
