@@ -33,6 +33,9 @@
 #include "coord_cmd.h"
 #include "gtm_util.h"
 
+/* Tune-up base-backup and ALTER NODE usage for slave and failover */
+#define USE_PG_BASEBACKUP
+#define USE_ALTER_NODE
 
 static int failover_oneCoordinator(int coordIdx);
 
@@ -233,7 +236,7 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 	cmd_t *cmd,
 		  *cmdBuildDir,
 		  *cmdStartMaster,
-#if 0
+#ifdef USE_PG_BASEBACKUP
 		  *cmdBaseBkup,
 #else
 		  /*
@@ -286,7 +289,7 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 	/*
 	 * Obtain base backup of the master
 	 */
-#if 0
+#ifdef USE_PG_BASEBACKUP
 	appendCmdEl(cmdBuildDir, (cmdBaseBkup = initCmd(aval(VAR_coordSlaveServers)[idx])));
 	snprintf(newCommand(cmdBaseBkup), MAXLINE,
 			 "pg_basebackup -p %s -h %s -D %s -x",
@@ -1152,7 +1155,7 @@ int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 				"pg_ctl stop -Z coordinator -D %s -m fast", aval(VAR_coordMasterDirs)[idx]);
 	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
 				"pg_ctl start -Z coordinator -D %s -w", aval(VAR_coordMasterDirs)[idx]);
-#if 0
+#ifdef USE_PG_BASEBACKUP
 	/* pg_basebackup */
 	doImmediate(host, NULL, "pg_basebackup -p %s -h %s -D %s -x",
 				aval(VAR_coordPorts)[idx], aval(VAR_coordMasterServers)[idx], dir);
@@ -1932,17 +1935,21 @@ static int failover_oneCoordinator(int coordIdx)
 				elog(ERROR, "ERROR: failed to start psql for coordinator %s, %s\n", aval(VAR_coordNames)[jj], strerror(errno));
 				continue;
 			}
+#ifdef USE_ALTER_NODE /* Now alter node dies not work well in this context. */
 			fprintf(f,
-#if 0 /* Now alter node dies not work well in this context. */
 					"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
+					"select pgxc_pool_reload();\n"
+					"\\q\n",
+					aval(VAR_coordNames)[coordIdx], aval(VAR_coordMasterServers)[coordIdx], aval(VAR_coordPorts)[coordIdx]);
 #else
+			fprintf(f,
 					"DROP NODE %s;\n"
 					"CREATE NODE %s WITH (type = coordinator, HOST='%s', PORT=%s);\n"
-#endif
 					"select pgxc_pool_reload();\n"
 					"\\q\n",
 					aval(VAR_coordNames)[coordIdx],
 					aval(VAR_coordNames)[coordIdx], aval(VAR_coordMasterServers)[coordIdx], aval(VAR_coordPorts)[coordIdx]);
+#endif
 			fclose(f);
 		}
 	}
