@@ -37,6 +37,19 @@
 
 static char date[MAXTOKEN+1];
 
+static cmd_t * prepare_initGtmMaster(void);
+static cmd_t * prepare_initGtmSlave(void);
+static cmd_t *prepare_startGtmMaster(void);
+static cmd_t *prepare_startGtmSlave(void);
+static cmd_t *prepare_stopGtmMaster(void);
+static cmd_t *prepare_stopGtmSlave(void);
+static cmd_t *prepare_killGtmMaster(void);
+static cmd_t *prepare_killGtmSlave(void);
+static cmd_t *prepare_initGtmProxy(char *nodeName);
+static cmd_t *prepare_startGtmProxy(char *nodeName);
+static cmd_t *prepare_stopGtmProxy(char *nodeName);
+static cmd_t *prepare_killGtmProxy(char *nodeName);
+static cmd_t *prepare_reconnectGtmProxy(char *nodeName);
 
 /*  ======================================================================================
  *
@@ -47,7 +60,8 @@ static char date[MAXTOKEN+1];
 /*
  * Init gtm master -----------------------------------------------------------------
  */
-cmd_t *prepare_initGtmMaster(void)
+static cmd_t *
+prepare_initGtmMaster(void)
 {
 	cmd_t *cmdInitGtmMaster, *cmdGtmConf, *cmdGxid;
 	char date[MAXTOKEN+1];
@@ -102,7 +116,9 @@ cmd_t *prepare_initGtmMaster(void)
 
 	return cmdInitGtmMaster;
 }
-int init_gtm_master(void)
+
+int
+init_gtm_master(void)
 {
 	int rc;
 	cmdList_t *cmdList;
@@ -126,7 +142,8 @@ int init_gtm_master(void)
  * and make backup if configured.   You should run init_gtm_slave and stat_gtm_slave
  * separately.
  */
-int add_gtmSlave(char *name, char *host, int port, char *dir)
+int
+add_gtmSlave(char *name, char *host, int port, char *dir)
 {
 	char port_s[MAXTOKEN+1];
 	char date[MAXTOKEN+1];
@@ -183,7 +200,8 @@ int add_gtmSlave(char *name, char *host, int port, char *dir)
 	return(start_gtm_slave());
 }
 
-int remove_gtmSlave(bool clean_opt)
+int
+remove_gtmSlave(bool clean_opt)
 {
 	FILE *f;
 
@@ -244,7 +262,8 @@ int remove_gtmSlave(bool clean_opt)
  * Assumes Gtm Slave is configured.
  * Caller should check this.
  */
-cmd_t *prepare_initGtmSlave(void)
+static cmd_t *
+prepare_initGtmSlave(void)
 {
 	char date[MAXTOKEN+1];
 	cmd_t *cmdInitGtm, *cmdGtmConf;
@@ -299,7 +318,8 @@ cmd_t *prepare_initGtmSlave(void)
 	return (cmdInitGtm);
 }
 
-int init_gtm_slave(void)
+int
+init_gtm_slave(void)
 {
 	cmdList_t *cmdList;
 	cmd_t *cmdInitGtm;
@@ -322,7 +342,8 @@ int init_gtm_slave(void)
 /*
  * Start gtm master -----------------------------------------------------
  */
-cmd_t *prepare_startGtmMaster(void)
+static cmd_t *
+prepare_startGtmMaster(void)
 {
 	cmd_t *cmdGtmCtl;
 
@@ -335,7 +356,8 @@ cmd_t *prepare_startGtmMaster(void)
 	return cmdGtmCtl;
 }
 
-int start_gtm_master(void)
+int
+start_gtm_master(void)
 {
 	cmdList_t *cmdList;
 	int rc;
@@ -351,7 +373,8 @@ int start_gtm_master(void)
 /*
  * Start gtm slave ----------------------------------------------------
  */
-cmd_t *prepare_startGtmSlave(void)
+static cmd_t *
+prepare_startGtmSlave(void)
 {
 	cmd_t *cmdGtmCtl;
 
@@ -369,7 +392,8 @@ cmd_t *prepare_startGtmSlave(void)
 	return (cmdGtmCtl);
 }
 
-int start_gtm_slave(void)
+int
+start_gtm_slave(void)
 {
 	cmdList_t *cmdList;
 	cmd_t *cmd;
@@ -391,7 +415,8 @@ int start_gtm_slave(void)
 /*
  * Stop gtm master ---------------------------------------------------------
  */
-cmd_t *prepare_stopGtmMaster(void)
+static cmd_t *
+prepare_stopGtmMaster(void)
 {
 	cmd_t *cmdGtmCtl;
 
@@ -402,7 +427,8 @@ cmd_t *prepare_stopGtmMaster(void)
 	return(cmdGtmCtl);
 }
 
-int stop_gtm_master(void)
+int
+stop_gtm_master(void)
 {
 	cmdList_t *cmdList;
 	int rc;
@@ -418,7 +444,8 @@ int stop_gtm_master(void)
 /*
  * Stop gtm slave ---------------------------------------------------------------
  */
-cmd_t *prepare_stopGtmSlave(void)
+static cmd_t *
+prepare_stopGtmSlave(void)
 {
 	cmd_t *cmdGtmCtl;
 
@@ -434,7 +461,8 @@ cmd_t *prepare_stopGtmSlave(void)
 	return(cmdGtmCtl);
 }
 
-int stop_gtm_slave(void)
+int
+stop_gtm_slave(void)
 {
 	cmdList_t *cmdList;
 	cmd_t *cmd;
@@ -459,11 +487,15 @@ int stop_gtm_slave(void)
  * gtm status.  This is just in case.  You must try to stop gtm master
  * gracefully.
  */
-cmd_t *prepare_killGtmMaster(void)
+static cmd_t *
+prepare_killGtmMaster(void)
 {
 	cmd_t *cmdKill;
 	pid_t gtmPid;
 
+
+	if (is_none(sval(VAR_gtmMasterServer)))
+		return(NULL);
 	cmdKill = initCmd(sval(VAR_gtmMasterServer));
 	gtmPid = get_gtm_pid(sval(VAR_gtmMasterServer), sval(VAR_gtmMasterDir));
 	if (gtmPid > 0)
@@ -478,7 +510,8 @@ cmd_t *prepare_killGtmMaster(void)
 }
 
 
-int kill_gtm_master(void)
+int
+kill_gtm_master(void)
 {
 	cmdList_t *cmdList;
 	cmd_t *cmd_killGtmMaster;
@@ -502,7 +535,8 @@ int kill_gtm_master(void)
  * GTM slave has no significant informaion to carry over.  But it is a good
  * habit to stop gtm slave gracefully with stop command.
  */
-cmd_t *prepare_killGtmSlave(void)
+static cmd_t *
+prepare_killGtmSlave(void)
 {
 	cmd_t *cmdKill;
 	pid_t gtmPid;
@@ -526,7 +560,8 @@ cmd_t *prepare_killGtmSlave(void)
 }
 
 
-int kill_gtm_slave(void)
+int
+kill_gtm_slave(void)
 {
 	cmdList_t *cmdList;
 	cmd_t *cmdKill;
@@ -547,7 +582,8 @@ int kill_gtm_slave(void)
 /*
  * Failover the gtm ------------------------------------------------------
  */
-int failover_gtm(void)
+int
+failover_gtm(void)
 {
 	char date[MAXTOKEN+1];
 	char *stdIn;
@@ -640,7 +676,8 @@ int failover_gtm(void)
 /*
  * Clean gtm master resources -- directory and socket --------------------------
  */
-cmd_t *prepare_cleanGtmMaster(void)
+cmd_t *
+prepare_cleanGtmMaster(void)
 {
 	cmd_t *cmd;
 
@@ -653,7 +690,8 @@ cmd_t *prepare_cleanGtmMaster(void)
 	return cmd;
 }
 
-int clean_gtm_master(void)
+int
+clean_gtm_master(void)
 {
 	cmdList_t *cmdList;
 	int rc;
@@ -674,7 +712,8 @@ int clean_gtm_master(void)
  * Be careful.   If you configure gtm slave and gtm master on a same server,
  * bott slave amd master process will be killed.
  */
-cmd_t *prepare_cleanGtmSlave(void)
+cmd_t *
+prepare_cleanGtmSlave(void)
 {
 	cmd_t *cmd;
 	
@@ -688,7 +727,8 @@ cmd_t *prepare_cleanGtmSlave(void)
 	return cmd;
 }
 
-int clean_gtm_slave(void)
+int
+clean_gtm_slave(void)
 {
 	cmdList_t *cmdList;
 	int rc;
@@ -721,7 +761,8 @@ int clean_gtm_slave(void)
  * This function only maintains internal configuration, updte configuration file,
  * and make backup if configured.   You should run init and start it separately.
  */
-int add_gtmProxy(char *name, char *host, int port, char *dir)
+int
+add_gtmProxy(char *name, char *host, int port, char *dir)
 {
 	char port_s[MAXTOKEN+1];
 	char date[MAXTOKEN+1];
@@ -784,7 +825,8 @@ int add_gtmProxy(char *name, char *host, int port, char *dir)
 	return rc;
 }
 
-int remove_gtmProxy(char *name, bool clean_opt)
+int
+remove_gtmProxy(char *name, bool clean_opt)
 {
 	FILE *f;
 	int idx;
@@ -854,8 +896,8 @@ int remove_gtmProxy(char *name, bool clean_opt)
 /* 
  * Does not check if node name is valid.
  */
-
-cmd_t *prepare_initGtmProxy(char *nodeName)
+static cmd_t *
+prepare_initGtmProxy(char *nodeName)
 {
 	cmd_t *cmdInitGtm, *cmdGtmProxyConf;
 	int idx;
@@ -920,7 +962,8 @@ cmd_t *prepare_initGtmProxy(char *nodeName)
 /*
  * Initialize gtm proxy -------------------------------------------------------
  */
-int init_gtm_proxy(char **nodeList)
+int
+init_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -952,7 +995,8 @@ int init_gtm_proxy(char **nodeList)
 }
 
 
-int init_gtm_proxy_all(void)
+int
+init_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Initialize all the gtm proxies.\n");
 	if (!isVarYes(VAR_gtmProxy))
@@ -966,7 +1010,8 @@ int init_gtm_proxy_all(void)
 /*
  * Start gtm proxy -----------------------------------------------------------
  */
-cmd_t *prepare_startGtmProxy(char *nodeName)
+static cmd_t *
+prepare_startGtmProxy(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -985,7 +1030,8 @@ cmd_t *prepare_startGtmProxy(char *nodeName)
 	return(cmd);
 }
 
-int start_gtm_proxy(char **nodeList)
+int
+start_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1016,7 +1062,8 @@ int start_gtm_proxy(char **nodeList)
 	return(rc);
 }
 
-int start_gtm_proxy_all(void)
+int
+start_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Starting all the gtm proxies.\n");
 	return(start_gtm_proxy(aval(VAR_gtmProxyNames)));
@@ -1025,7 +1072,8 @@ int start_gtm_proxy_all(void)
 /*
  * Stop gtm proxy -------------------------------------------------------------
  */
-cmd_t *prepare_stopGtmProxy(char *nodeName)
+static cmd_t *
+prepare_stopGtmProxy(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -1043,7 +1091,8 @@ cmd_t *prepare_stopGtmProxy(char *nodeName)
 }
 
 
-int stop_gtm_proxy(char **nodeList)
+int
+stop_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1075,7 +1124,8 @@ int stop_gtm_proxy(char **nodeList)
 	return(rc);
 }
 
-int stop_gtm_proxy_all(void)
+int
+stop_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Stopping all the gtm proxies.\n");
 	return(stop_gtm_proxy(aval(VAR_gtmProxyNames)));
@@ -1087,7 +1137,8 @@ int stop_gtm_proxy_all(void)
  * Although gtm proxy does not have significant resources to carry over to the next
  * run, it is a good habit to stop gtm proxy with stop command gracefully.
  */
-cmd_t *prepare_killGtmProxy(char *nodeName)
+static cmd_t *
+prepare_killGtmProxy(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -1111,7 +1162,8 @@ cmd_t *prepare_killGtmProxy(char *nodeName)
 	return(cmd);
 }
 
-int kill_gtm_proxy(char **nodeList)
+int
+kill_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1142,7 +1194,8 @@ int kill_gtm_proxy(char **nodeList)
 	return(rc);
 }
 
-int kill_gtm_proxy_all(void)
+int
+kill_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Killing all the gtm proxy processes.\n");
 	return(kill_gtm_proxy(aval(VAR_gtmProxyNames)));
@@ -1157,7 +1210,8 @@ int kill_gtm_proxy_all(void)
  * Please note that we assume GTM has already been failed over.
  * First argument is gtm_proxy nodename
  */
-cmd_t *prepare_reconnectGtmProxy(char *nodeName)
+static cmd_t *
+prepare_reconnectGtmProxy(char *nodeName)
 {
 	cmd_t *cmdGtmCtl, *cmdGtmProxyConf;
 	int idx;
@@ -1200,7 +1254,8 @@ cmd_t *prepare_reconnectGtmProxy(char *nodeName)
 }
 
 
-int reconnect_gtm_proxy(char **nodeList)
+int
+reconnect_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1232,7 +1287,8 @@ int reconnect_gtm_proxy(char **nodeList)
 	return(rc);
 }
 
-int reconnect_gtm_proxy_all(void)
+int
+reconnect_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Reconnecting all the gtm proxies to the new one.\n");
 	return(reconnect_gtm_proxy(aval(VAR_gtmProxyNames)));
@@ -1241,7 +1297,8 @@ int reconnect_gtm_proxy_all(void)
 /*
  * Cleanup -- nodeName must be valid.   Instead, NULL will bereturned.
  */
-cmd_t *prepare_cleanGtmProxy(char *nodeName)
+cmd_t *
+prepare_cleanGtmProxy(char *nodeName)
 {
 	cmd_t *cmd;
 	int   idx;
@@ -1256,7 +1313,8 @@ cmd_t *prepare_cleanGtmProxy(char *nodeName)
 	return cmd;
 }
 
-int clean_gtm_proxy(char **nodeList)
+int
+clean_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	cmdList_t *cmdList;
@@ -1281,7 +1339,8 @@ int clean_gtm_proxy(char **nodeList)
 	return(rc);
 }
 
-int clean_gtm_proxy_all(void)
+int
+clean_gtm_proxy_all(void)
 {
 	elog(NOTICE, "Clearing all the gtm_proxy resources.\n");
 	return(clean_gtm_proxy(aval(VAR_gtmProxyNames)));
@@ -1290,7 +1349,8 @@ int clean_gtm_proxy_all(void)
 /*
  * configuration --------------------------------------------------------------------
  */
-int show_config_gtmMaster(int flag, char *hostname)
+int
+show_config_gtmMaster(int flag, char *hostname)
 {
 	char lineBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
@@ -1314,7 +1374,8 @@ int show_config_gtmMaster(int flag, char *hostname)
 	return 0;
 }
 
-int show_config_gtmSlave(int flag, char *hostname)
+int
+show_config_gtmSlave(int flag, char *hostname)
 {
 	char lineBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
@@ -1342,7 +1403,8 @@ int show_config_gtmSlave(int flag, char *hostname)
 	return 0;
 }
 
-int show_config_gtmProxies(char **nameList)
+int
+show_config_gtmProxies(char **nameList)
 {
 	int ii;
 
@@ -1353,7 +1415,8 @@ int show_config_gtmProxies(char **nameList)
 	return 0;
 }
 
-int show_config_gtmProxy(int flag, int idx, char *hostname)
+int
+show_config_gtmProxy(int flag, int idx, char *hostname)
 {
 	char lineBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];

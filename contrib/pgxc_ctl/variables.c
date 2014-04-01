@@ -22,7 +22,8 @@ static void clear_var(pgxc_ctl_var *var);
 /*
  * Hash bucket size is up to 256
  */
-static int hash_val(char *name)
+static int
+hash_val(char *name)
 {
 	unsigned char *name_u = (unsigned char *)name;
 	unsigned char v;
@@ -34,7 +35,9 @@ static int hash_val(char *name)
 
 #define LIMIT_TO_DOUBLE 128
 #define INCR_OVER_DOUBLE 10
-static int next_size(int sz)
+
+static int
+next_size(int sz)
 {
 	if (sz <= 0)
 		return 1;
@@ -44,7 +47,8 @@ static int next_size(int sz)
 		return sz + INCR_OVER_DOUBLE;
 }
 
-void init_var_hash()
+void
+init_var_hash()
 {
 	int i;
 
@@ -57,7 +61,8 @@ void init_var_hash()
 	}
 }
 
-static void remove_from_hash(pgxc_ctl_var *var)
+static void
+remove_from_hash(pgxc_ctl_var *var)
 {
 	int hash_v = hash_val(var->varname);
 	int ii, jj;
@@ -77,7 +82,8 @@ static void remove_from_hash(pgxc_ctl_var *var)
 	return;
 }
 
-void add_var_hash(pgxc_ctl_var *var)
+void
+add_var_hash(pgxc_ctl_var *var)
 {
 	int	hash_v = hash_val(var->varname);
 	if (var_hash[hash_v].el_used + 1 >= var_hash[hash_v].el_size)
@@ -89,7 +95,8 @@ void add_var_hash(pgxc_ctl_var *var)
 	var_hash[hash_v].el[var_hash[hash_v].el_used] = NULL;
 }
 
-pgxc_ctl_var *new_var(char *name)
+pgxc_ctl_var *
+new_var(char *name)
 {
 	pgxc_ctl_var *newv;
 
@@ -121,7 +128,8 @@ pgxc_ctl_var *new_var(char *name)
 	return(newv);
 }
 
-void remove_var(pgxc_ctl_var *var)
+void
+remove_var(pgxc_ctl_var *var)
 {
 	if ((var_head == var_tail) && (var_head == var))
 		var_head = var_tail = NULL;
@@ -143,7 +151,8 @@ void remove_var(pgxc_ctl_var *var)
 	clear_var(var);
 }
 
-static void clear_var(pgxc_ctl_var *var)
+static void
+clear_var(pgxc_ctl_var *var)
 {
 	int ii;
 
@@ -155,7 +164,8 @@ static void clear_var(pgxc_ctl_var *var)
 			 
 }		
 
-void add_val(pgxc_ctl_var *var, char *val)
+void
+add_val(pgxc_ctl_var *var, char *val)
 {
 	if (var->val_size <= var->val_used+1)
 	{
@@ -166,7 +176,8 @@ void add_val(pgxc_ctl_var *var, char *val)
 	var->val[var->val_used] = NULL;
 }
 
-void add_val_name(char *name, char *val)
+void
+add_val_name(char *name, char *val)
 {
 	pgxc_ctl_var *var;
 	if (!(var = find_var(name)))
@@ -176,7 +187,8 @@ void add_val_name(char *name, char *val)
 }
 
 
-pgxc_ctl_var *find_var(char *name)
+pgxc_ctl_var *
+find_var(char *name)
 {
 	pgxc_var_hash *hash = &var_hash[hash_val(name)];
 	int	i;
@@ -189,7 +201,8 @@ pgxc_ctl_var *find_var(char *name)
 	return NULL;
 }
 
-char *sval(char *name)
+char *
+sval(char *name)
 {
 	pgxc_ctl_var *var = find_var(name);
 	if (!var)
@@ -197,7 +210,8 @@ char *sval(char *name)
 	return var->val[0];
 }
 
-char **aval(char *name)
+char **
+aval(char *name)
 {
 	pgxc_ctl_var *var = find_var(name);
 	if (!var)
@@ -205,7 +219,8 @@ char **aval(char *name)
 	return var->val;
 }
 
-void reset_value(pgxc_ctl_var *var)
+void
+reset_value(pgxc_ctl_var *var)
 {
 	int i;
 	for (i = 0; var->val[i]; i++)
@@ -216,7 +231,8 @@ void reset_value(pgxc_ctl_var *var)
 	var->val_used = 0;
 }
 
-void assign_val(char *destName, char *srcName)
+void
+assign_val(char *destName, char *srcName)
 {
 	pgxc_ctl_var *dest = find_var(destName);
 	pgxc_ctl_var *src = find_var(srcName);
@@ -227,7 +243,8 @@ void assign_val(char *destName, char *srcName)
 		add_val(dest, src->val[ii]);
 }
 
-void assign_sval(char *destName, char *val)
+void
+assign_sval(char *destName, char *val)
 {
 	pgxc_ctl_var *dest = find_var(destName);
 
@@ -235,19 +252,22 @@ void assign_sval(char *destName, char *val)
 	add_val(dest, val);
 }
 
-void reset_var(char *name)
+void
+reset_var(char *name)
 {
 	confirm_var(name);
 	reset_value(find_var(name));
 }
 
-void reset_var_val(char *name, char *val)
+void
+reset_var_val(char *name, char *val)
 {
 	reset_var(name);
 	add_val(find_var(name), val);
 }
 
-pgxc_ctl_var *confirm_var(char *name)
+pgxc_ctl_var *
+confirm_var(char *name)
 {
 	pgxc_ctl_var *rc;
 	if ((rc = find_var(name)))
@@ -255,7 +275,8 @@ pgxc_ctl_var *confirm_var(char *name)
 	return new_var(name);
 }
 
-void print_vars(void)
+void
+print_vars(void)
 {
 	pgxc_ctl_var *cur;
 
@@ -265,7 +286,8 @@ void print_vars(void)
 	unlockLogFile();
 }
 
-void print_var(char *vname)
+void
+print_var(char *vname)
 {
 	pgxc_ctl_var *var;
 	char outBuf[MAXLINE + 1];
@@ -294,13 +316,15 @@ void print_var(char *vname)
 	
 }
 
-void log_var(char *varname)
+void
+log_var(char *varname)
 {
 	if (logFile)
 		print_var(varname);
 }
 
-int arraySizeName(char *name)
+int
+arraySizeName(char *name)
 {
 	pgxc_ctl_var *var;
 
@@ -309,12 +333,14 @@ int arraySizeName(char *name)
 	return(arraySize(var));
 }
 
-int arraySize(pgxc_ctl_var *var)
+int
+arraySize(pgxc_ctl_var *var)
 {
 	return var->val_used;
 }
 
-char **add_member(char **array, char *val)
+char **
+add_member(char **array, char *val)
 {
 	char **rv;
 	int ii;
@@ -326,7 +352,8 @@ char **add_member(char **array, char *val)
 	return(rv);
 }
 
-void clean_array(char **array)
+void
+clean_array(char **array)
 {
 	int ii;
 	if (array)
@@ -337,13 +364,15 @@ void clean_array(char **array)
 	}
 }
 
-void var_assign(char **dest, char *src)
+void
+var_assign(char **dest, char *src)
 {
 	Free(*dest);
 	*dest = src;
 }
 
-char *listValue(char *name)
+char *
+listValue(char *name)
 {
 	pgxc_ctl_var *dest;
 	int ii;
@@ -361,7 +390,8 @@ char *listValue(char *name)
 	return buf;
 }
 
-int ifExists(char *name, char *value)
+int
+ifExists(char *name, char *value)
 {
 	pgxc_ctl_var *var = find_var(name);
 	int ii;
@@ -374,7 +404,8 @@ int ifExists(char *name, char *value)
 	return FALSE;
 }
 	
-int IfExists(char *name, char *value)
+int
+IfExists(char *name, char *value)
 {
 	pgxc_ctl_var *var = find_var(name);
 	int ii;
@@ -387,7 +418,8 @@ int IfExists(char *name, char *value)
 	return FALSE;
 }
 
-int extendVar(char *name, int newSize, char *def_value)
+int
+extendVar(char *name, int newSize, char *def_value)
 {
 	pgxc_ctl_var *target;
 	char **old_val;
@@ -424,7 +456,8 @@ int extendVar(char *name, int newSize, char *def_value)
  * If pad is NULL, then "none" will be padded.
  * Returns *val if success, NULL if failed
  */
-void assign_arrayEl(char *name, int idx, char *val, char *pad)
+void
+assign_arrayEl(char *name, int idx, char *val, char *pad)
 {
 	pgxc_ctl_var *var = confirm_var(name);
 

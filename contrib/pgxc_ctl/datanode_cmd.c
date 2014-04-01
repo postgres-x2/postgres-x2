@@ -35,6 +35,16 @@
 
 static char date[MAXTOKEN+1];
 
+/* Static functions */
+static cmd_t *prepare_initDatanodeMaster(char *nodeName);
+static cmd_t *prepare_initDatanodeSlave(char *nodeName);
+static cmd_t *prepare_startDatanodeMaster(char *nodeName);
+static cmd_t *prepare_startDatanodeSlave(char *nodeName);
+static cmd_t *prepare_stopDatanodeMaster(char *nodeName, char *immediate);
+static cmd_t *prepare_stopDatanodeSlave(char *nodeName, char *immediate);
+static cmd_t *prepare_killDatanodeMaster(char *nodeName);
+static cmd_t *prepare_killDatanodeSlave(char *nodeName);
+
 /*
  *======================================================================
  *
@@ -47,13 +57,15 @@ static int failover_oneDatanode(int datanodeIdx);
 /*
  * Initialize datanode master ------------------------------------
  */
-int init_datanode_master_all(void)
+int
+init_datanode_master_all(void)
 {
 	elog(NOTICE, "Initialize all the datanode masters.\n");
 	return(init_datanode_master(aval(VAR_datanodeNames)));
 }
 
-cmd_t *prepare_initDatanodeMaster(char *nodeName)
+static cmd_t *
+prepare_initDatanodeMaster(char *nodeName)
 {
 	int idx;
 	int jj;
@@ -194,7 +206,8 @@ cmd_t *prepare_initDatanodeMaster(char *nodeName)
 }
 
 
-int init_datanode_master(char **nodeList)
+int
+init_datanode_master(char **nodeList)
 {
 	int ii;
 	cmdList_t *cmdList;
@@ -220,13 +233,15 @@ int init_datanode_master(char **nodeList)
 /*
  * Initialize datanode slave ----------------------------------------------------
  */
-int init_datanode_slave_all(void)
+int
+init_datanode_slave_all(void)
 {
 	elog(INFO, "Initialize all the datanode slaves.\n");
 	return(init_datanode_slave(aval(VAR_datanodeNames)));
 }
 
-cmd_t *prepare_initDatanodeSlave(char *nodeName)
+static cmd_t *
+prepare_initDatanodeSlave(char *nodeName)
 {
 	cmd_t *cmd, *cmdBuildDir, *cmdStartMaster, *cmdBaseBkup, *cmdRecovConf, *cmdPgConf, *cmdStopMaster;
 	FILE *f;
@@ -314,7 +329,8 @@ cmd_t *prepare_initDatanodeSlave(char *nodeName)
 	return(cmd);
 }
 
-int init_datanode_slave(char **nodeList)
+int
+init_datanode_slave(char **nodeList)
 {
 	int ii;
 	int rc;
@@ -344,13 +360,15 @@ int init_datanode_slave(char **nodeList)
 /*
  * Start datanode master --------------------------------------------------
  */
-int start_datanode_master_all(void)
+int
+start_datanode_master_all(void)
 {
 	elog(INFO, "Starting all the datanode masters.\n");
 	return(start_datanode_master(aval(VAR_datanodeNames)));
 }
 
-cmd_t *prepare_startDatanodeMaster(char *nodeName)
+static cmd_t *
+prepare_startDatanodeMaster(char *nodeName)
 {
 	cmd_t *cmdStartDatanodeMaster = NULL;
 	int idx;
@@ -374,7 +392,8 @@ cmd_t *prepare_startDatanodeMaster(char *nodeName)
 	return(cmdStartDatanodeMaster);
 }
 
-int start_datanode_master(char **nodeList)
+int
+start_datanode_master(char **nodeList)
 {
 	int ii;
 	int rc;
@@ -401,13 +420,15 @@ int start_datanode_master(char **nodeList)
 /*
  * Start datanode slave --------------------------------------------------
  */
-int start_datanode_slave_all(void)
+int
+start_datanode_slave_all(void)
 {
 	elog(INFO, "Starting all the datanode slaves.\n");
 	return(start_datanode_slave(aval(VAR_datanodeNames)));
 }
 
-cmd_t *prepare_startDatanodeSlave(char *nodeName)
+static cmd_t *
+prepare_startDatanodeSlave(char *nodeName)
 {
 	cmd_t *cmd, *cmdStartDatanodeSlave, *cmdMasterToSyncMode;
 	FILE *f;
@@ -454,7 +475,8 @@ cmd_t *prepare_startDatanodeSlave(char *nodeName)
 	return(cmd);
 }
 
-int start_datanode_slave(char **nodeList)
+int
+start_datanode_slave(char **nodeList)
 {
 	int ii;
 	int rc;
@@ -487,7 +509,8 @@ int start_datanode_slave(char **nodeList)
 /*
  * Stop datanode master ------------------------------------------------
  */
-cmd_t *prepare_stopDatanodeMaster(char *nodeName, char *immediate)
+static cmd_t *
+prepare_stopDatanodeMaster(char *nodeName, char *immediate)
 {
 	cmd_t *cmdStopDatanodeMaster;
 	int idx;
@@ -510,14 +533,16 @@ cmd_t *prepare_stopDatanodeMaster(char *nodeName, char *immediate)
 }
 
 
-int stop_datanode_master_all(char *immediate)
+int
+stop_datanode_master_all(char *immediate)
 {
 	elog(INFO, "Stopping all the datanode masters.\n");
 	return(stop_datanode_master(aval(VAR_datanodeNames), immediate));
 }
 
 
-int stop_datanode_master(char **nodeList, char *immediate)
+int
+stop_datanode_master(char **nodeList, char *immediate)
 {
 	int ii;
 	int rc;
@@ -544,7 +569,8 @@ int stop_datanode_master(char **nodeList, char *immediate)
 /*
  * Stop datanode slave --------------------------------------------------------
  */
-cmd_t *prepare_stopDatanodeSlave(char *nodeName, char *immediate)
+static cmd_t *
+prepare_stopDatanodeSlave(char *nodeName, char *immediate)
 {
 	int idx;
 	cmd_t *cmd, *cmdMasterToAsyncMode, *cmdStopSlave;
@@ -605,13 +631,15 @@ cmd_t *prepare_stopDatanodeSlave(char *nodeName, char *immediate)
 }
 
 
-int stop_datanode_slave_all(char *immediate)
+int
+stop_datanode_slave_all(char *immediate)
 {
 	elog(INFO, "Stopping all the datanode slaves.\n");
 	return(stop_datanode_slave(aval(VAR_datanodeNames), immediate));
 }
 
-int stop_datanode_slave(char **nodeList, char *immediate)
+int
+stop_datanode_slave(char **nodeList, char *immediate)
 {
 	int ii;
 	int rc;
@@ -641,7 +669,8 @@ int stop_datanode_slave(char **nodeList, char *immediate)
 /*
  * Failover datanode ---------------------------------------------------------
  */
-int failover_datanode(char **nodeList)
+int
+failover_datanode(char **nodeList)
 {
 	int ii;
 	char **actualNodeList;
@@ -682,7 +711,8 @@ int failover_datanode(char **nodeList)
 	return(rc);
 }
 
-static int failover_oneDatanode(int datanodeIdx)
+static int
+failover_oneDatanode(int datanodeIdx)
 {
 	int rc = 0;
 	int rc_local;
@@ -826,7 +856,8 @@ static int failover_oneDatanode(int datanodeIdx)
  * Add command
  *
  *-----------------------------------------------------------------------*/
-int add_datanodeMaster(char *name, char *host, int port, char *dir)
+int
+add_datanodeMaster(char *name, char *host, int port, char *dir)
 {
 	FILE *f, *lockf;
 	int size, idx;
@@ -1024,7 +1055,8 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 }
 
 
-int add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
+int
+add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 {
 	int idx;
 	FILE *f;
@@ -1208,7 +1240,8 @@ int add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
  * Remove command
  *
  *-----------------------------------------------------------------------*/
-int remove_datanodeMaster(char *name, int clean_opt)
+int
+remove_datanodeMaster(char *name, int clean_opt)
 {
 	/*
 	  1. Transfer the data from the datanode to be removed to the rest of the datanodes for all the tables in all the databases.
@@ -1356,7 +1389,8 @@ int remove_datanodeMaster(char *name, int clean_opt)
 	return 0;
 }
 
-int remove_datanodeSlave(char *name, int clean_opt)
+int
+remove_datanodeSlave(char *name, int clean_opt)
 {
 	int idx;
 	char **nodelist = NULL;
@@ -1439,7 +1473,8 @@ int remove_datanodeSlave(char *name, int clean_opt)
 /*
  * Clean datanode master resources -- directory and port -----------------------------
  */
-cmd_t *prepare_cleanDatanodeMaster(char *nodeName)
+cmd_t *
+prepare_cleanDatanodeMaster(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -1456,13 +1491,15 @@ cmd_t *prepare_cleanDatanodeMaster(char *nodeName)
 	return(cmd);
 }
 
-int clean_datanode_master_all(void)
+int
+clean_datanode_master_all(void)
 {
 	elog(INFO, "Cleaning all the datanode master resources.\n");
 	return(clean_datanode_master(aval(VAR_datanodeNames)));
 }
 
-int clean_datanode_master(char **nodeList)
+int
+clean_datanode_master(char **nodeList)
 {
 	char **actualNodeList;
 	cmdList_t *cmdList;
@@ -1487,7 +1524,8 @@ int clean_datanode_master(char **nodeList)
 /*
  * Cleanup datanode slave resources -- directory and the socket ------------------
  */
-cmd_t *prepare_cleanDatanodeSlave(char *nodeName)
+cmd_t *
+prepare_cleanDatanodeSlave(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -1506,13 +1544,15 @@ cmd_t *prepare_cleanDatanodeSlave(char *nodeName)
 	return(cmd);
 }
 
-int clean_datanode_slave_all(void)
+int
+clean_datanode_slave_all(void)
 {
 	elog(INFO, "Cleaning all the datanode slave resouces.\n");
 	return(clean_datanode_slave(aval(VAR_datanodeNames)));
 }
 
-int clean_datanode_slave(char **nodeList)
+int
+clean_datanode_slave(char **nodeList)
 {
 	char **actualNodeList;
 	cmdList_t *cmdList;
@@ -1539,7 +1579,8 @@ int clean_datanode_slave(char **nodeList)
 /*
  * Show configuration of datanodes -------------------------------------------------
  */
-int show_config_datanodeMaster(int flag, int idx, char *hostname)
+int
+show_config_datanodeMaster(int flag, int idx, char *hostname)
 {
 	int ii;
 	char outBuf[MAXLINE+1];
@@ -1577,7 +1618,8 @@ int show_config_datanodeMaster(int flag, int idx, char *hostname)
 	return 0;
 }
 
-int show_config_datanodeSlave(int flag, int idx, char *hostname)
+int
+show_config_datanodeSlave(int flag, int idx, char *hostname)
 {
 	char outBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
@@ -1627,7 +1669,8 @@ int show_config_datanodeMasterSlaveMulti(char **nodeList)
 	return 0;
 }
 
-int show_config_datanodeMasterMulti(char **nodeList)
+int
+show_config_datanodeMasterMulti(char **nodeList)
 {
 	int ii;
 	int idx;
@@ -1647,7 +1690,8 @@ int show_config_datanodeMasterMulti(char **nodeList)
 	return 0;
 }
 
-int show_config_datanodeSlaveMulti(char **nodeList)
+int
+show_config_datanodeSlaveMulti(char **nodeList)
 {
 	int ii;
 	int idx;
@@ -1678,7 +1722,8 @@ int show_config_datanodeSlaveMulti(char **nodeList)
  * Normally, you should not kill masters in such a manner.   It is just for
  * emergence.
  */
-cmd_t *prepare_killDatanodeMaster(char *nodeName)
+static cmd_t *
+prepare_killDatanodeMaster(char *nodeName)
 {
 	pid_t postmasterPid;
 	int dnIndex;
@@ -1691,6 +1736,8 @@ cmd_t *prepare_killDatanodeMaster(char *nodeName)
 		elog(WARNING, "WARNING: \"%s\" is not a datanode name\n", nodeName);
 		return(NULL);
 	}
+	if (is_none(aval(VAR_datanodeMasterServers)[dnIndex]))
+		return(NULL);
 	cmd = initCmd(aval(VAR_datanodeMasterServers)[dnIndex]);
 	if ((postmasterPid = get_postmaster_pid(aval(VAR_datanodeMasterServers)[dnIndex], aval(VAR_datanodeMasterDirs)[dnIndex])) > 0)
 	{
@@ -1712,12 +1759,14 @@ cmd_t *prepare_killDatanodeMaster(char *nodeName)
 	return(cmd);
 }
 
-int kill_datanode_master_all(void)
+int
+kill_datanode_master_all(void)
 {
 	return(kill_datanode_master(aval(VAR_datanodeNames)));
 }
 
-int kill_datanode_master(char **nodeList)
+int
+kill_datanode_master(char **nodeList)
 {
 	int ii;
 	int rc;
@@ -1749,7 +1798,8 @@ int kill_datanode_master(char **nodeList)
  * You should not kill datanodes in such a manner.  It is just for emergence.
  * You should try to stop it gracefully.
  */
-cmd_t *prepare_killDatanodeSlave(char *nodeName)
+static cmd_t *
+prepare_killDatanodeSlave(char *nodeName)
 {
 	pid_t postmasterPid;
 	int dnIndex;
@@ -1762,6 +1812,8 @@ cmd_t *prepare_killDatanodeSlave(char *nodeName)
 		elog(WARNING, "WARNING: \"%s\" is not a datanode name, skipping.\n", nodeName);
 		return(NULL);
 	}
+	if (is_none(aval(VAR_datanodeSlaveServers)[dnIndex]))
+		return(NULL);
 	if (!doesExist(VAR_datanodeSlaveServers, dnIndex) || is_none(aval(VAR_datanodeSlaveServers)[dnIndex]))
 	{
 		elog(WARNING, "WARNING: datanode slave %s is not found.\n", nodeName);
@@ -1792,12 +1844,14 @@ cmd_t *prepare_killDatanodeSlave(char *nodeName)
 	return(cmd);
 }
 
-int kill_datanode_slave_all(void)
+int
+kill_datanode_slave_all(void)
 {
 	return(kill_datanode_slave(aval(VAR_datanodeNames)));
 }
 
-int kill_datanode_slave(char **nodeList)
+int
+kill_datanode_slave(char **nodeList)
 {
 	int ii;
 	int rc;
@@ -1827,7 +1881,8 @@ int kill_datanode_slave(char **nodeList)
  *
  * Returns FALSE if any of them are not running.
  */
-int check_AllDatanodeRunning(void)
+int
+check_AllDatanodeRunning(void)
 {
 	int ii;
 

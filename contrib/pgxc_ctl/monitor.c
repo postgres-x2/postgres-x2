@@ -39,7 +39,8 @@ typedef enum
 #define testToken(word) ((token != NULL) && (strcmp(token, word) == 0))
 #define TestToken(word) ((token != NULL) && (strcasecmp(token, word) == 0))
 
-static void printResult(int res, char *what, char *name)
+static void
+printResult(int res, char *what, char *name)
 {
 	if (res == 0)
 	{
@@ -57,18 +58,21 @@ static void printResult(int res, char *what, char *name)
 	}
 }
 
-static void monitor_gtm_master(void)
+static void
+monitor_gtm_master(void)
 {
 	return(printResult(do_gtm_ping(sval(VAR_gtmMasterServer), atoi(sval(VAR_gtmMasterPort))), "gtm master", NULL));
 }
 
-static void monitor_gtm_slave(void)
+static void
+monitor_gtm_slave(void)
 {
 	if (doesExist(VAR_gtmSlaveServer, 0) && doesExist(VAR_gtmSlavePort, 0))
 		return(printResult(do_gtm_ping(sval(VAR_gtmSlaveServer), atoi(sval(VAR_gtmSlavePort))), "gtm slave", NULL));
 }
 
-static void monitor_gtm_proxy(char **nodeList)
+static void
+monitor_gtm_proxy(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -88,7 +92,8 @@ static void monitor_gtm_proxy(char **nodeList)
 }
 	
 	
-static void monitor_coordinator_master(char **nodeList)
+static void
+monitor_coordinator_master(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -107,7 +112,8 @@ static void monitor_coordinator_master(char **nodeList)
 	}
 }
 
-static void monitor_coordinator_slave(char **nodeList)
+static void
+monitor_coordinator_slave(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -135,7 +141,8 @@ static void monitor_coordinator_slave(char **nodeList)
 	}
 }
 
-static void monitor_coordinator(char **nodeList)
+static void
+monitor_coordinator(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -156,7 +163,9 @@ static void monitor_coordinator(char **nodeList)
 						"coordinatr slave", actualNodeList[ii]);
 	}
 }
-static void monitor_datanode_master(char **nodeList)
+
+static void
+monitor_datanode_master(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -175,7 +184,8 @@ static void monitor_datanode_master(char **nodeList)
 	}
 }
 
-static void monitor_datanode_slave(char **nodeList)
+static void
+monitor_datanode_slave(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -202,7 +212,8 @@ static void monitor_datanode_slave(char **nodeList)
 	}
 }
 
-static void monitor_datanode(char **nodeList)
+static void
+monitor_datanode(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -224,7 +235,8 @@ static void monitor_datanode(char **nodeList)
 	}
 }
 
-static void monitor_something(char **nodeList)
+static void
+monitor_something(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -270,7 +282,8 @@ static void monitor_something(char **nodeList)
 
 	
 
-void do_monitor_command(char *line)
+void
+do_monitor_command(char *line)
 {
 	char *token;
 	int rc = 0;
