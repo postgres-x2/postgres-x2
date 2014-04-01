@@ -424,7 +424,7 @@
 
     <listitem>
      <para>
-      <application>pgxc_ctl</application> improvement to add <lateral>-w</lateral> option to <lateral>pg_ctl start</lateral> command
+      <application>pgxc_ctl</application> improvement to add <literal>-w</literal> option to <literal>pg_ctl start</literal> command
 	  for better synchronization.  By Koichi Suzuki.  Reported by Masataka Saito.
      </para>
     </listitem> 
@@ -433,6 +433,13 @@
      <para>
 	  <command>ALTER NODE</command> improvement while a coordinator is down or changed it's connection point by slave promotion.
 	  By Koichi Suzuki.   Analyzed by Masataka Saito.
+     </para>
+    </listitem> 
+
+    <listitem>
+     <para>
+	  <command>pg_xlogdump</command> now handles <literal>BARRIER</literal> record correctly.
+	  By Wang Diancheng.
      </para>
     </listitem> 
 
@@ -621,12 +628,6 @@
 
     <listitem>
      <para>
-      <application>pg_basebackup</application> does not work with coordinators.
-     </para>
-    </listitem>
-
-    <listitem>
-     <para>
       When a replication table does not have a primary key and the plan has no key other than CTID, the statement will fail.
 	  To fix this, add a primary key.
      </para>
@@ -645,6 +646,8 @@
     <listitem>
      <para>
       Regression test may have random failure. 
+	  This happens when statment cancelation takes longer than the next statment reaches
+	  the backend.
       You can run the regression again to see if the test is successful.
      </para>
     </listitem>
