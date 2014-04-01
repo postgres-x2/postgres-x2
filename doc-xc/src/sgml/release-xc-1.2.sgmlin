@@ -425,7 +425,14 @@
     <listitem>
      <para>
       <application>pgxc_ctl</application> improvement to add <lateral>-w</lateral> option to <lateral>pg_ctl start</lateral> command
-	  for better synchronization.
+	  for better synchronization.  By Koichi Suzuki.  Reported by Masataka Saito.
+     </para>
+    </listitem> 
+
+    <listitem>
+     <para>
+	  <command>ALTER NODE</command> improvement while a coordinator is down or changed it's connection point by slave promotion.
+	  By Koichi Suzuki.   Analyzed by Masataka Saito.
      </para>
     </listitem> 
 
@@ -615,12 +622,6 @@
     <listitem>
      <para>
       <application>pg_basebackup</application> does not work with coordinators.
-     </para>
-    </listitem>
-
-    <listitem>
-     <para>
-      <command>ALTER NODE</command> may not work when <literal>pgxc_pool_reload()</literal> is required.
      </para>
     </listitem>
 
