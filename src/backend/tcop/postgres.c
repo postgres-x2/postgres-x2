@@ -3982,7 +3982,7 @@ PostgresMain(int argc, char *argv[],
 	xc_lockForBackupKey1 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_2);
 
 	/* If this postmaster is launched from another Coord, do not initialize handles. skip it */
-	if (IS_PGXC_COORDINATOR && !IsPoolHandle())
+	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
 		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
 
@@ -4007,7 +4007,7 @@ PostgresMain(int argc, char *argv[],
 		/* If we exit, first try and clean connections and send to pool */
 		on_proc_exit (PGXCNodeCleanAndRelease, 0);
 	}
-	if (IS_PGXC_DATANODE)
+	if (!am_walsender && IS_PGXC_DATANODE)
 	{
 		/* If we exit, first try and clean connection to GTM */
 		on_proc_exit (DataNodeShutdown, 0);
