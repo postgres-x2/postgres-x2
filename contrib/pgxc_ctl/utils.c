@@ -35,7 +35,8 @@ static int Strdup_ed = 0;
 static int Freed = 0;
 static void myUsleep(long microsec);
 
-void *Malloc(size_t size)
+void
+*Malloc(size_t size)
 {
 	void *rv = malloc(size);
 
@@ -48,7 +49,8 @@ void *Malloc(size_t size)
 	return(rv);
 }
 
-char **addToList(char **List, char *val)
+char **
+addToList(char **List, char *val)
 {
 	char **rv;
 	int ii;
@@ -59,7 +61,8 @@ char **addToList(char **List, char *val)
 	return rv;
 }
 
-void *Malloc0(size_t size)
+void *
+Malloc0(size_t size)
 {
 	void *rv = malloc(size);
 
@@ -73,7 +76,8 @@ void *Malloc0(size_t size)
 	return(rv);
 }
 
-void *Realloc(void *ptr, size_t size)
+void *
+Realloc(void *ptr, size_t size)
 {
 	void *rv = realloc(ptr, size);
 
@@ -85,7 +89,8 @@ void *Realloc(void *ptr, size_t size)
 	return(rv);
 }
 
-void Free(void *ptr)
+void
+Free(void *ptr)
 {
 	Freed++;
 	if (ptr)
@@ -95,7 +100,8 @@ void Free(void *ptr)
 /*
  * If flag is TRUE and chdir fails, then exit(1)
  */
-int Chdir(char *path, int flag)
+int
+Chdir(char *path, int flag)
 {
 	if (chdir(path))
 	{
@@ -111,7 +117,8 @@ int Chdir(char *path, int flag)
 	return 0;
 }
 
-FILE *Fopen(char *path, char *mode)
+FILE *
+Fopen(char *path, char *mode)
 {
 	FILE *rv;
 
@@ -121,7 +128,8 @@ FILE *Fopen(char *path, char *mode)
 }
 
 
-char *Strdup(const char *s)
+char *
+Strdup(const char *s)
 {
 	char *rv;
 
@@ -135,7 +143,8 @@ char *Strdup(const char *s)
 	return(rv);
 }
 
-void appendFiles(FILE *f, char **fileList)
+void
+appendFiles(FILE *f, char **fileList)
 {
 	FILE *src;
 	int ii;
@@ -158,7 +167,8 @@ void appendFiles(FILE *f, char **fileList)
 		}
 }
 
-FILE *prepareLocalStdin(char *buf, int len, char **fileList)
+FILE *
+prepareLocalStdin(char *buf, int len, char **fileList)
 {
 	FILE *f;
 	if ((f = fopen(createLocalFileName(STDIN, buf, len), "w")) == NULL)
@@ -170,7 +180,8 @@ FILE *prepareLocalStdin(char *buf, int len, char **fileList)
 	return(f);
 }
 
-char *timeStampString(char *buf, int len)
+char *
+timeStampString(char *buf, int len)
 {
 	time_t nowTime;
 	struct tm nowTm;
@@ -184,7 +195,8 @@ char *timeStampString(char *buf, int len)
 	return(buf);
 }
 
-char **makeActualNodeList(char **nodeList)
+char **
+makeActualNodeList(char **nodeList)
 {
 	char **actualNodeList;
 	int ii, jj;
@@ -206,7 +218,8 @@ char **makeActualNodeList(char **nodeList)
 	return actualNodeList;
 }
 
-int gtmProxyIdx(char *gtmProxyName)
+int
+gtmProxyIdx(char *gtmProxyName)
 {
 	int ii;
 
@@ -270,7 +283,8 @@ int getEffectiveGtmProxyIdxFromServerName(char *serverName)
  * may need another tweak for other operation systems
  * such as Solaris, FreeBSD, MacOS.
  */
-pid_t get_prog_pid(char *host, char *progname, char *dir)
+pid_t
+get_prog_pid(char *host, char *progname, char *dir)
 {
 	char cmd[MAXLINE+1];
 	char pid_s[MAXLINE+1];
@@ -305,7 +319,8 @@ pid_t get_prog_pid(char *host, char *progname, char *dir)
 	return(atoi(token));
 }
 
-int pingNode(char *host, char *port)
+int
+pingNode(char *host, char *port)
 {
 	PGPing status;
 	char conninfo[MAXLINE+1];
@@ -345,13 +360,15 @@ int pingNode(char *host, char *port)
 #undef sleepMicro
 }
 
-void trimNl(char *s)
+void
+trimNl(char *s)
 {
 	for (;*s && *s != '\n'; s++);
 	*s = 0;
 }
 
-char *getChPidList(char *host, pid_t ppid)
+char *
+getChPidList(char *host, pid_t ppid)
 {
 	FILE *wkf;
 	char cmd[MAXLINE+1];
@@ -373,7 +390,8 @@ char *getChPidList(char *host, pid_t ppid)
 	return rv;
 }
 	
-char *getIpAddress(char *hostName)
+char *
+getIpAddress(char *hostName)
 {
 	char command[MAXLINE+1];
 	char *ipAddr;
@@ -392,7 +410,8 @@ char *getIpAddress(char *hostName)
 	return ipAddr;
 }
 
-static void myUsleep(long microsec)
+static void
+myUsleep(long microsec)
 {
 	struct timeval delay;
 

@@ -61,12 +61,14 @@ static void do_stop_command(char *line);
 static void stop_all(char *immediate);
 static int show_Resource(char *datanodeName, char *databasename, char *username);
 
-static void do_echo_command(char * line)
+static void
+do_echo_command(char * line)
 {
 	printf("do_echo_command\n");
 }
 
-static void do_prepareConfFile(char *Path)
+static void
+do_prepareConfFile(char *Path)
 {
 	char *path = NULL;
 	FILE *conf;
@@ -103,7 +105,8 @@ static void do_prepareConfFile(char *Path)
  * Deploy pgxc binaries
  */
 
-static void do_deploy(char *line)
+static void
+do_deploy(char *line)
 {
 	char *token;
 	char **hostlist = NULL;
@@ -135,7 +138,8 @@ static void do_deploy(char *line)
 	}
 }
 
-static void deploy_xc(char **hostlist)
+static void
+deploy_xc(char **hostlist)
 {
 	char tarFile[MAXPATH+1];
 	cmdList_t *cmdList;
@@ -188,7 +192,8 @@ static void deploy_xc(char **hostlist)
 	elog(NOTICE, "Deployment done.\n");
 }
 
-static void do_set(char *line)
+static void
+do_set(char *line)
 {
 	
 	char *token;
@@ -218,7 +223,8 @@ static void do_set(char *line)
  *						failover datanode nodename
  *						failover nodename
  */
-static void do_failover_command(char *line)
+static void
+do_failover_command(char *line)
 {
 	char *token;
 	int idx;
@@ -292,7 +298,8 @@ static void do_failover_command(char *line)
 /*
  * Reconnect command ... reconnect gtm_proxy [all | nodename ... ]
  */
-static void do_reconnect_command(char *line)
+static void
+do_reconnect_command(char *line)
 {
 	char *token;
 
@@ -334,7 +341,8 @@ static void do_reconnect_command(char *line)
  *					kill coordinator [nodename ... |master [all | nodenames ... ] | slave [all | nodenames ... ] |all]
  *					kill datanode [nodename ... |master [all | nodenames ... ] | slave [all | nodenames ... ] |all]
  */
-static void do_kill_command(char *line)
+static void
+do_kill_command(char *line)
 {
 	char *token;
 
@@ -499,7 +507,8 @@ static void do_kill_command(char *line)
 }
 
 
-static void init_all(void)
+static void
+init_all(void)
 {
 	init_gtm_master();
 	start_gtm_master();
@@ -538,7 +547,8 @@ static void init_all(void)
  *					init coordinator [all | master [all | nodename ... ]| slave [all | nodename ... ]| nodename ... ]
  *					init datanode [all | master [all | nodename ...] | slave [all | nodename ... ] | nodename ... ]
  */
-static void do_init_command(char *line)
+static void
+do_init_command(char *line)
 {
 	char *token;
 
@@ -668,7 +678,8 @@ static void do_init_command(char *line)
  *					 start coordinator [nodename ... |master [all | nodenames ... ] | slave [all | nodenames ... ] |all]
  *					 start datanode [nodename ... |master [all | nodenames ... ] | slave [all | nodenames ... ] |all]
  */
-static void start_all(void)
+static void
+start_all(void)
 {
 	start_gtm_master();
 	if (isVarYes(VAR_gtmSlave))
@@ -683,7 +694,8 @@ static void start_all(void)
 		start_datanode_slave_all();
 }
 
-static void do_start_command(char *line)
+static void
+do_start_command(char *line)
 {
 	char *token;
 
@@ -815,7 +827,8 @@ static void do_start_command(char *line)
  *
  *	Can insert -m immediate option at any place.
  */
-static void stop_all(char *immediate)
+static void
+stop_all(char *immediate)
 {
 	if (isVarYes(VAR_coordSlave))
 		stop_coordinator_slave_all(immediate);
@@ -835,7 +848,8 @@ static void stop_all(char *immediate)
 /*
  * Add command
  */
-static void do_add_command(char *line)
+static void
+do_add_command(char *line)
 {
 	char *token;
 	char *name;
@@ -962,7 +976,8 @@ static void do_add_command(char *line)
 	return;
 }
 
-static void do_remove_command(char *line)
+static void
+do_remove_command(char *line)
 {
 	char *token;
 	char *name;
@@ -1074,7 +1089,8 @@ static void do_remove_command(char *line)
 
 static char *m_Option;
 
-static char *handle_m_option(char *line, char **m_option)
+static char *
+handle_m_option(char *line, char **m_option)
 {
 	char *token;
 
@@ -1094,7 +1110,8 @@ static char *handle_m_option(char *line, char **m_option)
 		
 
 
-static void do_stop_command(char *line)
+static void
+do_stop_command(char *line)
 {
 	char *token;
 
@@ -1236,7 +1253,8 @@ static void do_stop_command(char *line)
 /*
  * Test staff
  */
-static void do_test(char *line)
+static void
+do_test(char *line)
 {
 	char *token;
 	int logLevel;
@@ -1316,7 +1334,8 @@ static void do_test(char *line)
  *
  * ==================================================================
  */
-static void kill_something(char *nodeName)
+static void
+kill_something(char *nodeName)
 {
 	char *nodeList[2];
 
@@ -1351,7 +1370,8 @@ static void kill_something(char *nodeName)
 	}
 }
 
-static void show_config_something_multi(char **nodeList)
+static void
+show_config_something_multi(char **nodeList)
 {
 	int ii;
 
@@ -1359,7 +1379,8 @@ static void show_config_something_multi(char **nodeList)
 		show_config_something(nodeList[ii]);
 }
 
-static void show_config_something(char *nodeName)
+static void
+show_config_something(char *nodeName)
 {
 	int idx;
 
@@ -1411,7 +1432,8 @@ static void show_config_something(char *nodeName)
  *
  * ========================================================================================
  */
-static void show_config_servers(char **hostList)
+static void
+show_config_servers(char **hostList)
 {
 	int ii;
 	for (ii = 0; hostList[ii]; ii++)
@@ -1427,7 +1449,8 @@ static void show_config_servers(char **hostList)
  * With no option, will print common configuartion parameters and exit.
  *
  */
-static void show_basicConfig(void)
+static void
+show_basicConfig(void)
 {
 	elog(NOTICE, "========= Postgres-XC configuration Common Info ========================\n");
 	elog(NOTICE, "=== Overall ===\n");
@@ -1446,7 +1469,8 @@ static void show_basicConfig(void)
 }
 
 
-static void show_configuration(char *line)
+static void
+show_configuration(char *line)
 {
 	char *token;
 
@@ -1603,8 +1627,9 @@ static void show_configuration(char *line)
 	return;
 }
 
-void print_simple_node_info(char *nodeName, char *port, char *dir,
-							char *extraConfig, char *specificExtraConfig)
+void
+print_simple_node_info(char *nodeName, char *port, char *dir,
+					   char *extraConfig, char *specificExtraConfig)
 {
 	elog(NOTICE, 
 		 "    Nodename: '%s', port: %s, dir: '%s'"
@@ -1614,7 +1639,8 @@ void print_simple_node_info(char *nodeName, char *port, char *dir,
 }
 
 
-static void show_config_host(char *hostname)
+static void
+show_config_host(char *hostname)
 {
 	int ii;
 
@@ -1652,7 +1678,8 @@ static void show_config_host(char *hostname)
 	unlockLogFile();
 }
 
-void show_config_hostList(char **hostList)
+void
+show_config_hostList(char **hostList)
 {
 	int ii;
 	for (ii = 0; hostList[ii]; ii++)
@@ -1667,7 +1694,8 @@ void show_config_hostList(char **hostList)
  *		  coordinator [[all | master | slave ] [nodename ... ]] |
  *        datanode [ [all | master | slave] [nodename ... ]}
  */
-static void do_clean_command(char *line)
+static void
+do_clean_command(char *line)
 {
 	char *token;
 	cmdList_t *cmdList = NULL;
@@ -1960,7 +1988,8 @@ static void do_clean_command(char *line)
 	}
 }
 
-static void do_configure_command(char *line)
+static void
+do_configure_command(char *line)
 {
 	char *token;
 	char **nodeList = NULL;
@@ -1979,7 +2008,8 @@ static void do_configure_command(char *line)
 	}
 }
 	
-static int selectCoordinator(void)
+static int
+selectCoordinator(void)
 {
 	int sz = arraySizeName(VAR_coordNames);
 	int i;
@@ -1996,7 +2026,8 @@ static int selectCoordinator(void)
 }
 
 
-static int show_Resource(char *datanodeName, char *databasename, char *username)
+static int
+show_Resource(char *datanodeName, char *databasename, char *username)
 {
 	int cdIdx = selectCoordinator();
 	int dnIdx = datanodeIdx(datanodeName);
@@ -2078,7 +2109,8 @@ static int show_Resource(char *datanodeName, char *databasename, char *username)
  *
  * ======================================================================================
  */
-void do_command(FILE *inf, FILE *outf)
+void
+do_command(FILE *inf, FILE *outf)
 {
 	int istty = ((inf == stdin) && isatty(fileno(stdin)));
 	int interactive = ((inf == stdin) && (outf == stdout));
@@ -2127,7 +2159,8 @@ void do_command(FILE *inf, FILE *outf)
  *
  * -----------------------------------------------------------------------------
  */
-int do_singleLine(char *buf, char *wkline)
+int
+do_singleLine(char *buf, char *wkline)
 {
 	char *token;
 	char *line = buf;
@@ -2449,8 +2482,3 @@ int do_singleLine(char *buf, char *wkline)
 	}
 	return 0;
 }
-		
-
-					   
-
-

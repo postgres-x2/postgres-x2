@@ -50,7 +50,8 @@ int logLocation = FALSE;
  * Path is NULL if name is effective.
  * Path is valid if name is NULL
  */
-static void set_msgLogLevel(void)
+static void
+set_msgLogLevel(void)
 {
 	if (sval(VAR_logMessage) == NULL)
 		logMsgLevel = WARNING;
@@ -74,7 +75,8 @@ static void set_msgLogLevel(void)
 		logMsgLevel = INFO;
 }
 
-static void set_printLogLevel(void)
+static void
+set_printLogLevel(void)
 {
 	if (sval(VAR_printMessage) == NULL)
 		printMsgLevel = ERROR;
@@ -98,7 +100,8 @@ static void set_printLogLevel(void)
 		printMsgLevel = WARNING;
 }
 
-void initLog(char *path, char *name)
+void
+initLog(char *path, char *name)
 {
 	if(logFile)
 		return;
@@ -116,7 +119,8 @@ void initLog(char *path, char *name)
 	lockStack = 0;
 }
 
-void closeLog()
+void
+closeLog()
 {
 	fclose(logFile);
 	logFile = NULL;
@@ -126,14 +130,16 @@ static char *fname;
 static char *funcname;
 static int lineno;
 
-void elog_start(const char *file, const char *func, int line)
+void
+elog_start(const char *file, const char *func, int line)
 {
 	fname = Strdup(file);
 	funcname = Strdup(func);
 	lineno = line;
 }
 
-static void clean_location(void)
+static void
+clean_location(void)
 {
 	freeAndReset(fname);
 	freeAndReset(funcname);
@@ -141,7 +147,8 @@ static void clean_location(void)
 }
 
 
-static void elogMsgRaw0(int level, const char *msg, int flag)
+static void
+elogMsgRaw0(int level, const char *msg, int flag)
 {
 	if (logFile && level >= logMsgLevel)
 	{
@@ -163,14 +170,16 @@ static void elogMsgRaw0(int level, const char *msg, int flag)
 	clean_location();
 }
 
-void elogMsgRaw(int level, const char *msg)
+void
+elogMsgRaw(int level, const char *msg)
 {
 	lockLogFile();
 	elogMsgRaw0(level, msg, TRUE);
 	unlockLogFile();
 }
 
-void elogFinish(int level, const char *fmt, ...)
+void
+elogFinish(int level, const char *fmt, ...)
 {
 	char msg[MAXLINE+1];
 	va_list arg;
@@ -186,7 +195,8 @@ void elogFinish(int level, const char *fmt, ...)
 	unlockLogFile();
 }
 
-void elogFileRaw(int level, char *path)
+void
+elogFileRaw(int level, char *path)
 {
 	FILE *f;
 	char s[MAXLINE+1];
@@ -208,7 +218,8 @@ static char timebuf[MAXTOKEN+1];
 /*
  * Please note that this routine is not reentrant
  */
-static char *pgxcCtlGetTime(void)
+static char
+*pgxcCtlGetTime(void)
 {
 	struct tm *tm_s;
 	time_t now;
@@ -223,7 +234,8 @@ static char *pgxcCtlGetTime(void)
 	return timebuf;
 }
 
-void writeLogRaw(const char *fmt, ...)
+void
+writeLogRaw(const char *fmt, ...)
 {
 	char msg[MAXLINE+1];
 	va_list arg;
@@ -242,7 +254,8 @@ void writeLogRaw(const char *fmt, ...)
 	fflush(outF ? outF : stderr);
 }
 
-void writeLogOnly(const char *fmt, ...)
+void
+writeLogOnly(const char *fmt, ...)
 {
 	char msg[MAXLINE+1];
 	va_list arg;
@@ -259,7 +272,8 @@ void writeLogOnly(const char *fmt, ...)
 	}
 }
 
-int setLogMsgLevel(int newLevel)
+int
+setLogMsgLevel(int newLevel)
 {
 	int rc;
 
@@ -268,12 +282,14 @@ int setLogMsgLevel(int newLevel)
 	return rc;
 }
 
-int getLogMsgLevel(void)
+int
+getLogMsgLevel(void)
 {
 	return logMsgLevel;
 }
 
-int setPrintMsgLevel(int newLevel)
+int
+setPrintMsgLevel(int newLevel)
 {
 	int rc;
 
@@ -282,12 +298,14 @@ int setPrintMsgLevel(int newLevel)
 	return rc;
 }
 
-int getPrintMsgLevel(void)
+int
+getPrintMsgLevel(void)
 {
 	return printMsgLevel;
 }
 
-void lockLogFile(void)
+void
+lockLogFile(void)
 {
 	struct flock lock1;
 
@@ -310,7 +328,8 @@ void lockLogFile(void)
 }
 
 
-void unlockLogFile(void)
+void
+unlockLogFile(void)
 {
 	struct flock lock1;
 

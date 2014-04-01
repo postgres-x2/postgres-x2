@@ -37,6 +37,17 @@
 #define USE_PG_BASEBACKUP
 #define USE_ALTER_NODE
 
+/* Static functions */
+static cmd_t *prepare_initCoordinatorMaster(char *nodeName);
+static cmd_t *prepare_initCoordinatorSlave(char *nodeName);
+static cmd_t *prepare_configureNode(char *nodeName);
+static cmd_t *prepare_killCoordinatorMaster(char *nodeName);
+static cmd_t *prepare_killCoordinatorSlave(char *nodeName);
+static cmd_t *prepare_startCoordinatorMaster(char *nodeName);
+static cmd_t *prepare_startCoordinatorSlave(char *nodeName);
+static cmd_t *prepare_stopCoordinatorMaster(char *nodeName, char *immediate);
+static cmd_t *prepare_stopCoordinatorSlave(char *nodeName, char *immediate);
+
 static int failover_oneCoordinator(int coordIdx);
 
 static char date[MAXTOKEN+1];
@@ -51,13 +62,15 @@ static char date[MAXTOKEN+1];
 /*
  * Initialize coordinator masters -----------------------------------------------------------
  */
-int init_coordinator_master_all(void)
+int
+init_coordinator_master_all(void)
 {
 	elog(NOTICE, "Initialize all the coordinator masters.\n");
 	return(init_coordinator_master(aval(VAR_coordNames)));
 }
 
-cmd_t *prepare_initCoordinatorMaster(char *nodeName)
+static cmd_t *
+prepare_initCoordinatorMaster(char *nodeName)
 {
 	cmd_t *cmd, *cmdInitdb, *cmdPgConf, *cmdWalArchDir, *cmdWalArch, *cmdPgHba;
 	int jj, kk, gtmPxyIdx;
@@ -196,7 +209,8 @@ cmd_t *prepare_initCoordinatorMaster(char *nodeName)
 	return(cmd);
 }
 
-int init_coordinator_master(char **nodeList)
+int
+init_coordinator_master(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -225,13 +239,15 @@ int init_coordinator_master(char **nodeList)
 /*
  * Initialize coordinator slaves ---------------------------------------------------------------
  */
-int init_coordinator_slave_all(void)
+int
+init_coordinator_slave_all(void)
 {
 	elog(NOTICE, "Initialize all the coordinator slaves.\n");
 	return(init_coordinator_slave(aval(VAR_coordNames)));
 }
 
-cmd_t *prepare_initCoordinatorSlave(char *nodeName)
+static cmd_t *
+prepare_initCoordinatorSlave(char *nodeName)
 {
 	cmd_t *cmd,
 		  *cmdBuildDir,
@@ -400,7 +416,8 @@ cmd_t *prepare_initCoordinatorSlave(char *nodeName)
 }
 
 		
-int init_coordinator_slave(char **nodeList)
+int
+init_coordinator_slave(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -439,12 +456,14 @@ int init_coordinator_slave(char **nodeList)
  * Please note that CREATE/ALTER/DROP NODE are handled only locally.  You have to
  * visit all the coordinators.
  */
-int configure_nodes_all(void)
+int
+configure_nodes_all(void)
 {
 	return configure_nodes(aval(VAR_coordNames));
 }
 
-int configure_nodes(char **nodeList)
+int
+configure_nodes(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -466,7 +485,8 @@ int configure_nodes(char **nodeList)
 	return(rc);
 }
 
-cmd_t *prepare_configureNode(char *nodeName)
+static cmd_t *
+prepare_configureNode(char *nodeName)
 {
 	cmd_t *cmd;
 	int ii;
@@ -574,13 +594,15 @@ cmd_t *prepare_configureNode(char *nodeName)
  * You should try to stop component by "stop" command.
  */
 
-int kill_coordinator_master_all(void)
+int
+kill_coordinator_master_all(void)
 {
 	elog(INFO, "Killing all the coordinator masters.\n");
 	return(kill_coordinator_master(aval(VAR_coordNames)));
 }
 
-cmd_t * prepare_killCoordinatorMaster(char *nodeName)
+static cmd_t *
+prepare_killCoordinatorMaster(char *nodeName)
 {
 	int idx;
 	pid_t pmPid;
@@ -591,6 +613,8 @@ cmd_t * prepare_killCoordinatorMaster(char *nodeName)
 		elog(WARNING, "WARNING: node %s is not a coordinator.\n", nodeName);
 		return(NULL);
 	}
+	if (is_none(aval(VAR_coordMasterServers)[idx]))
+		return(NULL);
 	cmd = cmdKill = initCmd(aval(VAR_coordMasterServers)[idx]);
 	if ((pmPid = get_postmaster_pid(aval(VAR_coordMasterServers)[idx], aval(VAR_coordMasterDirs)[idx])) > 0)
 	{
@@ -610,7 +634,8 @@ cmd_t * prepare_killCoordinatorMaster(char *nodeName)
 	return cmd;
 }
 
-int kill_coordinator_master(char **nodeList)
+int
+kill_coordinator_master(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -633,18 +658,20 @@ int kill_coordinator_master(char **nodeList)
 }
 
 /*
- * Kill coordinator masters -------------------------------------------------------------
+ * Kill coordinator slaves -------------------------------------------------------------
  *
  * It is not recommended to kill them in such a manner.   This is just for emergence.
  * You should try to stop component by "stop" command.
  */
-int kill_coordinator_slave_all(void)
+int
+kill_coordinator_slave_all(void)
 {
 	elog(INFO, "Killing all the cooridinator slaves.\n");
 	return(kill_coordinator_slave(aval(VAR_coordNames)));
 }
 
-cmd_t *prepare_killCoordinatorSlave(char *nodeName)
+static cmd_t *
+prepare_killCoordinatorSlave(char *nodeName)
 {
 	int idx;
 	pid_t pmPid;
@@ -655,6 +682,8 @@ cmd_t *prepare_killCoordinatorSlave(char *nodeName)
 		elog(WARNING, "WARNING: %s is not a coordinator.\n", nodeName);
 		return(NULL);
 	}
+	if (is_none(aval(VAR_coordSlaveServers)[idx]))
+		return(NULL);
 	if ((pmPid = get_postmaster_pid(aval(VAR_coordSlaveServers)[idx], aval(VAR_coordSlaveDirs)[idx])) > 0)
 	{
 		char *pidList = getChPidList(aval(VAR_coordSlaveServers)[idx], pmPid);
@@ -674,7 +703,8 @@ cmd_t *prepare_killCoordinatorSlave(char *nodeName)
 	return(cmd);
 }
 
-int kill_coordinator_slave(char **nodeList)
+int
+kill_coordinator_slave(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -702,7 +732,8 @@ int kill_coordinator_slave(char **nodeList)
 	return (rc);
 }
 
-cmd_t *prepare_cleanCoordinatorMaster(char *nodeName)
+cmd_t *
+prepare_cleanCoordinatorMaster(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -722,7 +753,8 @@ cmd_t *prepare_cleanCoordinatorMaster(char *nodeName)
 /*
  * Cleanup coordinator master resources -- directory and socket.
  */
-int clean_coordinator_master(char **nodeList)
+int
+clean_coordinator_master(char **nodeList)
 {
 	char **actualNodeList;
 	cmdList_t *cmdList;
@@ -747,7 +779,8 @@ int clean_coordinator_master(char **nodeList)
 	return (rc);
 }
 
-int clean_coordinator_master_all(void)
+int
+clean_coordinator_master_all(void)
 {
 	elog(INFO, "Cleaning all the coordinator masters resources.\n");
 	return(clean_coordinator_master(aval(VAR_coordNames)));
@@ -756,7 +789,8 @@ int clean_coordinator_master_all(void)
 /*
  * Cleanup coordinator slave resources -- directory and the socket.
  */
-cmd_t *prepare_cleanCoordinatorSlave(char *nodeName)
+cmd_t *
+prepare_cleanCoordinatorSlave(char *nodeName)
 {
 	cmd_t *cmd;
 	int idx;
@@ -776,7 +810,8 @@ cmd_t *prepare_cleanCoordinatorSlave(char *nodeName)
 	return cmd;
 }
 
-int clean_coordinator_slave(char **nodeList)
+int
+clean_coordinator_slave(char **nodeList)
 {
 	char **actualNodeList;
 	cmdList_t *cmdList;
@@ -801,7 +836,8 @@ int clean_coordinator_slave(char **nodeList)
 	return (rc);
 }
 
-int clean_coordinator_slave_all(void)
+int
+clean_coordinator_slave_all(void)
 {
 	elog(INFO, "Cleaning all the cooridnator slaves resources.\n");
 	return(clean_coordinator_slave(aval(VAR_coordNames)));
@@ -812,7 +848,8 @@ int clean_coordinator_slave_all(void)
  * Add command
  *
  *-----------------------------------------------------------------------*/
-int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *dir)
+int
+add_coordinatorMaster(char *name, char *host, int port, int pooler, char *dir)
 {
 	FILE *f, *lockf;
 	int size, idx;
@@ -1024,7 +1061,8 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	return 0;
 }
 
-int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
+int
+add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 {
 	int idx;
 	FILE *f;
@@ -1252,7 +1290,8 @@ int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
  * Remove command
  *
  *-----------------------------------------------------------------------*/
-int remove_coordinatorMaster(char *name, int clean_opt)
+int
+remove_coordinatorMaster(char *name, int clean_opt)
 {
 	/*
 
@@ -1394,7 +1433,8 @@ int remove_coordinatorMaster(char *name, int clean_opt)
 	return 0;
 }
 
-int remove_coordinatorSlave(char *name, int clean_opt)
+int
+remove_coordinatorSlave(char *name, int clean_opt)
 {
 	int idx;
 	char **nodelist = NULL;
@@ -1478,13 +1518,15 @@ int remove_coordinatorSlave(char *name, int clean_opt)
 /*
  * Start coordinator master ---------------------------------------------
  */
-int start_coordinator_master_all(void)
+int
+start_coordinator_master_all(void)
 {
 	elog(INFO, "Starting coordinator master.\n");
 	return(start_coordinator_master(aval(VAR_coordNames)));
 }
 
-cmd_t *prepare_startCoordinatorMaster(char *nodeName)
+static cmd_t *
+prepare_startCoordinatorMaster(char *nodeName)
 {
 	cmd_t *cmd = NULL, *cmdPgCtl;
 	int idx;
@@ -1510,7 +1552,8 @@ cmd_t *prepare_startCoordinatorMaster(char *nodeName)
 	return(cmd);
 }
 
-int start_coordinator_master(char **nodeList)
+int
+start_coordinator_master(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1536,13 +1579,15 @@ int start_coordinator_master(char **nodeList)
 /*
  * Start coordinator slaves ----------------------------------------
  */
-int start_coordinator_slave_all(void)
+int
+start_coordinator_slave_all(void)
 {
 	elog(INFO, "Starting all the coordinator slaves.\n");
 	return(start_coordinator_slave(aval(VAR_coordNames)));
 }
 
-cmd_t *prepare_startCoordinatorSlave(char *nodeName)
+static cmd_t *
+prepare_startCoordinatorSlave(char *nodeName)
 {
 	int idx;
 	FILE *f;
@@ -1596,7 +1641,8 @@ cmd_t *prepare_startCoordinatorSlave(char *nodeName)
 	return(cmd);
 }
 
-int start_coordinator_slave(char **nodeList)
+int
+start_coordinator_slave(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1628,13 +1674,15 @@ int start_coordinator_slave(char **nodeList)
  * Stop coordinator masters ---------------------------------------------------
  */
 /* Does not check if immediate is valid here */
-int stop_coordinator_master_all(char *immediate)
+int
+stop_coordinator_master_all(char *immediate)
 {
 	elog(INFO, "Stopping all the coordinator masters.\n");
 	return(stop_coordinator_master(aval(VAR_coordNames), immediate));
 }
 
-cmd_t *prepare_stopCoordinatorMaster(char *nodeName, char *immediate)
+static cmd_t *
+prepare_stopCoordinatorMaster(char *nodeName, char *immediate)
 {
 	int idx;
 	cmd_t *cmd;
@@ -1658,7 +1706,8 @@ cmd_t *prepare_stopCoordinatorMaster(char *nodeName, char *immediate)
 			 
 
 /* Does not check if immediate is valid here. */
-int stop_coordinator_master(char **nodeList, char *immediate)
+int
+stop_coordinator_master(char **nodeList, char *immediate)
 {
 	char **actualNodeList;
 	int ii;
@@ -1687,13 +1736,15 @@ int stop_coordinator_master(char **nodeList, char *immediate)
 /*
  * Stop coordinator slaves ----------------------------------------------------
  */
-int stop_coordinator_slave_all(char *immediate)
+int
+stop_coordinator_slave_all(char *immediate)
 {
 	elog(INFO, "Stopping all the coordinator slaves.\n");
 	return(stop_coordinator_slave(aval(VAR_coordNames), immediate));
 }
 
-cmd_t *prepare_stopCoordinatorSlave(char *nodeName, char *immediate)
+static cmd_t *
+prepare_stopCoordinatorSlave(char *nodeName, char *immediate)
 {
 	int idx;
 	cmd_t *cmd = NULL, *cmdMasterReload, *cmdPgCtlStop;
@@ -1743,7 +1794,8 @@ cmd_t *prepare_stopCoordinatorSlave(char *nodeName, char *immediate)
 }
 
 
-int stop_coordinator_slave(char **nodeList, char *immediate)
+int
+stop_coordinator_slave(char **nodeList, char *immediate)
 {
 	char **actualNodeList;
 	int ii;
@@ -1775,7 +1827,8 @@ int stop_coordinator_slave(char **nodeList, char *immediate)
 /*
  * Failover coordinator ---------------------------------------------------------
  */
-int failover_coordinator(char **nodeList)
+int
+failover_coordinator(char **nodeList)
 {
 	char **actualNodeList;
 	int ii;
@@ -1816,7 +1869,8 @@ int failover_coordinator(char **nodeList)
 	return(rc);
 }
 
-static int failover_oneCoordinator(int coordIdx)
+static int
+failover_oneCoordinator(int coordIdx)
 {
 	int	rc = 0;
 	int rc_local;
@@ -1977,7 +2031,8 @@ static int failover_oneCoordinator(int coordIdx)
 /*
  * Show coordinator configuration
  */
-int show_config_coordMasterSlaveMulti(char **nodeList)
+int
+show_config_coordMasterSlaveMulti(char **nodeList)
 {
 	int ii;
 	int idx;
@@ -1998,7 +2053,8 @@ int show_config_coordMasterSlaveMulti(char **nodeList)
 	return 0;
 }
 
-int show_config_coordMasterMulti(char **nodeList)
+int
+show_config_coordMasterMulti(char **nodeList)
 {
 	int ii;
 	int idx;
@@ -2015,7 +2071,8 @@ int show_config_coordMasterMulti(char **nodeList)
 	return 0;
 }
 
-int show_config_coordSlaveMulti(char **nodeList)
+int
+show_config_coordSlaveMulti(char **nodeList)
 {
 	int ii;
 	int idx;
@@ -2034,7 +2091,8 @@ int show_config_coordSlaveMulti(char **nodeList)
 	return 0;
 }
 
-int show_config_coordMaster(int flag, int idx, char *hostname)
+int
+show_config_coordMaster(int flag, int idx, char *hostname)
 {
 	int ii;
 	char outBuf[MAXLINE+1];
@@ -2072,7 +2130,8 @@ int show_config_coordMaster(int flag, int idx, char *hostname)
 	return 0;
 }
 
-int show_config_coordSlave(int flag, int idx, char *hostname)
+int
+show_config_coordSlave(int flag, int idx, char *hostname)
 {
 	char outBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
@@ -2104,7 +2163,8 @@ int show_config_coordSlave(int flag, int idx, char *hostname)
  *
  * Returns FALSE if any of them are not running.
  */
-int check_AllCoordRunning(void)
+int
+check_AllCoordRunning(void)
 {
 	int ii;
 
