@@ -26,6 +26,9 @@
 #include "rmgrdesc.h"
 #include "storage/standby.h"
 #include "utils/relmapper.h"
+#ifdef PGXC
+#include "pgxc/barrier.h"
+#endif
 
 #define PG_RMGR(symname,name,redo,desc,startup,cleanup,restartpoint) \
 	{ name, desc, },

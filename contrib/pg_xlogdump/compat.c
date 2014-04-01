@@ -39,6 +39,12 @@ timestamptz_to_time_t(TimestampTz t)
 	return result;
 }
 
+#ifdef PGXC
+/*
+ * used in common/relpath.c
+ */
+char *PGXCNodeName = NULL;
+#endif
 /*
  * Stopgap implementation of timestamptz_to_str that doesn't depend on backend
  * infrastructure.	This will work for timestamps that are within the range

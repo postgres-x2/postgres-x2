@@ -17,3 +17,4 @@
 /xactdesc.c
 /xlogdesc.c
 /xlogreader.c
+/pgxcdesc.c
