@@ -402,10 +402,7 @@ prepare_initCoordinatorSlave(char *nodeName)
 			"# Added to initialize the slave, %s\n"
 			"hot_standby = on\n"
 			"port = %s\n"
-			"wal_level = minimal\n"
-			"archive_mode = off\n"
 			"archive_command = ''\n"
-			"max_wal_senders = 0\n"
 			"# End of Addition\n",
 			timeStampString(timestamp, MAXTOKEN), aval(VAR_coordPorts)[idx]);
 	fclose(f);
@@ -1252,10 +1249,12 @@ add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
 			"# Added to initialize the slave, %s\n"
 			"hot_standby = on\n"
 			"port = %d\n"
-			"wal_level = minimal\n"		/* WAL level --- minimal.   No cascade slave so far. */
-			"archive_mode = off\n"		/* No archive mode */
+			"wal_level = hot_standby\n"	/* WAL level --- to be ready to failover */
+			"archive_mode = on\n"		/* To be ready to be a master */
 			"archive_command = ''\n"	/* No archive mode */
-			"max_wal_senders = 0\n"		/* Minimum WAL senders */
+			"max_wal_senders = 5\n"		/* To be ready to be a master: Tentatively 5. */
+										/* Next major version will allow common */
+										/* max_wal_senders to be taken here. */
 			"# End of Addition\n",
 			timeStampString(date, MAXTOKEN), atoi(aval(VAR_coordPorts)[idx]));
 	fclose(f);
@@ -1469,11 +1468,8 @@ remove_coordinatorSlave(char *name, int clean_opt)
 		fprintf(f,
 				"#=======================================\n"
 				"# Updated to remove the slave %s\n"
-				"archive_mode = off\n"
 				"synchronous_standby_names = ''\n"
 				"archive_command = ''\n"
-				"max_wal_senders = 0\n"
-				"wal_level = minimal\n"
 				"# End of the update\n",
 				timeStampString(date, MAXTOKEN));
 		fclose(f);

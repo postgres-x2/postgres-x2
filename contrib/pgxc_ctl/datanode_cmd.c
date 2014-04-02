@@ -1203,10 +1203,7 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			"# Added to initialize the slave, %s\n"
 			"hot_standby = on\n"
 			"port = %s\n"
-			"wal_level = minimal\n"		/* WAL level --- minimal.   No cascade slave so far. */
-			"archive_mode = off\n"		/* No archive mode */
 			"archive_command = ''\n"	/* No archive mode */
-			"max_wal_senders = 0\n"		/* Minimum WAL senders */
 			"# End of Addition\n",
 			timeStampString(date, MAXTOKEN), aval(VAR_datanodePorts)[idx]);
 	fclose(f);
@@ -1425,11 +1422,8 @@ remove_datanodeSlave(char *name, int clean_opt)
 		fprintf(f,
 				"#=======================================\n"
 				"# Updated to remove the slave %s\n"
-				"archive_mode = off\n"
 				"synchronous_standby_names = ''\n"
 				"archive_command = ''\n"
-				"max_wal_senders = 0\n"
-				"wal_level = minimal\n"
 				"# End of the update\n",
 				timeStampString(date, MAXTOKEN));
 		fclose(f);
