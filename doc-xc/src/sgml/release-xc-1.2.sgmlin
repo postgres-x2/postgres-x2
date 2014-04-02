@@ -443,6 +443,14 @@
      </para>
     </listitem> 
 
+    <listitem>
+     <para>
+	  Now <command>CREATE NODE</command>, <command>ALTER NODE</command> and <command>DROP NODE</command> can be issued
+	  in a same session to change primary node configuration.
+	  By Koichi Suzui.
+     </para>
+    </listitem> 
+
    </itemizedlist>
 
   </sect2>
