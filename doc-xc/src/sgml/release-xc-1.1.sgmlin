@@ -1,6 +1,190 @@
 <!-- doc/src/sgml/release-xc-1.1.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
+ <sect1 id="release-xc-1-1-1">
+  <title>Release 1.1.1</title>
+
+  <note>
+   <title>Release Date</title>
+   <simpara>2014-04-05</simpara>
+  </note>
+
+  <para>
+   This release contains fixes in PostgreSQL up to 9.2.8, as well as a couple
+   of fixes in Postgres-XC.
+   For informations about new feature in the 1.1 major release, see
+   <xref linkend="release-xc-1-1">.
+   For information about fixes in the 1.1, see
+   <xref linkend="release-xc-1-1">.
+  </para>
+
+ <sect2>
+  <title>Migrations to Version 1.1.1</title>
+
+  <para>
+   A dump/restore is not required for those running 1.1.
+  </para>
+
+  <para>
+   A dump/restore is required for those running 1.0.x.
+  </para>
+
+ </sect2>
+
+ <sect2>
+  <title>Changes</title>
+
+  <itemizedlist>
+
+  <listitem>
+   <para>
+	Fixed a bug that alter node and create node does not work with
+    primary=on even when primary=off update or drop node against the
+    primary node has been done in the same session.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	The fix to run ALTER NODE while a coordinator is out.
+	Analyzed by Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Improve <application>pgxc_ctl</application> behavior by adding
+	<literal>-w</literal> option to <application>pg_ctl</application>
+	and by retrying when pinging coordinator/datanode fails.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Collection of <application>pgbench</application> queries used with
+	<literal>-k</literal> option.
+	By Tetso Sakata.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix numbering a connection id in GTM Proxy to improve backend disconnection.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Enable temporary objects available in implicit 2PC transactions, including
+	regression test change to use this.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the issue that GTM proxy sends error response via unrelated connection.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Make statmenent cancellation more consisitent by adding a dealy after the
+	cancelation is issued.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fixes PGXC blocked by acquiring TwoPhaseStateLock.
+    Reported by ZhangJulian.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix for planner's occasional infinit loop in FQS module.
+    By Tomonari Katsumata.
+	Reviewd by Ashutosh Bapat.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix an issue that a GTM Proxy sends <literal>MSG_BACKEND_DISCONNECT</literal> command with wrong proxy connection ID.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the issue that a GTM Proxy sends error responses via unrelated connection.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the bug 440 that <literal>gtmProxySpecificExtraConfig</literal> does not work in
+	<application>pgxc_ctl</application>.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Specify that EXECUTE DIRECT query needs to be a string literal.
+	By Tomonari Katsumata, reviewed by Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Replace strndup calls by strdup in makesgml.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Correct incorrect return results of GTM-Proxy code.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Allow <application>pgxc_ctl</application> to run on Mac OS-X.
+	By NIkhil Sontakke.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the messge level when GTM master connects to GTM standby
+    to DEBUG1 to reduce the number of unnecessary messages to the log.
+	By Nikhil Sontakke.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix potential memory leak at GTM.
+	By Nikhil Sontakke.
+   </para>
+  </listitem>
+
+  </itemizedlist>
+
+ </sect2>
+
+ </sect1>
+
  <sect1 id="release-xc-1-1">
   <title>Release 1.1</title>
 

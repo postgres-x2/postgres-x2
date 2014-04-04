@@ -1,6 +1,184 @@
 <!-- doc/src/sgml/release-xc-1.0.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
+ <sect1 id="release-xc-1-0-4">
+  <title>Release 1.0.4</title>
+
+  <note>
+   <title>Release Date</title>
+   <simpara>2014-04-04</simpara>
+  </note>
+
+  <para>
+   This release contains fixes in PostgreSQL up to 9.1.13, as well as a couple
+   of fixes in Postgres-XC.
+   For informations about new feature in the 1.0 major release, see
+   <xref linkend="release-xc-1-0">.
+   For information about fixes in the 1.0.1 and 1.0.2 minor releases, see
+   <xref linkend="release-xc-1-0-1"> and <xref linkend="release-xc-1-0-2">
+   respectively.
+  </para>
+
+ <sect2>
+  <title>Migrations to Version 1.0.4</title>
+
+  <para>
+   A dump/restore is not required for those running 1.0.x.
+  </para>
+
+ </sect2>
+
+ <sect2>
+  <title>Changes</title>
+
+  <itemizedlist>
+
+  <listitem>
+   <para>
+    Fixed a but that alter node and create node does not work together another drop node or alter node which
+	disables current primary node.   By Koichi Suzuki
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Now TEMP object can be used within implicit 2PC transactions.
+	Regression test changes accordingly.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Improvement of statment cancellation behavior consisitent.
+	This reduces the chance of random failure in the regression test.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fixes PGXC blocked by acquiring TwoPhaseStateLock.
+    Reported by ZhangJulian.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix for coordinator overshoot in COPY.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix an issue that GTM Proxy doesn't send status in response of COMMIT or ROLLBACK.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix an issue that a GTM Proxy sends MSG_BACKEND_DISCONNECT command with wrong proxy connection ID.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the issue that a GTM Proxy sends error responses via unrelated connection.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Specify that EXECUTE DIRECT query needs to be a string literal.
+	By Tomonari Katsumata.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Replace strndup calls by strdup in makesgml.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Correct incorrect return results of GTM-Proxy code.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix ALTER SCHEMA bug when renaming dependent objects only occurs in
+	release 1.0.
+	Reported by Andrei Martsinchyk.
+	Fixed by Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix message level when GTM master connects to GTM standby.
+	Reported by Nikhil Sontakke.
+	Fixed by Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix of potential memory leak at GTM.
+	By Nikhil Sontakke.
+	Reviewed by Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix GTM bug to craete more than 1024 sequences.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix initdb usage and error message Bug ID: 3614712.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix a documentation bug about CREATE NODE.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix GTM bug when GTM Proxy requested multiple GXIDs.
+	Reported and fixed by Nikhil Sontakke.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix disconnect handling at GTM proxy.
+	Reported and fixed by Andrei Martsinchyk.
+   </para>
+  </listitem>
+
+
+  </itemizedlist>
+
+ </sect2>
+
+ </sect1>
+
  <sect1 id="release-xc-1-0-3">
   <title>Release 1.0.3</title>
 
@@ -10,7 +188,7 @@
   </note>
 
   <para>
-   This release contains fixes in PostgreSQL 9.1.8 and PostgreSQL 9.1.19, as well as a couple
+   This release contains fixes in PostgreSQL 9.1.8 and PostgreSQL 9.1.9, as well as a couple
    of fixes in Postgres-XC.
    For informations about new feature in the 1.0 major release, see
    <xref linkend="release-xc-1-0">.
@@ -58,8 +236,8 @@
   </itemizedlist>
 
  </sect2>
-
  </sect1>
+
 
  <sect1 id="release-xc-1-0-2">
   <title>Release 1.0.2</title>
@@ -293,7 +471,7 @@
     <listitem>
      <para>
       Fixed to ignore automatically generated regression outputs specific
-      to Postgres-XC.
+      to Postgres-XC. 
       (Michael Paquier)
      </para>
     </listitem>
@@ -354,7 +532,7 @@
 
   <note>
    <title>Release Date</title>
-   <simpara>2012-09-??</simpara>
+   <simpara>2012-09-05</simpara>
   </note>
 
   <para>
@@ -695,7 +873,7 @@
    <para>
     <productname>Postgres-XC</> 1.0 is a symetric (multi-master, read and write-scalable)
     shared-nothing cluster based on PostgreSQL. This release version is based on
-    PostgreSQL 9.1. 
+    PostgreSQL 9.1.
    </para>
 
    <para>
@@ -751,7 +929,7 @@
    </para>
 
   <para>
-   The original overall architecture and design of <productname>Postgres-XC</> is by Koichi Suzuki, Mason Sharp, 
+   The original overall architecture and design of <productname>Postgres-XC</> is by Koichi Suzuki, Mason Sharp,
    Pavan Deolasee, Andrei Martsinchyk and Michael Paquier. Koichi Suzuki is the original project lead.
   </para>
 
@@ -878,10 +1056,10 @@
         <link linkend="SQL-DROPTSTEMPLATE"><command>DROP TEXT SEARCH TEMPLATE</></link>,
         <link linkend="SQL-CREATETYPE"><command>CREATE TYPE</></link>,
         <link linkend="SQL-ALTERTYPE"><command>ALTER TYPE</></link>,
-        <link linkend="SQL-DROPTYPE"><command>DROP TYPE</></link>, 
+        <link linkend="SQL-DROPTYPE"><command>DROP TYPE</></link>,
         <link linkend="SQL-CREATEUSER"><command>CREATE USER</></link>,
         <link linkend="SQL-ALTERUSER"><command>ALTER USER</></link>,
-        <link linkend="SQL-DROPUSER"><command>DROP USER</></link>, 
+        <link linkend="SQL-DROPUSER"><command>DROP USER</></link>,
         <link linkend="SQL-CREATEVIEW"><command>CREATE VIEW</></link>,
         <link linkend="SQL-ALTERVIEW"><command>ALTER VIEW</></link>,
         <link linkend="SQL-DROPVIEW"><command>DROP VIEW</></link>,
@@ -897,7 +1075,7 @@
        <para>
         <link linkend="SQL-ANALYZE"><command>ANALYZE</></link>,
         <link linkend="SQL-BEGIN"><command>BEGIN</></link>,
-        <link linkend="SQL-CHECKPOINT"><command>CHECKPOINT</></link>, 
+        <link linkend="SQL-CHECKPOINT"><command>CHECKPOINT</></link>,
         <link linkend="SQL-CLOSE"><command>CLOSE</></link>,
         <link linkend="SQL-CLUSTER"><command>CLUSTER</></link>,
         <link linkend="SQL-COMMENT"><command>COMMENT</></link>,
@@ -943,7 +1121,7 @@
 
       <listitem>
        <para>
-        HOT-Standby and streaming replication, working as in native <productname>PostgreSQL</>, 
+        HOT-Standby and streaming replication, working as in native <productname>PostgreSQL</>,
         at the Coordinator and Datanode level.
        </para>
       </listitem>
@@ -959,7 +1137,7 @@
        <para>
         <application>initdb</> (Michael Paquier): addition of a new mandatory option <option>
         --nodename=<replaceable class="parameter">nodename</replaceable></option> to specify
-        a node name when initializing it. This adds a parameter (pgxc_node_name) to the 
+        a node name when initializing it. This adds a parameter (pgxc_node_name) to the
         node's postgresql.conf file that the node uses to identify itself.
        </para>
       </listitem>
@@ -1054,7 +1232,7 @@
 
       <listitem>
        <para>
-        <command>INSERT SELECT</command> (Pavan Deolasee): extensions have 
+        <command>INSERT SELECT</command> (Pavan Deolasee): extensions have
         been done to manage that for all the table distribution types.
        </para>
       </listitem>
@@ -1069,7 +1247,7 @@
 
       <listitem>
        <para>
-        <command>EXPLAIN</command> (Andrei Martsinchyk, Ashutosh Bapat, Michael Paquier): Addition of options to 
+        <command>EXPLAIN</command> (Andrei Martsinchyk, Ashutosh Bapat, Michael Paquier): Addition of options to
         print the nodes involved in query, as well as extensions to print remote queries for remote node plans.
        </para>
       </listitem>
@@ -1389,7 +1567,7 @@
 
     <para>
      <link linkend="APP-GTM">GTM-Standby</link> is a solution that prevents GTM single point
-     of failure. (Koichi Suzuki) 
+     of failure. (Koichi Suzuki)
     </para>
 
     <itemizedlist>
