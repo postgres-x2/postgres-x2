@@ -456,6 +456,14 @@ SELECT lo_export(image.raster, '/tmp/motd') FROM image
     The client-side functions do not require superuser privilege.
   </para>
 
+  <para>
+    The functionality of <function>lo_read</function> and
+    <function>lo_write</function> is also available via server-side calls,
+    but the names of the server-side functions differ from the client side
+    interfaces in that they do not contain underscores.  You must call
+    these functions as <function>loread</> and <function>lowrite</>.
+  </para>
+
 </sect1>
 
 <sect1 id="lo-examplesect">

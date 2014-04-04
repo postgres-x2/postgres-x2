@@ -2985,7 +2985,7 @@ select * from sc_test() order by 1;
    sc_test   
 -------------
  -2147483647
-  2147483647
+     -123456
 (2 rows)
 
 create or replace function sc_test() returns setof integer as $$
@@ -3238,7 +3238,7 @@ begin
 end;
 $$ language plpgsql;
 select forc01();
-NOTICE:  3, 3
+NOTICE:  1, 1
 ERROR:  WHERE CURRENT OF clause not yet supported
 CONTEXT:  SQL statement "update forc_test set i = i * 100, j = r.j * 2 where current of c"
 PL/pgSQL function "forc01" line 7 at SQL statement
@@ -3273,7 +3273,7 @@ begin
 end;
 $$ language plpgsql;
 select forc01();
-NOTICE:  3, 3
+NOTICE:  1, 1
 ERROR:  WHERE CURRENT OF clause not yet supported
 CONTEXT:  SQL statement "update forc_test set i = i * 100, j = r.j * 2 where current of c"
 PL/pgSQL function "forc01" line 11 at SQL statement

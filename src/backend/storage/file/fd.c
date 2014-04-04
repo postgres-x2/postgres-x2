@@ -110,9 +110,15 @@ static int	max_safe_fds = 32;	/* default if not changed */
 /* Debugging.... */
 
 #ifdef FDDEBUG
-#define DO_DB(A) A
+#define DO_DB(A) \
+	do { \
+		int			_do_db_save_errno = errno; \
+		A; \
+		errno = _do_db_save_errno; \
+	} while (0)
 #else
-#define DO_DB(A)				/* A */
+#define DO_DB(A) \
+	((void) 0)
 #endif
 
 #define VFD_CLOSED (-1)
@@ -165,13 +171,7 @@ static int	nfile = 0;
 /*
  * List of stdio FILEs and <dirent.h> DIRs opened with AllocateFile
  * and AllocateDir.
- *
- * Since we don't want to encourage heavy use of AllocateFile or AllocateDir,
- * it seems OK to put a pretty small maximum limit on the number of
- * simultaneously allocated descs.
  */
-#define MAX_ALLOCATED_DESCS  32
-
 typedef enum
 {
 	AllocateDescFile,
@@ -181,16 +181,17 @@ typedef enum
 typedef struct
 {
 	AllocateDescKind kind;
+	SubTransactionId create_subid;
 	union
 	{
 		FILE	   *file;
 		DIR		   *dir;
 	}			desc;
-	SubTransactionId create_subid;
 } AllocateDesc;
 
 static int	numAllocatedDescs = 0;
-static AllocateDesc allocatedDescs[MAX_ALLOCATED_DESCS];
+static int	maxAllocatedDescs = 0;
+static AllocateDesc *allocatedDescs = NULL;
 
 /*
  * Number of temporary files opened during the current session;
@@ -216,6 +217,7 @@ static int	nextTempTableSpace = 0;
  * Insert		   - put a file at the front of the Lru ring
  * LruInsert	   - put a file at the front of the Lru ring and open it
  * ReleaseLruFile  - Release an fd by closing the last entry in the Lru ring
+ * ReleaseLruFiles - Release fd(s) until we're under the max_safe_fds limit
  * AllocateVfd	   - grab a free (or new) file record (from VfdArray)
  * FreeVfd		   - free a file record
  *
@@ -243,11 +245,14 @@ static void LruDelete(File file);
 static void Insert(File file);
 static int	LruInsert(File file);
 static bool ReleaseLruFile(void);
+static void ReleaseLruFiles(void);
 static File AllocateVfd(void);
 static void FreeVfd(File file);
 
 static int	FileAccess(File file);
 static File OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError);
+static bool reserveAllocatedDesc(void);
+static int	FreeDesc(AllocateDesc *desc);
 static void AtProcExit_Files(int code, Datum arg);
 static void CleanupTempFiles(bool isProcExit);
 static void RemovePgTempFilesInDir(const char *tmpdirname);
@@ -650,11 +655,8 @@ LruInsert(File file)
 
 	if (FileIsNotOpen(file))
 	{
-		while (nfile + numAllocatedDescs >= max_safe_fds)
-		{
-			if (!ReleaseLruFile())
-				break;
-		}
+		/* Close excess kernel FDs. */
+		ReleaseLruFiles();
 
 		/*
 		 * The open could still fail for lack of file descriptors, eg due to
@@ -666,7 +668,7 @@ LruInsert(File file)
 		if (vfdP->fd < 0)
 		{
 			DO_DB(elog(LOG, "RE_OPEN FAILED: %d", errno));
-			return vfdP->fd;
+			return -1;
 		}
 		else
 		{
@@ -693,6 +695,9 @@ LruInsert(File file)
 	return 0;
 }
 
+/*
+ * Release one kernel FD by closing the least-recently-used VFD.
+ */
 static bool
 ReleaseLruFile(void)
 {
@@ -711,13 +716,27 @@ ReleaseLruFile(void)
 	return false;				/* no files available to free */
 }
 
+/*
+ * Release kernel FDs as needed to get under the max_safe_fds limit.
+ * After calling this, it's OK to try to open another file.
+ */
+static void
+ReleaseLruFiles(void)
+{
+	while (nfile + numAllocatedDescs >= max_safe_fds)
+	{
+		if (!ReleaseLruFile())
+			break;
+	}
+}
+
 static File
 AllocateVfd(void)
 {
 	Index		i;
 	File		file;
 
-	DO_DB(elog(LOG, "AllocateVfd. Size %lu", SizeVfdCache));
+	DO_DB(elog(LOG, "AllocateVfd. Size %lu", (unsigned long) SizeVfdCache));
 
 	Assert(SizeVfdCache > 0);	/* InitFileAccess not called? */
 
@@ -864,18 +883,18 @@ PathNameOpenFile(FileName fileName, int fileFlags, int fileMode)
 	file = AllocateVfd();
 	vfdP = &VfdCache[file];
 
-	while (nfile + numAllocatedDescs >= max_safe_fds)
-	{
-		if (!ReleaseLruFile())
-			break;
-	}
+	/* Close excess kernel FDs. */
+	ReleaseLruFiles();
 
 	vfdP->fd = BasicOpenFile(fileName, fileFlags, fileMode);
 
 	if (vfdP->fd < 0)
 	{
+		int			save_errno = errno;
+
 		FreeVfd(file);
 		free(fnamecopy);
+		errno = save_errno;
 		return -1;
 	}
 	++nfile;
@@ -1402,6 +1421,66 @@ FilePathName(File file)
 
 
 /*
+ * Make room for another allocatedDescs[] array entry if needed and possible.
+ * Returns true if an array element is available.
+ */
+static bool
+reserveAllocatedDesc(void)
+{
+	AllocateDesc *newDescs;
+	int			newMax;
+
+	/* Quick out if array already has a free slot. */
+	if (numAllocatedDescs < maxAllocatedDescs)
+		return true;
+
+	/*
+	 * If the array hasn't yet been created in the current process, initialize
+	 * it with FD_MINFREE / 2 elements.  In many scenarios this is as many as
+	 * we will ever need, anyway.  We don't want to look at max_safe_fds
+	 * immediately because set_max_safe_fds() may not have run yet.
+	 */
+	if (allocatedDescs == NULL)
+	{
+		newMax = FD_MINFREE / 2;
+		newDescs = (AllocateDesc *) malloc(newMax * sizeof(AllocateDesc));
+		/* Out of memory already?  Treat as fatal error. */
+		if (newDescs == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+		allocatedDescs = newDescs;
+		maxAllocatedDescs = newMax;
+		return true;
+	}
+
+	/*
+	 * Consider enlarging the array beyond the initial allocation used above.
+	 * By the time this happens, max_safe_fds should be known accurately.
+	 *
+	 * We mustn't let allocated descriptors hog all the available FDs, and in
+	 * practice we'd better leave a reasonable number of FDs for VFD use.  So
+	 * set the maximum to max_safe_fds / 2.  (This should certainly be at
+	 * least as large as the initial size, FD_MINFREE / 2.)
+	 */
+	newMax = max_safe_fds / 2;
+	if (newMax > maxAllocatedDescs)
+	{
+		newDescs = (AllocateDesc *) realloc(allocatedDescs,
+											newMax * sizeof(AllocateDesc));
+		/* Treat out-of-memory as a non-fatal error. */
+		if (newDescs == NULL)
+			return false;
+		allocatedDescs = newDescs;
+		maxAllocatedDescs = newMax;
+		return true;
+	}
+
+	/* Can't enlarge allocatedDescs[] any more. */
+	return false;
+}
+
+/*
  * Routines that want to use stdio (ie, FILE*) should use AllocateFile
  * rather than plain fopen().  This lets fd.c deal with freeing FDs if
  * necessary to open the file.	When done, call FreeFile rather than fclose.
@@ -1426,16 +1505,15 @@ AllocateFile(const char *name, const char *mode)
 	DO_DB(elog(LOG, "AllocateFile: Allocated %d (%s)",
 			   numAllocatedDescs, name));
 
-	/*
-	 * The test against MAX_ALLOCATED_DESCS prevents us from overflowing
-	 * allocatedFiles[]; the test against max_safe_fds prevents AllocateFile
-	 * from hogging every one of the available FDs, which'd lead to infinite
-	 * looping.
-	 */
-	if (numAllocatedDescs >= MAX_ALLOCATED_DESCS ||
-		numAllocatedDescs >= max_safe_fds - 1)
-		elog(ERROR, "exceeded MAX_ALLOCATED_DESCS while trying to open file \"%s\"",
-			 name);
+	/* Can we allocate another non-virtual FD? */
+	if (!reserveAllocatedDesc())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("exceeded maxAllocatedDescs (%d) while trying to open file \"%s\"",
+						maxAllocatedDescs, name)));
+
+	/* Close excess kernel FDs. */
+	ReleaseLruFiles();
 
 TryAgain:
 	if ((file = fopen(name, mode)) != NULL)
@@ -1542,16 +1620,15 @@ AllocateDir(const char *dirname)
 	DO_DB(elog(LOG, "AllocateDir: Allocated %d (%s)",
 			   numAllocatedDescs, dirname));
 
-	/*
-	 * The test against MAX_ALLOCATED_DESCS prevents us from overflowing
-	 * allocatedDescs[]; the test against max_safe_fds prevents AllocateDir
-	 * from hogging every one of the available FDs, which'd lead to infinite
-	 * looping.
-	 */
-	if (numAllocatedDescs >= MAX_ALLOCATED_DESCS ||
-		numAllocatedDescs >= max_safe_fds - 1)
-		elog(ERROR, "exceeded MAX_ALLOCATED_DESCS while trying to open directory \"%s\"",
-			 dirname);
+	/* Can we allocate another non-virtual FD? */
+	if (!reserveAllocatedDesc())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("exceeded maxAllocatedDescs (%d) while trying to open directory \"%s\"",
+						maxAllocatedDescs, dirname)));
+
+	/* Close excess kernel FDs. */
+	ReleaseLruFiles();
 
 TryAgain:
 	if ((dir = opendir(dirname)) != NULL)

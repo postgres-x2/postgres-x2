@@ -1955,7 +1955,7 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 	 */
 	platform_expectfile = get_expectfile(testname, resultsfile);
 
-	strcpy(expectfile, default_expectfile);
+	strlcpy(expectfile, default_expectfile, sizeof(expectfile));
 	if (platform_expectfile)
 	{
 		/*
@@ -2010,7 +2010,7 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 		{
 			/* This diff was a better match than the last one */
 			best_line_count = l;
-			strcpy(best_expect_file, alt_expectfile);
+			strlcpy(best_expect_file, alt_expectfile, sizeof(best_expect_file));
 		}
 		free(alt_expectfile);
 	}
@@ -2038,7 +2038,7 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 		{
 			/* This diff was a better match than the last one */
 			best_line_count = l;
-			strcpy(best_expect_file, default_expectfile);
+			strlcpy(best_expect_file, default_expectfile, sizeof(best_expect_file));
 		}
 	}
 

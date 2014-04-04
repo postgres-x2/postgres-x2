@@ -1183,7 +1183,7 @@ ERROR:  Unique index of partitioned table must contain the hash/modulo distribut
 --
 -- Unfortunately this only tests about half the code paths because there are
 -- no concurrent updates happening to the table at the same time.
-CREATE TABLE concur_heap (f1 text, f2 text);
+CREATE TABLE concur_heap (f1 text, f2 text) DISTRIBUTE BY REPLICATION;
 -- empty table
 CREATE INDEX CONCURRENTLY concur_index1 ON concur_heap(f2,f1);
 ERROR:  PGXC does not support concurrent INDEX yet
@@ -1221,9 +1221,21 @@ COMMIT;
 BEGIN;
 CREATE INDEX std_index on concur_heap(f2);
 COMMIT;
--- check to make sure that the failed indexes were cleaned up properly and the
--- successful indexes are created properly. Notably that they do NOT have the
--- "invalid" flag set.
+-- Failed builds are left invalid by VACUUM FULL, fixed by REINDEX
+VACUUM FULL concur_heap;
+REINDEX TABLE concur_heap;
+DELETE FROM concur_heap WHERE f1 = 'b';
+VACUUM FULL concur_heap;
+\d concur_heap
+Table "public.concur_heap"
+ Column | Type | Modifiers 
+--------+------+-----------
+ f1     | text | 
+ f2     | text | 
+Indexes:
+    "std_index" btree (f2)
+
+REINDEX TABLE concur_heap;
 \d concur_heap
 Table "public.concur_heap"
  Column | Type | Modifiers 

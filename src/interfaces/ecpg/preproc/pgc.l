@@ -1314,7 +1314,7 @@ parse_include(void)
 		yytext[i] = '\0';
 		memmove(yytext, yytext+1, strlen(yytext));
 
-		strncpy(inc_file, yytext, sizeof(inc_file));
+		strlcpy(inc_file, yytext, sizeof(inc_file));
 		yyin = fopen(inc_file, "r");
 		if (!yyin)
 		{
@@ -1354,6 +1354,7 @@ parse_include(void)
 			/* if the command was "include_next" we have to disregard the first hit */
 			if (yyin && include_next)
 			{
+				fclose (yyin);
 				yyin = NULL;
 				include_next = false;
 			}

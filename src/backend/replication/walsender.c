@@ -22,7 +22,8 @@
  * If the server is shut down, postmaster sends us SIGUSR2 after all
  * regular backends have exited and the shutdown checkpoint has been written.
  * This instruct walsender to send any outstanding WAL, including the
- * shutdown checkpoint record, and then exit.
+ * shutdown checkpoint record, wait for it to be replicated to the standby,
+ * and then exit.
  *
  *
  * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
@@ -767,15 +768,28 @@ WalSndLoop(void)
 
 			/*
 			 * When SIGUSR2 arrives, we send any outstanding logs up to the
-			 * shutdown checkpoint record (i.e., the latest record) and exit.
+			 * shutdown checkpoint record (i.e., the latest record), wait
+			 * for them to be replicated to the standby, and exit.
 			 * This may be a normal termination at shutdown, or a promotion,
 			 * the walsender is not sure which.
 			 */
 			if (walsender_ready_to_stop)
 			{
+				XLogRecPtr	replicatedPtr;
+
 				/* ... let's just be real sure we're caught up ... */
 				XLogSend(output_message, &caughtup);
-				if (caughtup && !pq_is_send_pending())
+
+				/*
+				 * Check a write location to see whether all the WAL have
+				 * successfully been replicated if this walsender is connecting
+				 * to a standby such as pg_receivexlog which always returns
+				 * an invalid flush location. Otherwise, check a flush location.
+				 */
+				replicatedPtr = XLogRecPtrIsInvalid(MyWalSnd->flush) ?
+					MyWalSnd->write : MyWalSnd->flush;
+				if (caughtup && XLByteEQ(sentPtr, replicatedPtr) &&
+					!pq_is_send_pending())
 				{
 					walsender_shutdown_requested = true;
 					continue;		/* don't want to wait more */
@@ -917,17 +931,23 @@ InitWalSnd(void)
 static void
 WalSndKill(int code, Datum arg)
 {
-	Assert(MyWalSnd != NULL);
+	WalSnd	   *walsnd = MyWalSnd;
+
+	Assert(walsnd != NULL);
+
+	/*
+	 * Clear MyWalSnd first; then disown the latch.  This is so that signal
+	 * handlers won't try to touch the latch after it's no longer ours.
+	 */
+	MyWalSnd = NULL;
+
+	DisownLatch(&walsnd->latch);
 
 	/*
 	 * Mark WalSnd struct no longer in use. Assume that no lock is required
 	 * for this.
 	 */
-	MyWalSnd->pid = 0;
-	DisownLatch(&MyWalSnd->latch);
-
-	/* WalSnd struct isn't mine anymore */
-	MyWalSnd = NULL;
+	walsnd->pid = 0;
 }
 
 /*

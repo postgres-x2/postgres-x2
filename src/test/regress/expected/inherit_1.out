@@ -1420,7 +1420,7 @@ insert into matest2 (name) values ('Test 4');
 insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
-explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
+explain (verbose, costs off, nodes off, num_nodes off) select * from matest0 order by 1-id;
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------
  Sort
@@ -1453,6 +1453,32 @@ select * from matest0 order by 1-id;
   2 | Test 2
   1 | Test 1
 (6 rows)
+
+explain (verbose, costs off, nodes off, num_nodes off) select min(1-id) from matest0;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Aggregate
+   Output: min((1 - public.matest0.id))
+   ->  Append
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest1 matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest2 matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest3 matest0 WHERE true
+(15 rows)
+
+select min(1-id) from matest0;
+ min 
+-----
+  -5
+(1 row)
 
 reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
@@ -1489,6 +1515,32 @@ select * from matest0 order by 1-id;
   2 | Test 2
   1 | Test 1
 (6 rows)
+
+explain (verbose, costs off, nodes off, num_nodes off) select min(1-id) from matest0;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Aggregate
+   Output: min((1 - public.matest0.id))
+   ->  Append
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest1 matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest2 matest0 WHERE true
+         ->  Data Node Scan on matest0
+               Output: public.matest0.id
+               Remote query: SELECT id FROM ONLY matest3 matest0 WHERE true
+(15 rows)
+
+select min(1-id) from matest0;
+ min 
+-----
+  -5
+(1 row)
 
 reset enable_seqscan;
 drop table matest0 cascade;

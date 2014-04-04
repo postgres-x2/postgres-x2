@@ -3273,7 +3273,7 @@ begin
 end;
 $$ language plpgsql;
 select forc01();
-NOTICE:  1, 1
+NOTICE:  3, 3
 ERROR:  WHERE CURRENT OF clause not yet supported
 CONTEXT:  SQL statement "update forc_test set i = i * 100, j = r.j * 2 where current of c"
 PL/pgSQL function "forc01" line 11 at SQL statement

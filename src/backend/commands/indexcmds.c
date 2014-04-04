@@ -81,7 +81,8 @@ static char *ChooseIndexNameAddition(List *colnames);
  * DefineIndex
  *		Creates a new index.
  *
- * 'heapRelation': the relation the index will apply to.
+ * 'relationId': the OID of the heap relation on which the index is to be
+ *		created
  * 'indexRelationName': the name for the new index, or NULL to indicate
  *		that a nonconflicting default name should be picked.
  * 'indexRelationId': normally InvalidOid, but during bootstrap can be
@@ -110,7 +111,7 @@ static char *ChooseIndexNameAddition(List *colnames);
  * 'concurrent': avoid blocking writers to the table while building.
  */
 void
-DefineIndex(RangeVar *heapRelation,
+DefineIndex(Oid relationId,
 			char *indexRelationName,
 			Oid indexRelationId,
 			char *accessMethodName,
@@ -133,7 +134,6 @@ DefineIndex(RangeVar *heapRelation,
 	Oid		   *collationObjectId;
 	Oid		   *classObjectId;
 	Oid			accessMethodId;
-	Oid			relationId;
 	Oid			namespaceId;
 	Oid			tablespaceId;
 	List	   *indexColNames;
@@ -147,11 +147,13 @@ DefineIndex(RangeVar *heapRelation,
 	int16	   *coloptions;
 	IndexInfo  *indexInfo;
 	int			numberOfAttributes;
+	TransactionId limitXmin;
 	VirtualTransactionId *old_lockholders;
 	VirtualTransactionId *old_snapshots;
 	int			n_old_snapshots;
 	LockRelId	heaprelid;
 	LOCKTAG		heaplocktag;
+	LOCKMODE	lockmode;
 	Snapshot	snapshot;
 	int			i;
 
@@ -170,14 +172,18 @@ DefineIndex(RangeVar *heapRelation,
 						INDEX_MAX_KEYS)));
 
 	/*
-	 * Open heap relation, acquire a suitable lock on it, remember its OID
-	 *
 	 * Only SELECT ... FOR UPDATE/SHARE are allowed while doing a standard
 	 * index build; but for concurrent builds we allow INSERT/UPDATE/DELETE
 	 * (but not VACUUM).
+	 *
+	 * NB: Caller is responsible for making sure that relationId refers
+	 * to the relation on which the index should be built; except in bootstrap
+	 * mode, this will typically require the caller to have already locked
+	 * the relation.  To avoid lock upgrade hazards, that lock should be at
+	 * least as strong as the one we take here.
 	 */
-	rel = heap_openrv(heapRelation,
-					  (concurrent ? ShareUpdateExclusiveLock : ShareLock));
+	lockmode = concurrent ? ShareUpdateExclusiveLock : ShareLock;
+	rel = heap_open(relationId, lockmode);
 
 	relationId = RelationGetRelid(rel);
 	namespaceId = RelationGetNamespace(rel);
@@ -195,12 +201,12 @@ DefineIndex(RangeVar *heapRelation,
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("cannot create index on foreign table \"%s\"",
-							heapRelation->relname)));
+							RelationGetRelationName(rel))));
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("\"%s\" is not a table",
-							heapRelation->relname)));
+							RelationGetRelationName(rel))));
 	}
 
 	/*
@@ -531,7 +537,7 @@ DefineIndex(RangeVar *heapRelation,
 	 */
 
 	/* Open and lock the parent heap relation */
-	rel = heap_openrv(heapRelation, ShareUpdateExclusiveLock);
+	rel = heap_open(relationId, ShareUpdateExclusiveLock);
 
 	/* And the target index relation */
 	indexRelation = index_open(indexRelationId, RowExclusiveLock);
@@ -606,6 +612,18 @@ DefineIndex(RangeVar *heapRelation,
 	validate_index(relationId, indexRelationId, snapshot);
 
 	/*
+	 * Drop the reference snapshot.  We must do this before waiting out other
+	 * snapshot holders, else we will deadlock against other processes also
+	 * doing CREATE INDEX CONCURRENTLY, which would see our snapshot as one
+	 * they must wait for.  But first, save the snapshot's xmin to use as
+	 * limitXmin for GetCurrentVirtualXIDs().
+	 */
+	limitXmin = snapshot->xmin;
+
+	PopActiveSnapshot();
+	UnregisterSnapshot(snapshot);
+
+	/*
 	 * The index is now valid in the sense that it contains all currently
 	 * interesting tuples.	But since it might not contain tuples deleted just
 	 * before the reference snap was taken, we have to wait out any
@@ -637,7 +655,7 @@ DefineIndex(RangeVar *heapRelation,
 	 * GetCurrentVirtualXIDs.  If, during any iteration, a particular vxid
 	 * doesn't show up in the output, we know we can forget about it.
 	 */
-	old_snapshots = GetCurrentVirtualXIDs(snapshot->xmin, true, false,
+	old_snapshots = GetCurrentVirtualXIDs(limitXmin, true, false,
 										  PROC_IS_AUTOVACUUM | PROC_IN_VACUUM,
 										  &n_old_snapshots);
 
@@ -654,7 +672,7 @@ DefineIndex(RangeVar *heapRelation,
 			int			j;
 			int			k;
 
-			newer_snapshots = GetCurrentVirtualXIDs(snapshot->xmin,
+			newer_snapshots = GetCurrentVirtualXIDs(limitXmin,
 													true, false,
 										 PROC_IS_AUTOVACUUM | PROC_IN_VACUUM,
 													&n_newer_snapshots);
@@ -692,12 +710,6 @@ DefineIndex(RangeVar *heapRelation,
 	 * to replan; so relcache flush on the index itself was sufficient.)
 	 */
 	CacheInvalidateRelcacheByRelid(heaprelid.relId);
-
-	/* we can now do away with our active snapshot */
-	PopActiveSnapshot();
-
-	/* And we can remove the validating snapshot too */
-	UnregisterSnapshot(snapshot);
 
 	/*
 	 * Last thing to do is release the session-level lock on the parent table.
@@ -1575,7 +1587,9 @@ ReindexTable(RangeVar *relation)
 
 	ReleaseSysCache(tuple);
 
-	if (!reindex_relation(heapOid, REINDEX_REL_PROCESS_TOAST))
+	if (!reindex_relation(heapOid,
+						  REINDEX_REL_PROCESS_TOAST |
+						  REINDEX_REL_CHECK_CONSTRAINTS))
 		ereport(NOTICE,
 				(errmsg("table \"%s\" has no indexes",
 						relation->relname)));
@@ -1688,7 +1702,9 @@ ReindexDatabase(const char *databaseName, bool do_system, bool do_user)
 		StartTransactionCommand();
 		/* functions in indexes may want a snapshot set */
 		PushActiveSnapshot(GetTransactionSnapshot());
-		if (reindex_relation(relid, REINDEX_REL_PROCESS_TOAST))
+		if (reindex_relation(relid,
+							 REINDEX_REL_PROCESS_TOAST |
+							 REINDEX_REL_CHECK_CONSTRAINTS))
 			ereport(NOTICE,
 					(errmsg("table \"%s.%s\" was reindexed",
 							get_namespace_name(get_rel_namespace(relid)),

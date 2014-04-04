@@ -303,6 +303,16 @@ static char *setlocale_perl(int category, char *locale);
 static char *
 hek2cstr(HE *he)
 {
+	char *ret;
+	SV	 *sv;
+
+	/*
+	 * HeSVKEY_force will return a temporary mortal SV*, so we need to make
+	 * sure to free it with ENTER/SAVE/FREE/LEAVE
+	 */
+	ENTER;
+	SAVETMPS;
+
 	/*-------------------------
 	 * Unfortunately,  while HeUTF8 is true for most things > 256, for values
 	 * 128..255 it's not, but perl will treat them as unicode code points if
@@ -327,11 +337,17 @@ hek2cstr(HE *he)
 	 * right thing
 	 *-------------------------
 	 */
-	SV		   *sv = HeSVKEY_force(he);
 
+	sv = HeSVKEY_force(he);
 	if (HeUTF8(he))
 		SvUTF8_on(sv);
-	return sv2cstr(sv);
+	ret = sv2cstr(sv);
+
+	/* free sv */
+	FREETMPS;
+	LEAVE;
+
+	return ret;
 }
 
 /*
@@ -1846,6 +1862,9 @@ plperl_validator(PG_FUNCTION_ARGS)
 	bool		istrigger = false;
 	int			i;
 
+	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
+		PG_RETURN_VOID();
+
 	/* Get the new function's pg_proc entry */
 	tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcoid));
 	if (!HeapTupleIsValid(tuple))
@@ -1925,6 +1944,7 @@ PG_FUNCTION_INFO_V1(plperlu_validator);
 Datum
 plperlu_validator(PG_FUNCTION_ARGS)
 {
+	/* call plperl validator with our fcinfo so it gets our oid */
 	return plperl_validator(fcinfo);
 }
 

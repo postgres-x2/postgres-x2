@@ -286,6 +286,13 @@ AS $$ SELECT a, b
 SELECT * FROM foo(3) ORDER BY 1, 2;
 DROP FUNCTION foo(int);
 
+-- case that causes change of typmod knowledge during inlining
+CREATE OR REPLACE FUNCTION foo()
+RETURNS TABLE(a varchar(5))
+AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE;
+SELECT * FROM foo() GROUP BY 1;
+DROP FUNCTION foo();
+
 --
 -- some tests on SQL functions with RETURNING
 --
@@ -448,3 +455,12 @@ $$ select (1, 2.1, 3) $$ language sql;
 select * from foobar();  -- fail
 
 drop function foobar();
+
+-- check behavior when a function's input sometimes returns a set (bug #8228)
+
+SELECT *,
+  lower(CASE WHEN id = 2 THEN (regexp_matches(str, '^0*([1-9]\d+)$'))[1]
+        ELSE str
+        END)
+FROM
+  (VALUES (1,''), (2,'0000000049404'), (3,'FROM 10000000876')) v(id, str);

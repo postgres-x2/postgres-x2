@@ -837,18 +837,16 @@ flatten_join_alias_vars_mutator(Node *node,
 				newvar = (Node *) lfirst(l);
 				attnum++;
 				/* Ignore dropped columns */
-				if (IsA(newvar, Const))
+				if (newvar == NULL)
 					continue;
+				newvar = copyObject(newvar);
 
 				/*
 				 * If we are expanding an alias carried down from an upper
 				 * query, must adjust its varlevelsup fields.
 				 */
 				if (context->sublevels_up != 0)
-				{
-					newvar = copyObject(newvar);
 					IncrementVarSublevelsUp(newvar, context->sublevels_up, 0);
-				}
 				/* Recurse in case join input is itself a join */
 				/* (also takes care of setting inserted_sublink if needed) */
 				newvar = flatten_join_alias_vars_mutator(newvar, context);
@@ -867,16 +865,15 @@ flatten_join_alias_vars_mutator(Node *node,
 		/* Expand join alias reference */
 		Assert(var->varattno > 0);
 		newvar = (Node *) list_nth(rte->joinaliasvars, var->varattno - 1);
+		Assert(newvar != NULL);
+		newvar = copyObject(newvar);
 
 		/*
 		 * If we are expanding an alias carried down from an upper query, must
 		 * adjust its varlevelsup fields.
 		 */
 		if (context->sublevels_up != 0)
-		{
-			newvar = copyObject(newvar);
 			IncrementVarSublevelsUp(newvar, context->sublevels_up, 0);
-		}
 
 		/* Recurse in case join input is itself a join */
 		newvar = flatten_join_alias_vars_mutator(newvar, context);

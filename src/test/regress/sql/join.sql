@@ -366,8 +366,6 @@ ORDER BY x1, x2, y1, y2;
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
-analyze tenk1;		-- ensure we get consistent plans here
-
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -735,7 +733,7 @@ select * from int4_tbl a full join int4_tbl b on false order by 1,2;
 -- test handling of potential equivalence clauses above outer joins
 --
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
   where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123);
@@ -744,7 +742,7 @@ select q1, unique2, thousand, hundred
   from int8_tbl a left join tenk1 b on q1 = unique2
   where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123);
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
   where (case when unique2 is null then f1 else 0 end) = 0;
@@ -752,15 +750,46 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
   where (case when unique2 is null then f1 else 0 end) = 0;
+
+--
+-- check handling of join aliases when flattening multiple levels of subquery
+--
+
+explain (verbose, costs off, nodes off, num_nodes off)
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
 
 --
 -- test ability to push constants through outer join clauses
 --
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from int4_tbl a left join tenk1 b on f1 = unique2 where f1 = 0;
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from tenk1 a full join tenk1 b using(unique2) where unique2 = 42;
 
 --
@@ -777,14 +806,14 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 
 -- all three cases should be optimizable into a simple seqscan
-explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
-explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
+explain (verbose true, costs false, nodes false, num_nodes off) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
+explain (verbose true, costs false, nodes false, num_nodes off)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
 
 -- check optimization of outer join within another special join
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
@@ -798,14 +827,14 @@ insert into child values (1, 100), (4, 400);
 
 -- this case is optimizable
 select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
   on (p.k = ss.k) order by p.k;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
@@ -814,7 +843,7 @@ explain (verbose true, costs false, nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
@@ -822,7 +851,7 @@ select p.* from
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes off)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;

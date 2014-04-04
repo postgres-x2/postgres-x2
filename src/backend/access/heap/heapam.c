@@ -1599,6 +1599,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		heapTuple.t_xc_node_id = PGXCNodeIdentifier;
 #endif
 		heapTuple.t_self = *tid;
+		ItemPointerSetOffsetNumber(&heapTuple.t_self, offnum);
 
 		/*
 		 * Shouldn't see a HEAP_ONLY tuple at chain start.
