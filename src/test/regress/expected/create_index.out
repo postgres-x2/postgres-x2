@@ -2144,9 +2144,13 @@ COMMIT;
 BEGIN;
 CREATE INDEX std_index on concur_heap(f2);
 COMMIT;
--- check to make sure that the failed indexes were cleaned up properly and the
--- successful indexes are created properly. Notably that they do NOT have the
--- "invalid" flag set.
+-- Failed builds are left invalid by VACUUM FULL, fixed by REINDEX
+VACUUM FULL concur_heap;
+REINDEX TABLE concur_heap;
+ERROR:  could not create unique index "concur_index3"
+DETAIL:  Key (f2)=(b) is duplicated.
+DELETE FROM concur_heap WHERE f1 = 'b';
+VACUUM FULL concur_heap;
 \d concur_heap
 Table "public.concur_heap"
  Column | Type | Modifiers 
@@ -2154,6 +2158,22 @@ Table "public.concur_heap"
  f1     | text | 
  f2     | text | 
 Indexes:
+    "std_index" btree (f2)
+
+REINDEX TABLE concur_heap;
+\d concur_heap
+Table "public.concur_heap"
+ Column | Type | Modifiers 
+--------+------+-----------
+ f1     | text | 
+ f2     | text | 
+Indexes:
+    "concur_index2" UNIQUE, btree (f1)
+    "concur_index3" UNIQUE, btree (f2)
+    "concur_heap_expr_idx" btree ((f2 || f1))
+    "concur_index1" btree (f2, f1)
+    "concur_index4" btree (f2) WHERE f1 = 'a'::text
+    "concur_index5" btree (f2) WHERE f1 = 'x'::text
     "std_index" btree (f2)
 
 --
@@ -2489,15 +2509,27 @@ CREATE INDEX dupindexcols_i ON dupindexcols (f1, id, f1 text_pattern_ops);
 ANALYZE dupindexcols;
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
   SELECT count(*) FROM dupindexcols
+<<<<<<< HEAD
     WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
                     QUERY PLAN                    
 --------------------------------------------------
  Aggregate
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
 (2 rows)
+=======
+    WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Bitmap Heap Scan on dupindexcols
+         Recheck Cond: ((f1 >= 'WA'::text) AND (f1 <= 'ZZZ'::text) AND (id < 1000) AND (f1 ~<~ 'YX'::text))
+         ->  Bitmap Index Scan on dupindexcols_i
+               Index Cond: ((f1 >= 'WA'::text) AND (f1 <= 'ZZZ'::text) AND (id < 1000) AND (f1 ~<~ 'YX'::text))
+(5 rows)
+>>>>>>> REL9_2_8
 
 SELECT count(*) FROM dupindexcols
-  WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
+  WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
  count 
 -------
     97
@@ -2506,8 +2538,13 @@ SELECT count(*) FROM dupindexcols
 --
 -- Check ordering of =ANY indexqual results (bug in 9.2.0)
 --
+<<<<<<< HEAD
 vacuum analyze tenk1;		-- ensure we get consistent plans here
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
+=======
+vacuum tenk1;		-- ensure we get consistent plans here
+explain (costs off)
+>>>>>>> REL9_2_8
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
 ORDER BY unique1;

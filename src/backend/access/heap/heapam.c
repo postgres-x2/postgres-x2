@@ -1571,6 +1571,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 	at_chain_start = first_call;
 	skip = !first_call;
 
+	heapTuple->t_self = *tid;
+
 	/* Scan through possible multiple members of HOT-chain */
 	for (;;)
 	{
@@ -1603,7 +1605,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 #ifdef PGXC
 		heapTuple->t_xc_node_id = PGXCNodeIdentifier;
 #endif
-		heapTuple->t_self = *tid;
+		ItemPointerSetOffsetNumber(&heapTuple->t_self, offnum);
 
 		/*
 		 * Shouldn't see a HEAP_ONLY tuple at chain start.
@@ -4529,10 +4531,9 @@ log_heap_update(Relation reln, Buffer oldbuf, ItemPointerData from,
  * Perform XLogInsert of a HEAP_NEWPAGE record to WAL. Caller is responsible
  * for writing the page to disk after calling this routine.
  *
- * Note: all current callers build pages in private memory and write them
- * directly to smgr, rather than using bufmgr.	Therefore there is no need
- * to pass a buffer ID to XLogInsert, nor to perform MarkBufferDirty within
- * the critical section.
+ * Note: If you're using this function, you should be building pages in private
+ * memory and writing them directly to smgr.  If you're using buffers, call
+ * log_newpage_buffer instead.
  *
  * Note: the NEWPAGE log record is used for both heaps and indexes, so do
  * not do anything that assumes we are touching a heap.
@@ -4575,6 +4576,53 @@ log_newpage(RelFileNode *rnode, ForkNumber forkNum, BlockNumber blkno,
 	}
 
 	END_CRIT_SECTION();
+
+	return recptr;
+}
+
+/*
+ * Perform XLogInsert of a HEAP_NEWPAGE record to WAL.
+ *
+ * Caller should initialize the buffer and mark it dirty before calling this
+ * function.  This function will set the page LSN and TLI.
+ *
+ * Note: the NEWPAGE log record is used for both heaps and indexes, so do
+ * not do anything that assumes we are touching a heap.
+ */
+XLogRecPtr
+log_newpage_buffer(Buffer buffer)
+{
+	xl_heap_newpage xlrec;
+	XLogRecPtr	recptr;
+	XLogRecData rdata[2];
+	Page		page = BufferGetPage(buffer);
+
+	/* We should be in a critical section. */
+	Assert(CritSectionCount > 0);
+
+	BufferGetTag(buffer, &xlrec.node, &xlrec.forknum, &xlrec.blkno);
+
+	rdata[0].data = (char *) &xlrec;
+	rdata[0].len = SizeOfHeapNewpage;
+	rdata[0].buffer = InvalidBuffer;
+	rdata[0].next = &(rdata[1]);
+
+	rdata[1].data = page;
+	rdata[1].len = BLCKSZ;
+	rdata[1].buffer = InvalidBuffer;
+	rdata[1].next = NULL;
+
+	recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_NEWPAGE, rdata);
+
+	/*
+	 * The page may be uninitialized. If so, we can't set the LSN and TLI
+	 * because that would corrupt the page.
+	 */
+	if (!PageIsNew(page))
+	{
+		PageSetLSN(page, recptr);
+		PageSetTLI(page, ThisTimeLineID);
+	}
 
 	return recptr;
 }

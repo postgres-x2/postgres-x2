@@ -2165,7 +2165,6 @@ ORDER BY x1, x2, y1, y2;
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
-analyze tenk1;		-- ensure we get consistent plans here
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -2873,6 +2872,36 @@ select b.unique1 from
         
 (5 rows)
 
+explain (costs off, nodes off, num_nodes off)
+select * from
+(
+  select unique1, q1, coalesce(unique1, -1) + q1 as fault
+  from int8_tbl left join tenk1 on (q2 = unique2)
+) ss
+where fault = 122
+order by fault;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Hash Left Join
+   Hash Cond: (int8_tbl.q2 = tenk1.unique2)
+   Filter: ((COALESCE(tenk1.unique1, (-1)) + int8_tbl.q1) = 122)
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(6 rows)
+
+select * from
+(
+  select unique1, q1, coalesce(unique1, -1) + q1 as fault
+  from int8_tbl left join tenk1 on (q2 = unique2)
+) ss
+where fault = 122
+order by fault;
+ unique1 | q1  | fault 
+---------+-----+-------
+         | 123 |   122
+(1 row)
+
 --
 -- test handling of potential equivalence clauses above outer joins
 --
@@ -2918,6 +2947,89 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 ----+---------+------
   0 |       0 |    0
 (1 row)
+
+--
+-- another case with equivalence clauses above outer joins (bug #8591)
+--
+explain (costs off, nodes off, num_nodes off)
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Nested Loop Left Join
+   Join Filter: (c.unique2 = COALESCE(b.twothousand, a.twothousand))
+   ->  Hash Right Join
+         Hash Cond: (b.thousand = a.unique1)
+         Filter: (COALESCE(b.twothousand, a.twothousand) = 44)
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+         ->  Hash
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+(9 rows)
+
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+ unique1 | unique1 | unique1 | coalesce 
+---------+---------+---------+----------
+(0 rows)
+
+--
+-- check handling of join aliases when flattening multiple levels of subquery
+--
+explain (verbose, costs off, nodes off, num_nodes off)
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Hash Right Join
+   Output: "*VALUES*".column1, i1.f1, (666)
+   Hash Cond: (i1.f1 = "*VALUES*".column1)
+   ->  Hash Left Join
+         Output: i1.f1, 666
+         Hash Cond: (i1.f1 = i2.unique2)
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+               Output: i1.f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl i1 WHERE true
+         ->  Hash
+               Output: i2.unique2
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+                     Output: i2.unique2
+                     Remote query: SELECT unique2 FROM ONLY public.tenk1 i2 WHERE true
+   ->  Hash
+         Output: "*VALUES*".column1
+         ->  Values Scan on "*VALUES*"
+               Output: "*VALUES*".column1
+(18 rows)
+
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+ foo1_id | foo3_id | bug_field 
+---------+---------+-----------
+       0 |       0 |       666
+       1 |         |          
+(2 rows)
 
 --
 -- test ability to push constants through outer join clauses

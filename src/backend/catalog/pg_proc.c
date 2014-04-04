@@ -667,24 +667,34 @@ ProcedureCreate(const char *procedureName,
 	/* Verify function body */
 	if (OidIsValid(languageValidator))
 	{
-		ArrayType  *set_items;
-		int			save_nestlevel;
+		ArrayType  *set_items = NULL;
+		int			save_nestlevel = 0;
 
 		/* Advance command counter so new tuple can be seen by validator */
 		CommandCounterIncrement();
 
-		/* Set per-function configuration parameters */
-		set_items = (ArrayType *) DatumGetPointer(proconfig);
-		if (set_items)			/* Need a new GUC nesting level */
+		/*
+		 * Set per-function configuration parameters so that the validation is
+		 * done with the environment the function expects.	However, if
+		 * check_function_bodies is off, we don't do this, because that would
+		 * create dump ordering hazards that pg_dump doesn't know how to deal
+		 * with.  (For example, a SET clause might refer to a not-yet-created
+		 * text search configuration.)	This means that the validator
+		 * shouldn't complain about anything that might depend on a GUC
+		 * parameter when check_function_bodies is off.
+		 */
+		if (check_function_bodies)
 		{
-			save_nestlevel = NewGUCNestLevel();
-			ProcessGUCArray(set_items,
-							(superuser() ? PGC_SUSET : PGC_USERSET),
-							PGC_S_SESSION,
-							GUC_ACTION_SAVE);
+			set_items = (ArrayType *) DatumGetPointer(proconfig);
+			if (set_items)		/* Need a new GUC nesting level */
+			{
+				save_nestlevel = NewGUCNestLevel();
+				ProcessGUCArray(set_items,
+								(superuser() ? PGC_SUSET : PGC_USERSET),
+								PGC_S_SESSION,
+								GUC_ACTION_SAVE);
+			}
 		}
-		else
-			save_nestlevel = 0; /* keep compiler quiet */
 
 		OidFunctionCall1(languageValidator, ObjectIdGetDatum(retval));
 
@@ -711,6 +721,9 @@ fmgr_internal_validator(PG_FUNCTION_ARGS)
 	bool		isnull;
 	Datum		tmp;
 	char	   *prosrc;
+
+	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
+		PG_RETURN_VOID();
 
 	/*
 	 * We do not honor check_function_bodies since it's unlikely the function
@@ -756,6 +769,9 @@ fmgr_c_validator(PG_FUNCTION_ARGS)
 	Datum		tmp;
 	char	   *prosrc;
 	char	   *probin;
+
+	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
+		PG_RETURN_VOID();
 
 	/*
 	 * It'd be most consistent to skip the check if !check_function_bodies,
@@ -807,6 +823,9 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 	ErrorContextCallback sqlerrcontext;
 	bool		haspolyarg;
 	int			i;
+
+	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
+		PG_RETURN_VOID();
 
 	tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcoid));
 	if (!HeapTupleIsValid(tuple))

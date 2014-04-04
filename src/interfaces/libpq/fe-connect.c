@@ -220,7 +220,7 @@ static const PQconninfoOption PQconninfoOptions[] = {
 	 * to exclude them since none of them are mandatory.
 	 */
 	{"sslmode", "PGSSLMODE", DefaultSSLMode, NULL,
-	"SSL-Mode", "", 8},			/* sizeof("disable") == 8 */
+	"SSL-Mode", "", 12},			/* sizeof("verify-full") == 12 */
 
 	{"sslcompression", "PGSSLCOMPRESSION", "1", NULL,
 	"SSL-Compression", "", 1},
@@ -1779,9 +1779,10 @@ keep_going:						/* We will come back to here until there is
 								addr_cur->ai_addrlen) < 0)
 					{
 						if (SOCK_ERRNO == EINPROGRESS ||
+#ifdef WIN32
 							SOCK_ERRNO == EWOULDBLOCK ||
-							SOCK_ERRNO == EINTR ||
-							SOCK_ERRNO == 0)
+#endif
+							SOCK_ERRNO == EINTR)
 						{
 							/*
 							 * This is fine - we're in non-blocking mode, and
@@ -5147,7 +5148,16 @@ PQhost(const PGconn *conn)
 {
 	if (!conn)
 		return NULL;
-	return conn->pghost ? conn->pghost : conn->pgunixsocket;
+	if (conn->pghost != NULL && conn->pghost[0] != '\0')
+		return conn->pghost;
+	else
+	{
+#ifdef HAVE_UNIX_SOCKETS
+		return conn->pgunixsocket;
+#else
+		return DefaultHost;
+#endif
+	}
 }
 
 char *

@@ -512,7 +512,7 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 	 * Get the pg_rewrite tuple for the view's SELECT rule
 	 */
 	args[0] = ObjectIdGetDatum(viewoid);
-	args[1] = PointerGetDatum(ViewSelectRuleName);
+	args[1] = DirectFunctionCall1(namein, CStringGetDatum(ViewSelectRuleName));
 	nulls[0] = ' ';
 	nulls[1] = ' ';
 	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 2);
@@ -2655,7 +2655,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		query = getInsertSelectQuery(query, NULL);
 
 		/* Must acquire locks right away; see notes in get_query_def() */
-		AcquireRewriteLocks(query, false);
+		AcquireRewriteLocks(query, false, false);
 
 		context.buf = buf;
 		context.namespaces = list_make1(&dpns);
@@ -2887,8 +2887,11 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	 * relations, and fix up deleted columns in JOIN RTEs.	This ensures
 	 * consistent results.	Note we assume it's OK to scribble on the passed
 	 * querytree!
+	 *
+	 * We are only deparsing the query (we are not about to execute it), so we
+	 * only need AccessShareLock on the relations it mentions.
 	 */
-	AcquireRewriteLocks(query, false);
+	AcquireRewriteLocks(query, false, false);
 
 	context.buf = buf;
 	context.namespaces = lcons(&dpns, list_copy(parentnamespace));
@@ -4521,7 +4524,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 				Var		   *aliasvar;
 
 				aliasvar = (Var *) list_nth(rte->joinaliasvars, attnum - 1);
-				if (IsA(aliasvar, Var))
+				/* we intentionally don't strip implicit coercions here */
+				if (aliasvar && IsA(aliasvar, Var))
 				{
 					return get_variable(aliasvar, var->varlevelsup + levelsup,
 										istoplevel, context);
@@ -4831,6 +4835,8 @@ get_name_for_var_field(Var *var, int fieldno,
 				elog(ERROR, "cannot decompile join alias var in plan tree");
 			Assert(attnum > 0 && attnum <= list_length(rte->joinaliasvars));
 			expr = (Node *) list_nth(rte->joinaliasvars, attnum - 1);
+			Assert(expr != NULL);
+			/* we intentionally don't strip implicit coercions here */
 			if (IsA(expr, Var))
 				return get_name_for_var_field((Var *) expr, fieldno,
 											  var->varlevelsup + levelsup,
@@ -6682,6 +6688,7 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
 	int			nargs;
+	List	   *argnames;
 	ListCell   *l;
 
 	if (list_length(wfunc->args) > FUNC_MAX_ARGS)
@@ -6689,18 +6696,20 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
 				 errmsg("too many arguments")));
 	nargs = 0;
+	argnames = NIL;
 	foreach(l, wfunc->args)
 	{
 		Node	   *arg = (Node *) lfirst(l);
 
-		Assert(!IsA(arg, NamedArgExpr));
+		if (IsA(arg, NamedArgExpr))
+			argnames = lappend(argnames, ((NamedArgExpr *) arg)->name);
 		argtypes[nargs] = exprType(arg);
 		nargs++;
 	}
 
 	appendStringInfo(buf, "%s(",
 					 generate_function_name(wfunc->winfnoid, nargs,
-											NIL, argtypes, NULL));
+											argnames, argtypes, NULL));
 	/* winstar can be set only in zero-argument aggregates */
 	if (wfunc->winstar)
 		appendStringInfoChar(buf, '*');

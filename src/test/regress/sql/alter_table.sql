@@ -178,7 +178,6 @@ CREATE VIEW tmp_view (unique1) AS SELECT unique1 FROM tenk1;
 ALTER TABLE tmp_view RENAME TO tmp_view_new;
 
 -- hack to ensure we get an indexscan here
-ANALYZE tenk1;
 set enable_seqscan to off;
 set enable_bitmapscan to off;
 -- 5 values, sorted 
@@ -872,6 +871,15 @@ alter table atacc1 drop d;
 alter table atacc1 drop b;
 select * from atacc1;
 
+drop table atacc1;
+
+-- test constraint error reporting in presence of dropped columns
+create table atacc1 (id serial primary key, value int check (value < 10));
+insert into atacc1(value) values (100);
+alter table atacc1 drop column value;
+alter table atacc1 add column value int check (value < 10);
+insert into atacc1(value) values (100);
+insert into atacc1(id, value) values (null, 0);
 drop table atacc1;
 
 -- test inheritance

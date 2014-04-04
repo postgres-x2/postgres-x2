@@ -305,6 +305,7 @@ markTargetListOrigin(ParseState *pstate, TargetEntry *tle,
 
 				Assert(attnum > 0 && attnum <= list_length(rte->joinaliasvars));
 				aliasvar = (Var *) list_nth(rte->joinaliasvars, attnum - 1);
+				/* We intentionally don't strip implicit coercions here */
 				markTargetListOrigin(pstate, tle, aliasvar, netlevelsup);
 			}
 			break;
@@ -822,18 +823,20 @@ transformAssignmentSubscripts(ParseState *pstate,
 	/* If target was a domain over array, need to coerce up to the domain */
 	if (arrayType != targetTypeId)
 	{
+		Oid			resulttype = exprType(result);
+
 		result = coerce_to_target_type(pstate,
-									   result, exprType(result),
+									   result, resulttype,
 									   targetTypeId, targetTypMod,
 									   COERCION_ASSIGNMENT,
 									   COERCE_IMPLICIT_CAST,
 									   -1);
-		/* probably shouldn't fail, but check */
+		/* can fail if we had int2vector/oidvector, but not for true domains */
 		if (result == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_CANNOT_COERCE),
 					 errmsg("cannot cast type %s to %s",
-							format_type_be(exprType(result)),
+							format_type_be(resulttype),
 							format_type_be(targetTypeId)),
 					 parser_errposition(pstate, location)));
 	}
@@ -1425,6 +1428,8 @@ expandRecordVariable(ParseState *pstate, Var *var, int levelsup)
 			/* Join RTE --- recursively inspect the alias variable */
 			Assert(attnum > 0 && attnum <= list_length(rte->joinaliasvars));
 			expr = (Node *) list_nth(rte->joinaliasvars, attnum - 1);
+			Assert(expr != NULL);
+			/* We intentionally don't strip implicit coercions here */
 			if (IsA(expr, Var))
 				return expandRecordVariable(pstate, (Var *) expr, netlevelsup);
 			/* else fall through to inspect the expression */

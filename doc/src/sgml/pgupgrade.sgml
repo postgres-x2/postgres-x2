@@ -199,7 +199,7 @@
     <para>
      If you are using a version-specific installation directory, e.g.
      <filename>/opt/PostgreSQL/9.1</>, you do not need to move the old cluster. The
-     one-click installers all use version-specific installation directories.
+     graphical installers all use version-specific installation directories.
     </para>
 
     <para>
@@ -281,10 +281,10 @@ gmake prefix=/usr/local/pgsql.new install
 
     <para>
      <command>pg_upgrade</> will connect to the old and new servers several times,
-     so you might want to set authentication to <literal>trust</> in
-     <filename>pg_hba.conf</>, or if using <literal>md5</> authentication,
-     use a <filename>~/.pgpass</> file (see <xref linkend="libpq-pgpass">)
-     to avoid being prompted repeatedly for a password.
+     so you might want to set authentication to <literal>trust</>
+     or <literal>peer</> in <filename>pg_hba.conf</>, or if using
+     <literal>md5</> authentication, use a <filename>~/.pgpass</> file
+     (see <xref linkend="libpq-pgpass">).
     </para>
    </step>
 
@@ -359,7 +359,9 @@ pg_upgrade.exe
      and then do the upgrade. You can use <command>pg_upgrade --check</>
      to perform only the checks, even if the old server is still
      running. <command>pg_upgrade --check</> will also outline any
-     manual adjustments you will need to make after the upgrade.
+     manual adjustments you will need to make after the upgrade.  If you
+     are going to be using link mode, you should use the <option>--link</>
+     option with <option>--check</option> to enable link-mode-specific checks.
      <command>pg_upgrade</> requires write permission in the current directory.
     </para>
 
@@ -616,10 +618,10 @@ psql --username postgres --file script.sql postgres
 
   <para>
    For Windows users, note that due to different integer datetimes settings
-   used by the one-click installer and the MSI installer, it is only
-   possible to upgrade from version 8.3 of the one-click distribution to
-   version 8.4 or later of the one-click distribution. It is not
-   possible to upgrade from the MSI installer to the one-click installer.
+   used by the graphical installer and the MSI installer, it is only
+   possible to upgrade from version 8.3 of the installer distribution to
+   version 8.4 or later of the installer distribution. It is not
+   possible to upgrade from the MSI installer to the new graphical installer.
   </para>
 
  </refsect2>

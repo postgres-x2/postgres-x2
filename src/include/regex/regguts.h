@@ -148,6 +148,7 @@
 typedef short color;			/* colors of characters */
 typedef int pcolor;				/* what color promotes to */
 
+#define MAX_COLOR	32767		/* max color (must fit in 'color' datatype) */
 #define COLORLESS	(-1)		/* impossible color */
 #define WHITE		0			/* default color, parent of all others */
 
@@ -445,8 +446,11 @@ struct subre
 struct fns
 {
 	void		FUNCPTR(free, (regex_t *));
+	int			FUNCPTR(cancel_requested, (void));
 };
 
+#define CANCEL_REQUESTED(re)  \
+	((*((struct fns *) (re)->re_fns)->cancel_requested) ())
 
 
 /*

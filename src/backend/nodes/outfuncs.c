@@ -1751,6 +1751,7 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_UINT_FIELD(query_level);
 	WRITE_NODE_FIELD(plan_params);
 	WRITE_BITMAPSET_FIELD(all_baserels);
+	WRITE_BITMAPSET_FIELD(nullable_baserels);
 	WRITE_NODE_FIELD(join_rel_list);
 	WRITE_INT_FIELD(join_cur_level);
 	WRITE_NODE_FIELD(init_plans);
@@ -2725,6 +2726,7 @@ _outConstraint(StringInfo str, const Constraint *node)
 			WRITE_CHAR_FIELD(fk_upd_action);
 			WRITE_CHAR_FIELD(fk_del_action);
 			WRITE_NODE_FIELD(old_conpfeqop);
+			WRITE_OID_FIELD(old_pktable_oid);
 			WRITE_BOOL_FIELD(skip_validation);
 			WRITE_BOOL_FIELD(initially_valid);
 			break;

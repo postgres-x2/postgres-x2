@@ -670,7 +670,7 @@ ExtendCLOG(TransactionId newestXact)
 #endif
 
 	/* Zero the page and make an XLOG entry about it */
-	ZeroCLOGPage(pageno, !InRecovery);
+	ZeroCLOGPage(pageno, true);
 
 	LWLockRelease(CLogControlLock);
 }

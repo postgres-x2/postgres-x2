@@ -401,7 +401,7 @@
     as <literal>FrozenXID</>.  This XID does not follow the normal XID
     comparison rules and is always considered older
     than every normal XID. Normal XIDs are
-    compared using modulo-2<superscript>31</> arithmetic. This means
+    compared using modulo-2<superscript>32</> arithmetic. This means
     that for every normal XID, there are two billion XIDs that are
     <quote>older</> and two billion that are <quote>newer</>; another
     way to say it is that the normal XID space is circular with no
@@ -534,7 +534,12 @@
     examine this information is to execute queries such as:
 
 <programlisting>
-SELECT relname, age(relfrozenxid) FROM pg_class WHERE relkind = 'r';
+SELECT c.oid::regclass as table_name,
+       greatest(age(c.relfrozenxid),age(t.relfrozenxid)) as age
+FROM pg_class c
+LEFT JOIN pg_class t ON c.reltoastrelid = t.oid
+WHERE c.relkind = 'r';
+
 SELECT datname, age(datfrozenxid) FROM pg_database;
 </programlisting>
 

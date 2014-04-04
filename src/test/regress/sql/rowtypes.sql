@@ -95,6 +95,11 @@ select ROW('ABC','DEF') ~<=~ ROW('DEF','ABC') as true;
 select ROW('ABC','DEF') ~>=~ ROW('DEF','ABC') as false;
 select ROW('ABC','DEF') ~~ ROW('DEF','ABC') as fail;
 
+-- Comparisons of ROW() expressions can cope with some type mismatches
+select ROW(1,2) = ROW(1,2::int8);
+select ROW(1,2) in (ROW(3,4), ROW(1,2));
+select ROW(1,2) in (ROW(3,4), ROW(1,2::int8));
+
 -- Check row comparison with a subselect
 select unique1, unique2 from tenk1
 where (unique1, unique2) < any (select ten, ten from tenk1 where hundred < 3)
@@ -102,9 +107,24 @@ where (unique1, unique2) < any (select ten, ten from tenk1 where hundred < 3)
 order by 1;
 
 -- Also check row comparison with an indexable condition
+explain (costs off, nodes off, num_nodes off)
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
 order by thousand, tenthous;
+
+select thousand, tenthous from tenk1
+where (thousand, tenthous) >= (997, 5000)
+order by thousand, tenthous;
+
+-- Check row comparisons with IN
+select * from int8_tbl i8 where i8 in (row(123,456));  -- fail, type mismatch
+
+explain (costs off, nodes off, num_nodes off)
+select * from int8_tbl i8
+where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
+
+select * from int8_tbl i8
+where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)') ORDER BY 1,2;
 
 -- Check some corner cases involving empty rowtypes
 select ROW();
@@ -164,6 +184,34 @@ UPDATE price
 select * from price order by id;
 
 rollback;
+
+--
+-- Test case derived from bug #9085: check * qualification of composite
+-- parameters for SQL functions
+--
+
+create temp table compos (f1 int, f2 text);
+
+create function fcompos1(v compos) returns void as $$
+insert into compos values (v);  -- fail
+$$ language sql;
+
+create function fcompos1(v compos) returns void as $$
+insert into compos values (v.*);
+$$ language sql;
+
+create function fcompos2(v compos) returns void as $$
+select fcompos1(v);
+$$ language sql;
+
+create function fcompos3(v compos) returns void as $$
+select fcompos1(fcompos3.v.*);
+$$ language sql;
+
+select fcompos1(row(1,'one'));
+select fcompos2(row(2,'two'));
+select fcompos3(row(3,'three'));
+select * from compos order by 1,2;
 
 --
 -- We allow I/O conversion casts from composite types to strings to be

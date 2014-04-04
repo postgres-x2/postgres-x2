@@ -130,7 +130,7 @@ const struct config_enum_entry sync_method_options[] = {
 
 /*
  * Statistics for current checkpoint are collected in this global struct.
- * Because only the background writer or a stand-alone backend can perform
+ * Because only the checkpointer or a stand-alone backend can perform
  * checkpoints, this will be unused in normal backends.
  */
 CheckpointStatsData CheckpointStats;
@@ -3021,7 +3021,7 @@ KeepFileRestoredFromArchive(char *path, char *xlogfname)
 							xlogfpath, oldpath)));
 		}
 #else
-		strncpy(oldpath, xlogfpath, MAXPGPATH);
+		strlcpy(oldpath, xlogfpath, MAXPGPATH);
 #endif
 		if (unlink(oldpath) != 0)
 			ereport(FATAL,
@@ -3974,7 +3974,7 @@ ReadRecord(XLogRecPtr *RecPtr, int emode, bool fetching_ckpt)
 		if (XLOG_BLCKSZ - (RecPtr->xrecoff % XLOG_BLCKSZ) < SizeOfXLogRecord)
 			NextLogPage(*RecPtr);
 
-		/* Check for crossing of xlog segment boundary */
+		/* Check for crossing of xlog logid boundary */
 		if (RecPtr->xrecoff >= XLogFileSize)
 		{
 			(RecPtr->xlogid)++;
@@ -5966,7 +5966,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 		recordRestorePointData = (xl_restore_point *) XLogRecGetData(record);
 		recordXtime = recordRestorePointData->rp_time;
-		strncpy(recordRPName, recordRestorePointData->rp_name, MAXFNAMELEN);
+		strlcpy(recordRPName, recordRestorePointData->rp_name, MAXFNAMELEN);
 	}
 	else
 		return false;
@@ -6076,7 +6076,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		}
 		else
 		{
-			strncpy(recoveryStopName, recordRPName, MAXFNAMELEN);
+			strlcpy(recoveryStopName, recordRPName, MAXFNAMELEN);
 
 			ereport(LOG,
 				(errmsg("recovery stopping at restore point \"%s\", time %s",
@@ -6274,7 +6274,7 @@ CheckRequiredParameterValues(void)
 	 * For archive recovery, the WAL must be generated with at least 'archive'
 	 * wal_level.
 	 */
-	if (InArchiveRecovery && ControlFile->wal_level == WAL_LEVEL_MINIMAL)
+	if (ArchiveRecoveryRequested && ControlFile->wal_level == WAL_LEVEL_MINIMAL)
 	{
 		ereport(WARNING,
 				(errmsg("WAL was generated with wal_level=minimal, data may be missing"),
@@ -6285,7 +6285,7 @@ CheckRequiredParameterValues(void)
 	 * For Hot Standby, the WAL must be generated with 'hot_standby' mode, and
 	 * we must have at least as many backend slots as the primary.
 	 */
-	if (InArchiveRecovery && EnableHotStandby)
+	if (ArchiveRecoveryRequested && EnableHotStandby)
 	{
 		if (ControlFile->wal_level < WAL_LEVEL_HOT_STANDBY)
 			ereport(ERROR,
@@ -6427,7 +6427,7 @@ StartupXLOG(void)
 	 * see them
 	 */
 	XLogCtl->RecoveryTargetTLI = recoveryTargetTLI;
-	strncpy(XLogCtl->archiveCleanupCommand,
+	strlcpy(XLogCtl->archiveCleanupCommand,
 			archiveCleanupCommand ? archiveCleanupCommand : "",
 			sizeof(XLogCtl->archiveCleanupCommand));
 
@@ -6616,6 +6616,12 @@ StartupXLOG(void)
 	XLogCtl->ckptXid = checkPoint.nextXid;
 
 	/*
+	 * Startup MultiXact.  We need to do this early because we need its state
+	 * initialized because we attempt truncation during restartpoints.
+	 */
+	StartupMultiXact();
+
+	/*
 	 * We must replay WAL entries using the same TimeLineID they were created
 	 * under, so temporarily adopt the TLI indicated by the checkpoint (see
 	 * also xlog_redo()).
@@ -6777,9 +6783,13 @@ StartupXLOG(void)
 				oldestActiveXID = checkPoint.oldestActiveXid;
 			Assert(TransactionIdIsValid(oldestActiveXID));
 
+			/* Tell procarray about the range of xids it has to deal with */
+			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
+
 			/*
-			 * Startup commit log and subtrans only. Other SLRUs are not
-			 * maintained during recovery and need not be started yet.
+			 * Startup commit log and subtrans only. MultiXact has already
+			 * been started up and other SLRUs are not maintained during
+			 * recovery and need not be started yet.
 			 */
 			StartupCLOG();
 			StartupSUBTRANS(oldestActiveXID);
@@ -6825,20 +6835,16 @@ StartupXLOG(void)
 		}
 
 		/*
-		 * Initialize shared replayEndRecPtr, lastReplayedEndRecPtr, and
-		 * recoveryLastXTime.
-		 *
-		 * This is slightly confusing if we're starting from an online
-		 * checkpoint; we've just read and replayed the chekpoint record, but
-		 * we're going to start replay from its redo pointer, which precedes
-		 * the location of the checkpoint record itself. So even though the
-		 * last record we've replayed is indeed ReadRecPtr, we haven't
-		 * replayed all the preceding records yet. That's OK for the current
-		 * use of these variables.
+		 * Initialize shared variables for tracking progress of WAL replay,
+		 * as if we had just replayed the record before the REDO location
+		 * (or the checkpoint record itself, if it's a shutdown checkpoint).
 		 */
 		SpinLockAcquire(&xlogctl->info_lck);
-		xlogctl->replayEndRecPtr = ReadRecPtr;
-		xlogctl->lastReplayedEndRecPtr = EndRecPtr;
+		if (XLByteLT(checkPoint.redo, RecPtr))
+			xlogctl->replayEndRecPtr = checkPoint.redo;
+		else
+			xlogctl->replayEndRecPtr = EndRecPtr;
+		xlogctl->lastReplayedEndRecPtr = xlogctl->replayEndRecPtr;
 		xlogctl->recoveryLastXTime = 0;
 		xlogctl->currentChunkStartTime = 0;
 		xlogctl->recoveryPause = false;
@@ -6951,11 +6957,6 @@ StartupXLOG(void)
 				 */
 				if (recoveryStopsHere(record, &recoveryApply))
 				{
-					if (recoveryPauseAtTarget)
-					{
-						SetRecoveryPause(true);
-						recoveryPausesHere();
-					}
 					reachedStopPoint = true;	/* see below */
 					recoveryContinue = false;
 
@@ -7033,6 +7034,12 @@ StartupXLOG(void)
 			/*
 			 * end of main redo apply loop
 			 */
+
+			if (recoveryPauseAtTarget && reachedStopPoint)
+			{
+				SetRecoveryPause(true);
+				recoveryPausesHere();
+			}
 
 			ereport(LOG,
 					(errmsg("redo done at %X/%X",
@@ -7320,7 +7327,7 @@ StartupXLOG(void)
 	/*
 	 * Perform end of recovery actions for any SLRUs that need it.
 	 */
-	StartupMultiXact();
+	TrimMultiXact();
 	TrimCLOG();
 
 	/* Reload shared-memory state for prepared transactions */
@@ -7382,6 +7389,8 @@ StartupXLOG(void)
 static void
 CheckRecoveryConsistency(void)
 {
+	XLogRecPtr lastReplayedEndRecPtr;
+
 	/*
 	 * During crash recovery, we don't reach a consistent state until we've
 	 * replayed all the WAL.
@@ -7390,10 +7399,16 @@ CheckRecoveryConsistency(void)
 		return;
 
 	/*
+	 * assume that we are called in the startup process, and hence don't need
+	 * a lock to read lastReplayedEndRecPtr
+	 */
+	lastReplayedEndRecPtr = XLogCtl->lastReplayedEndRecPtr;
+
+	/*
 	 * Have we reached the point where our base backup was completed?
 	 */
 	if (!XLogRecPtrIsInvalid(ControlFile->backupEndPoint) &&
-		XLByteLE(ControlFile->backupEndPoint, EndRecPtr))
+		XLByteLE(ControlFile->backupEndPoint, lastReplayedEndRecPtr))
 	{
 		/*
 		 * We have reached the end of base backup, as indicated by pg_control.
@@ -7406,8 +7421,8 @@ CheckRecoveryConsistency(void)
 
 		LWLockAcquire(ControlFileLock, LW_EXCLUSIVE);
 
-		if (XLByteLT(ControlFile->minRecoveryPoint, EndRecPtr))
-			ControlFile->minRecoveryPoint = EndRecPtr;
+		if (XLByteLT(ControlFile->minRecoveryPoint, lastReplayedEndRecPtr))
+			ControlFile->minRecoveryPoint = lastReplayedEndRecPtr;
 
 		MemSet(&ControlFile->backupStartPoint, 0, sizeof(XLogRecPtr));
 		MemSet(&ControlFile->backupEndPoint, 0, sizeof(XLogRecPtr));
@@ -7425,7 +7440,7 @@ CheckRecoveryConsistency(void)
 	 * consistent yet.
 	 */
 	if (!reachedConsistency && !ControlFile->backupEndRequired &&
-		XLByteLE(minRecoveryPoint, XLogCtl->lastReplayedEndRecPtr) &&
+		XLByteLE(minRecoveryPoint, lastReplayedEndRecPtr) &&
 		XLogRecPtrIsInvalid(ControlFile->backupStartPoint))
 	{
 		/*
@@ -7437,8 +7452,8 @@ CheckRecoveryConsistency(void)
 		reachedConsistency = true;
 		ereport(LOG,
 				(errmsg("consistent recovery state reached at %X/%X",
-						XLogCtl->lastReplayedEndRecPtr.xlogid,
-						XLogCtl->lastReplayedEndRecPtr.xrecoff)));
+						lastReplayedEndRecPtr.xlogid,
+						lastReplayedEndRecPtr.xrecoff)));
 	}
 
 	/*
@@ -7512,7 +7527,8 @@ RecoveryInProgress(void)
  * true. Postmaster knows this by way of signal, not via shared memory.
  *
  * Unlike testing standbyState, this works in any process that's connected to
- * shared memory.
+ * shared memory.  (And note that standbyState alone doesn't tell the truth
+ * anyway.)
  */
 bool
 HotStandbyActive(void)
@@ -7536,6 +7552,17 @@ HotStandbyActive(void)
 
 		return LocalHotStandbyActive;
 	}
+}
+
+/*
+ * Like HotStandbyActive(), but to be used only in WAL replay code,
+ * where we don't need to ask any other process what the state is.
+ */
+bool
+HotStandbyActiveInReplay(void)
+{
+	Assert(AmStartupProcess());
+	return LocalHotStandbyActive;
 }
 
 /*
@@ -8651,10 +8678,18 @@ CreateRestartPoint(int flags)
 		PrevLogSeg(_logId, _logSeg);
 
 		/*
-		 * Update ThisTimeLineID to the recovery target timeline, so that
-		 * we install any recycled segments on the correct timeline.
+		 * Update ThisTimeLineID to the timeline we're currently replaying,
+		 * so that we install any recycled segments on that timeline.
+		 *
+		 * There is no guarantee that the WAL segments will be useful on the
+		 * current timeline; if recovery proceeds to a new timeline right
+		 * after this, the pre-allocated WAL segments on this timeline will
+		 * not be used, and will go wasted until recycled on the next
+		 * restartpoint. We'll live with that.
 		 */
-		ThisTimeLineID = GetRecoveryTargetTLI();
+		SpinLockAcquire(&xlogctl->info_lck);
+		ThisTimeLineID = XLogCtl->lastCheckPoint.ThisTimeLineID;
+		SpinLockRelease(&xlogctl->info_lck);
 
 		RemoveOldXlogFiles(_logId, _logSeg, endptr);
 
@@ -8814,7 +8849,7 @@ XLogRestorePoint(const char *rpName)
 	xl_restore_point xlrec;
 
 	xlrec.rp_time = GetCurrentTimestamp();
-	strncpy(xlrec.rp_name, rpName, MAXFNAMELEN);
+	strlcpy(xlrec.rp_name, rpName, MAXFNAMELEN);
 
 	rdata.buffer = InvalidBuffer;
 	rdata.data = (char *) &xlrec;
@@ -9479,6 +9514,9 @@ issue_xlog_fsync(int fd, uint32 log, uint32 seg)
  *
  * Every successfully started non-exclusive backup must be stopped by calling
  * do_pg_stop_backup() or do_pg_abort_backup().
+ *
+ * It is the responsibility of the caller of this function to verify the
+ * permissions of the calling user!
  */
 XLogRecPtr
 do_pg_start_backup(const char *backupidstr, bool fast, char **labelfile)
@@ -9497,11 +9535,6 @@ do_pg_start_backup(const char *backupidstr, bool fast, char **labelfile)
 	StringInfoData labelfbuf;
 
 	backup_started_in_recovery = RecoveryInProgress();
-
-	if (!superuser() && !has_rolreplication(GetUserId()))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-		   errmsg("must be superuser or replication role to run a backup")));
 
 	/*
 	 * Currently only non-exclusive backup can be taken during recovery.
@@ -9798,6 +9831,9 @@ pg_start_backup_callback(int code, Datum arg)
 
  * If labelfile is NULL, this stops an exclusive backup. Otherwise this stops
  * the non-exclusive backup specified by 'labelfile'.
+ *
+ * It is the responsibility of the caller of this function to verify the
+ * permissions of the calling user!
  */
 XLogRecPtr
 do_pg_stop_backup(char *labelfile, bool waitforarchive)
@@ -9827,11 +9863,6 @@ do_pg_stop_backup(char *labelfile, bool waitforarchive)
 	char	   *ptr;
 
 	backup_started_in_recovery = RecoveryInProgress();
-
-	if (!superuser() && !has_rolreplication(GetUserId()))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-		 (errmsg("must be superuser or replication role to run a backup"))));
 
 	/*
 	 * Currently only non-exclusive backup can be taken during recovery.

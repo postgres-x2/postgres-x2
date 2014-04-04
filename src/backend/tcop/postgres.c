@@ -2655,6 +2655,13 @@ quickdie(SIGNAL_ARGS)
 	PG_SETMASK(&BlockSig);
 
 	/*
+	 * Prevent interrupts while exiting; though we just blocked signals that
+	 * would queue new interrupts, one may have been pending.  We don't want a
+	 * quickdie() downgraded to a mere query cancel.
+	 */
+	HOLD_INTERRUPTS();
+
+	/*
 	 * If we're aborting out of client auth, don't risk trying to send
 	 * anything to the client; we will likely violate the protocol, not to
 	 * mention that we may have interrupted the guts of OpenSSL or some
@@ -3711,14 +3718,6 @@ PostgresMain(int argc, char *argv[],
 
 		MyStartTime = time(NULL);
 	}
-
-	/*
-	 * Fire up essential subsystems: error and memory management
-	 *
-	 * If we are running under the postmaster, this is done already.
-	 */
-	if (!IsUnderPostmaster)
-		MemoryContextInit();
 
 	SetProcessingMode(InitProcessing);
 

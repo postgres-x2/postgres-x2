@@ -179,15 +179,17 @@ insert into bar2 values(4,4,4);
 
 update bar set f2 = f2 + 100 where f1 in (select f1 from foo);
 
-SELECT relname, bar.* FROM bar, pg_class where bar.tableoid = pg_class.oid
-order by 1,2;
--- In Postgres-XC OIDs are not consistent across the cluster. Hence above
--- queries do not show any result. Hence in order to ensure data consistency, we
--- add following SQLs. In case above set of queries start producing valid
--- results in XC, we should remove the following set
-SELECT * FROM bar ORDER BY f1, f2;
-SELECT * FROM ONLY bar ORDER BY f1, f2;
-SELECT * FROM bar2 ORDER BY f1, f2;
+--- Postgre-XC's OID is not consisitent.  The following fails.
+-- select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
+
+-- Check UPDATE with inherited target and an appendrel subquery
+update bar set f2 = f2 + 100
+from
+  ( select f1 from foo union all select f1+3 from foo ) ss
+where bar.f1 = ss.f1;
+
+--- Postgre-XC's OID is not consisitent.  The following fails.
+-- select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
 
 /* Test multiple inheritance of column defaults */
 
@@ -450,11 +452,15 @@ insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
+explain (verbose, costs off, nodes off, num_nodes off) select min(1-id) from matest0;
+select min(1-id) from matest0;
 reset enable_indexscan;
 
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
+explain (verbose, costs off, nodes off, num_nodes off) select min(1-id) from matest0;
+select min(1-id) from matest0;
 reset enable_seqscan;
 
 drop table matest0 cascade;

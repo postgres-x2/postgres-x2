@@ -255,6 +255,8 @@ recalc_t:
 			*tzn = NULL;
 	}
 
+	tm->tm_yday = dDate - date2j(tm->tm_year, 1, 1) + 1;
+
 	return 0;
 }	/* timestamp2tm() */
 
@@ -295,7 +297,7 @@ PGTYPEStimestamp_from_asc(char *str, char **endptr)
 	char	   *realptr;
 	char	  **ptr = (endptr != NULL) ? endptr : &realptr;
 
-	if (strlen(str) >= sizeof(lowstr))
+	if (strlen(str) > MAXDATELEN)
 	{
 		errno = PGTYPES_TS_BAD_TIMESTAMP;
 		return (noresult);

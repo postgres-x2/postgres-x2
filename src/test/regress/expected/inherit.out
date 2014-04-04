@@ -1072,8 +1072,7 @@ insert into bar2 values(2,2,2);
 insert into bar2 values(3,3,3);
 insert into bar2 values(4,4,4);
 update bar set f2 = f2 + 100 where f1 in (select f1 from foo);
-SELECT relname, bar.* FROM bar, pg_class where bar.tableoid = pg_class.oid
-order by 1,2;
+select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
  relname | f1 | f2  
 ---------+----+-----
  bar     |  1 | 101
@@ -1086,6 +1085,7 @@ order by 1,2;
  bar2    |  4 |   4
 (8 rows)
 
+<<<<<<< HEAD
 -- In Postgres-XC OIDs are not consistent across the cluster. Hence above
 -- queries do not show any result. Hence in order to ensure data consistency, we
 -- add following SQLs. In case above set of queries start producing valid
@@ -1121,6 +1121,26 @@ SELECT * FROM bar2 ORDER BY f1, f2;
   4 |   4 |  4
 (4 rows)
 
+=======
+-- Check UPDATE with inherited target and an appendrel subquery
+update bar set f2 = f2 + 100
+from
+  ( select f1 from foo union all select f1+3 from foo ) ss
+where bar.f1 = ss.f1;
+select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
+ relname | f1 | f2  
+---------+----+-----
+ bar     |  1 | 201
+ bar     |  2 | 202
+ bar     |  3 | 203
+ bar     |  4 | 104
+ bar2    |  1 | 201
+ bar2    |  2 | 202
+ bar2    |  3 | 203
+ bar2    |  4 | 104
+(8 rows)
+
+>>>>>>> REL9_2_8
 /* Test multiple inheritance of column defaults */
 CREATE TABLE firstparent (tomorrow date default now()::date + 1);
 CREATE TABLE secondparent (tomorrow date default  now() :: date  +  1);
@@ -1797,6 +1817,28 @@ select * from matest0 order by 1-id;
   1 | Test 1
 (6 rows)
 
+explain (verbose, costs off) select min(1-id) from matest0;
+                   QUERY PLAN                   
+------------------------------------------------
+ Aggregate
+   Output: min((1 - public.matest0.id))
+   ->  Append
+         ->  Seq Scan on public.matest0
+               Output: public.matest0.id
+         ->  Seq Scan on public.matest1 matest0
+               Output: public.matest0.id
+         ->  Seq Scan on public.matest2 matest0
+               Output: public.matest0.id
+         ->  Seq Scan on public.matest3 matest0
+               Output: public.matest0.id
+(11 rows)
+
+select min(1-id) from matest0;
+ min 
+-----
+  -5
+(1 row)
+
 reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
@@ -1832,6 +1874,42 @@ select * from matest0 order by 1-id;
   2 | Test 2
   1 | Test 1
 (6 rows)
+
+explain (verbose, costs off) select min(1-id) from matest0;
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
+ Result
+   Output: $0
+   InitPlan 1 (returns $0)
+     ->  Limit
+           Output: ((1 - public.matest0.id))
+           ->  Result
+                 Output: ((1 - public.matest0.id))
+                 ->  Merge Append
+                       Sort Key: ((1 - public.matest0.id))
+                       ->  Index Scan using matest0i on public.matest0
+                             Output: public.matest0.id, (1 - public.matest0.id)
+                             Index Cond: ((1 - public.matest0.id) IS NOT NULL)
+                       ->  Index Scan using matest1i on public.matest1 matest0
+                             Output: public.matest0.id, (1 - public.matest0.id)
+                             Index Cond: ((1 - public.matest0.id) IS NOT NULL)
+                       ->  Sort
+                             Output: public.matest0.id, ((1 - public.matest0.id))
+                             Sort Key: ((1 - public.matest0.id))
+                             ->  Bitmap Heap Scan on public.matest2 matest0
+                                   Output: public.matest0.id, (1 - public.matest0.id)
+                                   Filter: ((1 - public.matest0.id) IS NOT NULL)
+                                   ->  Bitmap Index Scan on matest2_pkey
+                       ->  Index Scan using matest3i on public.matest3 matest0
+                             Output: public.matest0.id, (1 - public.matest0.id)
+                             Index Cond: ((1 - public.matest0.id) IS NOT NULL)
+(25 rows)
+
+select min(1-id) from matest0;
+ min 
+-----
+  -5
+(1 row)
 
 reset enable_seqscan;
 drop table matest0 cascade;

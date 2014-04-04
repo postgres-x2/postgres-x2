@@ -38,6 +38,7 @@
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "optimizer/subselect.h"
+#include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "parser/parse_clause.h"
 #include "utils/lsyscache.h"
@@ -47,6 +48,7 @@
 static bool find_minmax_aggs_walker(Node *node, List **context);
 static bool build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 				  Oid eqop, Oid sortop, bool nulls_first);
+static void minmax_qp_callback(PlannerInfo *root, void *extra);
 static void make_agg_subplan(PlannerInfo *root, MinMaxAggInfo *mminfo);
 static Node *replace_aggs_with_params_mutator(Node *node, PlannerInfo *root);
 static Oid	fetch_agg_sort_op(Oid aggfnoid);
@@ -444,25 +446,11 @@ build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 										   FLOAT8PASSBYVAL);
 
 	/*
-	 * Set up requested pathkeys.
-	 */
-	subroot->group_pathkeys = NIL;
-	subroot->window_pathkeys = NIL;
-	subroot->distinct_pathkeys = NIL;
-
-	subroot->sort_pathkeys =
-		make_pathkeys_for_sortclauses(subroot,
-									  parse->sortClause,
-									  parse->targetList,
-									  false);
-
-	subroot->query_pathkeys = subroot->sort_pathkeys;
-
-	/*
 	 * Generate the best paths for this query, telling query_planner that we
 	 * have LIMIT 1.
 	 */
 	query_planner(subroot, parse->targetList, 1.0, 1.0,
+				  minmax_qp_callback, NULL,
 				  &cheapest_path, &sorted_path, &dNumGroups);
 
 	/*
@@ -504,6 +492,25 @@ build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 }
 
 /*
+ * Compute query_pathkeys and other pathkeys during plan generation
+ */
+static void
+minmax_qp_callback(PlannerInfo *root, void *extra)
+{
+	root->group_pathkeys = NIL;
+	root->window_pathkeys = NIL;
+	root->distinct_pathkeys = NIL;
+
+	root->sort_pathkeys =
+		make_pathkeys_for_sortclauses(root,
+									  root->parse->sortClause,
+									  root->parse->targetList,
+									  true);
+
+	root->query_pathkeys = root->sort_pathkeys;
+}
+
+/*
  * Construct a suitable plan for a converted aggregate query
  */
 static void
@@ -519,7 +526,27 @@ make_agg_subplan(PlannerInfo *root, MinMaxAggInfo *mminfo)
 	 */
 	plan = create_plan(subroot, mminfo->path);
 
-	plan->targetlist = subparse->targetList;
+	/*
+	 * If the top-level plan node is one that cannot do expression evaluation
+	 * and its existing target list isn't already what we need, we must insert
+	 * a Result node to project the desired tlist.
+	 */
+	if (!is_projection_capable_plan(plan) &&
+		!tlist_same_exprs(subparse->targetList, plan->targetlist))
+	{
+		plan = (Plan *) make_result(subroot,
+									subparse->targetList,
+									NULL,
+									plan);
+	}
+	else
+	{
+		/*
+		 * Otherwise, just replace the subplan's flat tlist with the desired
+		 * tlist.
+		 */
+		plan->targetlist = subparse->targetList;
+	}
 
 	plan = (Plan *) make_limit(plan,
 							   subparse->limitOffset,

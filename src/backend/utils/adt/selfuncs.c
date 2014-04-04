@@ -1527,30 +1527,28 @@ booltestsel(PlannerInfo *root, BoolTestType booltesttype, Node *arg,
 			/*
 			 * No most-common-value info available. Still have null fraction
 			 * information, so use it for IS [NOT] UNKNOWN. Otherwise adjust
-			 * for null fraction and assume an even split for boolean tests.
+			 * for null fraction and assume a 50-50 split of TRUE and FALSE.
 			 */
 			switch (booltesttype)
 			{
 				case IS_UNKNOWN:
-
-					/*
-					 * Use freq_null directly.
-					 */
+					/* select only NULL values */
 					selec = freq_null;
 					break;
 				case IS_NOT_UNKNOWN:
-
-					/*
-					 * Select not unknown (not null) values. Calculate from
-					 * freq_null.
-					 */
+					/* select non-NULL values */
 					selec = 1.0 - freq_null;
 					break;
 				case IS_TRUE:
-				case IS_NOT_TRUE:
 				case IS_FALSE:
-				case IS_NOT_FALSE:
+					/* Assume we select half of the non-NULL values */
 					selec = (1.0 - freq_null) / 2.0;
+					break;
+				case IS_NOT_TRUE:
+				case IS_NOT_FALSE:
+					/* Assume we select NULLs plus half of the non-NULLs */
+					/* equiv. to freq_null + (1.0 - freq_null) / 2.0 */
+					selec = (freq_null + 1.0) / 2.0;
 					break;
 				default:
 					elog(ERROR, "unrecognized booltesttype: %d",
@@ -3208,6 +3206,14 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows)
 	ListCell   *l;
 
 	/*
+	 * We don't ever want to return an estimate of zero groups, as that tends
+	 * to lead to division-by-zero and other unpleasantness.  The input_rows
+	 * estimate is usually already at least 1, but clamp it just in case it
+	 * isn't.
+	 */
+	input_rows = clamp_row_est(input_rows);
+
+	/*
 	 * If no grouping columns, there's exactly one group.  (This can't happen
 	 * for normal cases with GROUP BY or DISTINCT, but it is possible for
 	 * corner cases with set operations.)
@@ -4497,6 +4503,12 @@ examine_simple_variable(PlannerInfo *root, Var *var,
 		TargetEntry *ste;
 
 		/*
+		 * Punt if it's a whole-row var rather than a plain column reference.
+		 */
+		if (var->varattno == InvalidAttrNumber)
+			return;
+
+		/*
 		 * Punt if subquery uses set operations or GROUP BY, as these will
 		 * mash underlying columns' stats beyond recognition.  (Set ops are
 		 * particularly nasty; if we forged ahead, we would return stats
@@ -4948,6 +4960,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			HeapTuple	tup;
 			Datum		values[INDEX_MAX_KEYS];
 			bool		isnull[INDEX_MAX_KEYS];
+			SnapshotData SnapshotDirty;
 
 			estate = CreateExecutorState();
 			econtext = GetPerTupleExprContext(estate);
@@ -4970,6 +4983,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			slot = MakeSingleTupleTableSlot(RelationGetDescr(heapRel));
 			econtext->ecxt_scantuple = slot;
 			get_typlenbyval(vardata->atttype, &typLen, &typByVal);
+			InitDirtySnapshot(SnapshotDirty);
 
 			/* set up an IS NOT NULL scan key so that we ignore nulls */
 			ScanKeyEntryInitialize(&scankeys[0],
@@ -4986,8 +5000,23 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			/* If min is requested ... */
 			if (min)
 			{
-				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, 0);
+				/*
+				 * In principle, we should scan the index with our current
+				 * active snapshot, which is the best approximation we've got
+				 * to what the query will see when executed.  But that won't
+				 * be exact if a new snap is taken before running the query,
+				 * and it can be very expensive if a lot of uncommitted rows
+				 * exist at the end of the index (because we'll laboriously
+				 * fetch each one and reject it).  What seems like a good
+				 * compromise is to use SnapshotDirty.	That will accept
+				 * uncommitted rows, and thus avoid fetching multiple heap
+				 * tuples in this scenario.  On the other hand, it will reject
+				 * known-dead rows, and thus not give a bogus answer when the
+				 * extreme value has been deleted; that case motivates not
+				 * using SnapshotAny here.
+				 */
+				index_scan = index_beginscan(heapRel, indexRel,
+											 &SnapshotDirty, 1, 0);
 				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in sortop's direction */
@@ -5018,8 +5047,8 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			/* If max is requested, and we didn't find the index is empty */
 			if (max && have_data)
 			{
-				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, 0);
+				index_scan = index_beginscan(heapRel, indexRel,
+											 &SnapshotDirty, 1, 0);
 				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in reverse direction */
