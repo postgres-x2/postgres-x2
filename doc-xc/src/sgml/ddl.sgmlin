@@ -344,7 +344,7 @@ CREATE TABLE products (
    even if the value came from the default value definition.
   </para>
 
-  <sect2>
+  <sect2 id="ddl-constraints-check-constraints">
    <title>Check Constraints</title>
 
    <indexterm>
@@ -570,7 +570,7 @@ CREATE TABLE products (
    </tip>
   </sect2>
 
-  <sect2>
+  <sect2 id="ddl-constraints-unique-constraints">
    <title>Unique Constraints</title>
 
    <indexterm>
@@ -673,7 +673,7 @@ CREATE TABLE products (
 <!## end>
   </sect2>
 
-  <sect2>
+  <sect2 id="ddl-constraints-primary-keys">
    <title>Primary Keys</title>
 
    <indexterm>
@@ -1437,7 +1437,8 @@ $xc-constraint;
    </itemizedlist>
   </para>
 <!## end>
-  <sect2>
+
+  <sect2 id="ddl-alter-adding-a-column">
    <title>Adding a Column</title>
 
    <indexterm>
@@ -1481,7 +1482,7 @@ ALTER TABLE products ADD COLUMN description text CHECK (description &lt;&gt; '')
   </tip>
   </sect2>
 
-  <sect2>
+  <sect2 id="ddl-alter-removing-a-column">
    <title>Removing a Column</title>
 
    <indexterm>
@@ -1509,7 +1510,7 @@ ALTER TABLE products DROP COLUMN description CASCADE;
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="ddl-alter-adding-a-constraint">
    <title>Adding a Constraint</title>
 
    <indexterm>
@@ -1545,7 +1546,7 @@ ALTER TABLE products ALTER COLUMN product_no SET NOT NULL;
 <!## end>
   </sect2>
 
-  <sect2>
+  <sect2 id="ddl-alter-removing-a-constraint">
    <title>Removing a Constraint</title>
 
    <indexterm>
