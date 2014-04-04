@@ -696,6 +696,17 @@ NUMERIC
      from zero will cause an underflow error.
     </para>
 
+    <note>
+     <para>
+      The <xref linkend="guc-extra-float-digits"> setting controls the
+      number of extra significant digits included when a floating point
+      value is converted to text for output.  With the default value of
+      <literal>0</literal>, the output is the same on every platform
+      supported by PostgreSQL.  Increasing it will produce output that
+      more accurately represents the stored value, but may be unportable.
+     </para>
+    </note>
+
     <indexterm>
      <primary>not a number</primary>
      <secondary>double precision</secondary>
@@ -840,6 +851,20 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
      not automatic.)  Lastly, the sequence is marked as <quote>owned by</>
      the column, so that it will be dropped if the column or table is dropped.
     </para>
+
+    <note>
+      <para>
+        Because <type>smallserial</type>, <type>serial</type> and
+        <type>bigserial</type> are implemented using sequences, there may
+        be "holes" or gaps in the sequence of values which appears in the
+        column, even if no rows are ever deleted.  A value allocated
+        from the sequence is still "used up" even if a row containing that
+        value is never successfully inserted into the table column.  This
+        may happen, for example, if the inserting transaction rolls back.
+        See <literal>nextval()</literal> in <xref linkend="functions-sequence">
+        for details.
+      </para>
+    </note>
 
     <note>
      <para>

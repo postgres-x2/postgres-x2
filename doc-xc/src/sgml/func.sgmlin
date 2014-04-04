@@ -1506,8 +1506,8 @@
        </entry>
        <entry><type>bytea</type></entry>
        <entry>
-        Decode binary data from <parameter>string</parameter> previously
-        encoded with <function>encode</>.  Parameter type is same as in <function>encode</>.
+       Decode binary data from textual representation in <parameter>string</>.
+       Options for <parameter>format</> are same as in <function>encode</>.
        </entry>
        <entry><literal>decode('MTIzAAE=', 'base64')</literal></entry>
        <entry><literal>123\000\001</literal></entry>
@@ -1523,10 +1523,11 @@
        </entry>
        <entry><type>text</type></entry>
        <entry>
-        Encode binary data to different representation.  Supported
-        types are: <literal>base64</>, <literal>hex</>, <literal>escape</>.
-        <literal>Escape</> merely outputs null bytes as <literal>\000</> and
-        doubles backslashes.
+       Encode binary data into a textual representation.  Supported
+       formats are: <literal>base64</>, <literal>hex</>, <literal>escape</>.
+       <literal>escape</> converts zero bytes and high-bit-set bytes to
+       octal sequences (<literal>\</><replaceable>nnn</>) and
+       doubles backslashes.
        </entry>
        <entry><literal>encode(E'123\\000\\001', 'base64')</literal></entry>
        <entry><literal>MTIzAAE=</literal></entry>
@@ -2820,7 +2821,7 @@
       </row>
 
       <row>
-       <entry><literal>ut8_to_euc_jis_2004</literal></entry>
+       <entry><literal>utf8_to_euc_jis_2004</literal></entry>
        <entry><literal>UTF8</literal></entry>
        <entry><literal>EUC_JIS_2004</literal></entry>
       </row>
@@ -2832,7 +2833,7 @@
       </row>
 
       <row>
-       <entry><literal>ut8_to_shift_jis_2004</literal></entry>
+       <entry><literal>utf8_to_shift_jis_2004</literal></entry>
        <entry><literal>UTF8</literal></entry>
        <entry><literal>SHIFT_JIS_2004</literal></entry>
       </row>
@@ -9752,17 +9753,10 @@ table2-mapping
   </indexterm>
 &common;
   <para>
-<!## PG>
-   This section describes <productname>PostgreSQL</productname>'s
-<!## end>
-<!## XC>
-   This section describes <productname>Postgres-XC</productname>'s
-<!## end>
-   functions for operating on <firstterm>sequence objects</firstterm>.
-   Sequence objects (also called sequence generators or just
-   sequences) are special single-row tables created with <xref
-   linkend="sql-createsequence">.
-   A sequence object is usually used to generate unique identifiers
+   This section describes functions for operating on <firstterm>sequence
+   objects</firstterm>, also called sequence generators or just sequences.
+   Sequence objects are special single-row tables created with <xref
+   Sequence objects are commonly used to generate unique identifiers
    for rows of a table.  The sequence functions, listed in <xref
    linkend="functions-sequence-table">, provide simple, multiuser-safe
    methods for obtaining successive sequence values from sequence
@@ -9882,6 +9876,27 @@ nextval('foo'::text)      <lineannotation><literal>foo</literal> is looked up at
         execute <function>nextval</function> concurrently, each will safely receive
         a distinct sequence value.
        </para>
+
+       <para>
+        If a sequence object has been created with default parameters,
+        successive <function>nextval</function> calls will return successive
+        values beginning with 1.  Other behaviors can be obtained by using
+        special parameters in the <xref linkend="sql-createsequence"> command;
+        see its command reference page for more information.
+       </para>
+
+       <important>
+        <para>
+         To avoid blocking concurrent transactions that obtain numbers from the
+         same sequence, a <function>nextval</function> operation is never
+         rolled back; that is, once a value has been fetched it is considered
+         used, even if the transaction that did the
+         <function>nextval</function> later aborts.  This means that aborted
+         transactions might leave unused <quote>holes</quote> in the sequence
+         of assigned values.
+        </para>
+       </important>
+
       </listitem>
      </varlistentry>
 
@@ -9945,30 +9960,17 @@ SELECT setval('foo', 42, false);    <lineannotation>Next <function>nextval</> wi
         The result returned by <function>setval</function> is just the value of its
         second argument.
        </para>
+       <important>
+        <para>
+         Because sequences are non-transactional, changes made by
+         <function>setval</function> are not undone if the transaction rolls
+         back.
+        </para>
+       </important>
       </listitem>
      </varlistentry>
     </variablelist>
   </para>
-
-  <para>
-   If a sequence object has been created with default parameters,
-   successive <function>nextval</function> calls will return successive values
-   beginning with 1.  Other behaviors can be obtained by using
-   special parameters in the <xref linkend="sql-createsequence"> command;
-   see its command reference page for more information.
-  </para>
-
-  <important>
-   <para>
-    To avoid blocking concurrent transactions that obtain numbers from the
-    same sequence, a <function>nextval</function> operation is never rolled back;
-    that is, once a value has been fetched it is considered used, even if the
-    transaction that did the <function>nextval</function> later aborts.  This means
-    that aborted transactions might leave unused <quote>holes</quote> in the
-    sequence of assigned values.  <function>setval</function> operations are never
-    rolled back, either.
-   </para>
-  </important>
 
  </sect1>
 
@@ -10112,6 +10114,16 @@ SELECT a,
 SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 </programlisting>
    </para>
+
+   <note>
+    <para>
+     As described in <xref linkend="xfunc-volatility">, functions and
+     operators marked <literal>IMMUTABLE</literal> can be evaluated when
+     the query is planned rather than when it is executed.  This means
+     that constant parts of a subexpression that is not evaluated during
+     query execution might still be evaluated during query planning.
+    </para>
+   </note>
   </sect2>
 
   <sect2 id="functions-coalesce-nvl-ifnull">
@@ -15059,7 +15071,7 @@ SELECT (pg_stat_file('filename')).modification;
         <literal><function>pg_advisory_xact_lock_shared(<parameter>key1</> <type>int</>, <parameter>key2</> <type>int</>)</function></literal>
        </entry>
        <entry><type>void</type></entry>
-       <entry>Obtain shared advisory lock for the current transaction</entry>
+       <entry>Obtain shared transaction level advisory lock</entry>
       </row>
       <row>
        <entry>
@@ -15128,11 +15140,10 @@ SELECT (pg_stat_file('filename')).modification;
     <function>pg_advisory_lock</> locks an application-defined resource,
     which can be identified either by a single 64-bit key value or two
     32-bit key values (note that these two key spaces do not overlap).
-    The key type is specified in <literal>pg_locks.objid</>.  If
-    another session already holds a lock on the same resource, the
-    function will wait until the resource becomes available.  The lock
+    If another session already holds a lock on the same resource identifier,
+    this function will wait until the resource becomes available.  The lock
     is exclusive.  Multiple lock requests stack, so that if the same resource
-    is locked three times it must be also unlocked three times to be
+    is locked three times it must then be unlocked three times to be
     released for other sessions' use.
    </para>
 

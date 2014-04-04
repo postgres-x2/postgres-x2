@@ -442,32 +442,14 @@ CREATE [ UNIQUE ] INDEX [ <replaceable class="parameter">name</replaceable> ] ON
    </para>
 
    <para>
-    In a concurrent index build, the index is actually entered into the
-    system catalogs in one transaction, then the two table scans occur in a
-    second and third transaction.
-    If a problem arises while scanning the table, such as a
-    uniqueness violation in a unique index, the <command>CREATE INDEX</>
-    command will fail but leave behind an <quote>invalid</> index. This index
-    will be ignored for querying purposes because it might be incomplete;
-    however it will still consume update overhead. The <application>psql</>
-    <command>\d</> command will report such an index as <literal>INVALID</>:
-
-<programlisting>
-postgres=# \d tab
-       Table "public.tab"
- Column |  Type   | Modifiers 
---------+---------+-----------
- col    | integer | 
-Indexes:
-    "idx" btree (col) INVALID
-</programlisting>
-
-    The recommended recovery
-    method in such cases is to drop the index and try again to perform
-    <command>CREATE INDEX CONCURRENTLY</>.  (Another possibility is to rebuild
-    the index with <command>REINDEX</>.  However, since <command>REINDEX</>
-    does not support concurrent builds, this option is unlikely to seem
-    attractive.)
+    In a concurrent index build, the index is actually entered into
+    the system catalogs in one transaction, then two table scans occur in
+    two more transactions.  Any transaction active when the second table
+    scan starts can block concurrent index creation until it completes,
+    even transactions that only reference the table after the second table
+    scan starts.   Concurrent index creation serially waits for each old
+    transaction to complete using the method outlined in section <xref
+    linkend="view-pg-locks">.
    </para>
 
    <para>
@@ -499,6 +481,18 @@ Indexes:
 
  <refsect1>
   <title>Notes</title>
+
+  <caution>
+   <para>
+    Hash index operations are not presently WAL-logged,
+    so hash indexes might need to be rebuilt with <command>REINDEX</>
+    after a database crash if there were unwritten changes.
+    Also, changes to hash indexes are not replicated over streaming or
+    file-based replication after the initial base backup, so they
+    give wrong answers to queries that subsequently use them.
+    For these reasons, hash index use is presently discouraged.
+   </para>
+  </caution>
 
   <para>
    See <xref linkend="indexes"> for information about when indexes can
