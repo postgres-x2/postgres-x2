@@ -9755,7 +9755,7 @@ table2-mapping
   <para>
    This section describes functions for operating on <firstterm>sequence
    objects</firstterm>, also called sequence generators or just sequences.
-   Sequence objects are special single-row tables created with <xref
+   Sequence objects are special single-row tables created with 
    Sequence objects are commonly used to generate unique identifiers
    for rows of a table.  The sequence functions, listed in <xref
    linkend="functions-sequence-table">, provide simple, multiuser-safe
