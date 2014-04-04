@@ -1,6 +1,184 @@
 <!-- doc/src/sgml/release-xc-1.0.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
+ <sect1 id="release-xc-1-0-4">
+  <title>Release 1.0.4</title>
+
+  <note>
+   <title>Release Date</title>
+   <simpara>2014-04-04</simpara>
+  </note>
+
+  <para>
+   This release contains fixes in PostgreSQL up to 9.1.13, as well as a couple
+   of fixes in Postgres-XC.
+   For informations about new feature in the 1.0 major release, see
+   <xref linkend="release-xc-1-0">.
+   For information about fixes in the 1.0.1 and 1.0.2 minor releases, see
+   <xref linkend="release-xc-1-0-1"> and <xref linkend="release-xc-1-0-2">
+   respectively.
+  </para>
+
+ <sect2>
+  <title>Migrations to Version 1.0.4</title>
+
+  <para>
+   A dump/restore is not required for those running 1.0.x.
+  </para>
+
+ </sect2>
+
+ <sect2>
+  <title>Changes</title>
+
+  <itemizedlist>
+
+  <listitem>
+   <para>
+    Fixed a but that alter node and create node does not work together another drop node or alter node which
+	disables current primary node.   By Koichi Suzuki
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Now TEMP object can be used within implicit 2PC transactions.
+	Regression test changes accordingly.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Improvement of statment cancellation behavior consisitent.
+	This reduces the chance of random failure in the regression test.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fixes PGXC blocked by acquiring TwoPhaseStateLock.
+    Reported by ZhangJulian.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix for coordinator overshoot in COPY.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix an issue that GTM Proxy doesn't send status in response of COMMIT or ROLLBACK.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix an issue that a GTM Proxy sends MSG_BACKEND_DISCONNECT command with wrong proxy connection ID.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix the issue that a GTM Proxy sends error responses via unrelated connection.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Specify that EXECUTE DIRECT query needs to be a string literal.
+	By Tomonari Katsumata.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Replace strndup calls by strdup in makesgml.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Correct incorrect return results of GTM-Proxy code.
+	By Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix ALTER SCHEMA bug when renaming dependent objects only occurs in
+	release 1.0.
+	Reported by Andrei Martsinchyk.
+	Fixed by Michael Paquier.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix message level when GTM master connects to GTM standby.
+	Reported by Nikhil Sontakke.
+	Fixed by Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix of potential memory leak at GTM.
+	By Nikhil Sontakke.
+	Reviewed by Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix GTM bug to craete more than 1024 sequences.
+	By Koichi Suzuki.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix initdb usage and error message Bug ID: 3614712.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix a documentation bug about CREATE NODE.
+	By Masataka Saito.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix GTM bug when GTM Proxy requested multiple GXIDs.
+	Reported and fixed by Nikhil Sontakke.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+	Fix disconnect handling at GTM proxy.
+	Reported and fixed by Andrei Martsinchyk.
+   </para>
+  </listitem>
+
+
+  </itemizedlist>
+
+ </sect2>
+
+ </sect1>
+
  <sect1 id="release-xc-1-0-3">
   <title>Release 1.0.3</title>
 
@@ -10,7 +188,7 @@
   </note>
 
   <para>
-   This release contains fixes in PostgreSQL 9.1.8 and PostgreSQL 9.1.19, as well as a couple
+   This release contains fixes in PostgreSQL 9.1.8 and PostgreSQL 9.1.9, as well as a couple
    of fixes in Postgres-XC.
    For informations about new feature in the 1.0 major release, see
    <xref linkend="release-xc-1-0">.
@@ -58,6 +236,7 @@
   </itemizedlist>
 
  </sect2>
+ </sect1>
 
 
  <sect1 id="release-xc-1-0-2">
