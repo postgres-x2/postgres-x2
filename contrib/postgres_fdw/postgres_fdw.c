@@ -444,7 +444,7 @@ postgresGetForeignRelSize(PlannerInfo *root,
 	 * Identify which baserestrictinfo clauses can be sent to the remote
 	 * server and which can't.
 	 */
-	classifyConditions(root, baserel,
+	classifyConditions(root, baserel, baserel->baserestrictinfo,
 					   &fpinfo->remote_conds, &fpinfo->local_conds);
 
 	/*
@@ -540,12 +540,7 @@ postgresGetForeignPaths(PlannerInfo *root,
 {
 	PgFdwRelationInfo *fpinfo = (PgFdwRelationInfo *) baserel->fdw_private;
 	ForeignPath *path;
-	List	   *join_quals;
-	Relids		required_outer;
-	double		rows;
-	int			width;
-	Cost		startup_cost;
-	Cost		total_cost;
+	List	   *ppi_list;
 	ListCell   *lc;
 
 	/*
@@ -573,15 +568,25 @@ postgresGetForeignPaths(PlannerInfo *root,
 		return;
 
 	/*
-	 * As a crude first hack, we consider each available join clause and try
-	 * to make a parameterized path using just that clause.  Later we should
-	 * consider combinations of clauses, probably.
+	 * Thumb through all join clauses for the rel to identify which outer
+	 * relations could supply one or more safe-to-send-to-remote join clauses.
+	 * We'll build a parameterized path for each such outer relation.
+	 *
+	 * It's convenient to manage this by representing each candidate outer
+	 * relation by the ParamPathInfo node for it.  We can then use the
+	 * ppi_clauses list in the ParamPathInfo node directly as a list of the
+	 * interesting join clauses for that rel.  This takes care of the
+	 * possibility that there are multiple safe join clauses for such a rel,
+	 * and also ensures that we account for unsafe join clauses that we'll
+	 * still have to enforce locally (since the parameterized-path machinery
+	 * insists that we handle all movable clauses).
 	 */
-
-	/* Scan the rel's join clauses */
+	ppi_list = NIL;
 	foreach(lc, baserel->joininfo)
 	{
 		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+		Relids		required_outer;
+		ParamPathInfo *param_info;
 
 		/* Check if clause can be moved to this rel */
 		if (!join_clause_is_movable_to(rinfo, baserel))
@@ -591,31 +596,29 @@ postgresGetForeignPaths(PlannerInfo *root,
 		if (!is_foreign_expr(root, baserel, rinfo->clause))
 			continue;
 
-		/*
-		 * OK, get a cost estimate from the remote, and make a path.
-		 */
-		join_quals = list_make1(rinfo);
-		estimate_path_cost_size(root, baserel, join_quals,
-								&rows, &width,
-								&startup_cost, &total_cost);
-
-		/* Must calculate required outer rels for this path */
+		/* Calculate required outer rels for the resulting path */
 		required_outer = bms_union(rinfo->clause_relids,
 								   baserel->lateral_relids);
 		/* We do not want the foreign rel itself listed in required_outer */
 		required_outer = bms_del_member(required_outer, baserel->relid);
-		/* Enforce convention that required_outer is exactly NULL if empty */
-		if (bms_is_empty(required_outer))
-			required_outer = NULL;
 
-		path = create_foreignscan_path(root, baserel,
-									   rows,
-									   startup_cost,
-									   total_cost,
-									   NIL,		/* no pathkeys */
-									   required_outer,
-									   NIL);	/* no fdw_private list */
-		add_path(baserel, (Path *) path);
+		/*
+		 * required_outer probably can't be empty here, but if it were, we
+		 * couldn't make a parameterized path.
+		 */
+		if (bms_is_empty(required_outer))
+			continue;
+
+		/* Get the ParamPathInfo */
+		param_info = get_baserel_parampathinfo(root, baserel,
+											   required_outer);
+		Assert(param_info != NULL);
+
+		/*
+		 * Add it to list unless we already have it.  Testing pointer equality
+		 * is OK since get_baserel_parampathinfo won't make duplicates.
+		 */
+		ppi_list = list_append_unique_ptr(ppi_list, param_info);
 	}
 
 	/*
@@ -629,8 +632,8 @@ postgresGetForeignPaths(PlannerInfo *root,
 		 * We repeatedly scan the eclass list looking for column references
 		 * (or expressions) belonging to the foreign rel.  Each time we find
 		 * one, we generate a list of equivalence joinclauses for it, and then
-		 * try to make those into foreign paths.  Repeat till there are no
-		 * more candidate EC members.
+		 * see if any are safe to send to the remote.  Repeat till there are
+		 * no more candidate EC members.
 		 */
 		ec_member_foreign_arg arg;
 
@@ -658,6 +661,8 @@ postgresGetForeignPaths(PlannerInfo *root,
 			foreach(lc, clauses)
 			{
 				RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+				Relids		required_outer;
+				ParamPathInfo *param_info;
 
 				/* Check if clause can be moved to this rel */
 				if (!join_clause_is_movable_to(rinfo, baserel))
@@ -667,34 +672,59 @@ postgresGetForeignPaths(PlannerInfo *root,
 				if (!is_foreign_expr(root, baserel, rinfo->clause))
 					continue;
 
-				/*
-				 * OK, get a cost estimate from the remote, and make a path.
-				 */
-				join_quals = list_make1(rinfo);
-				estimate_path_cost_size(root, baserel, join_quals,
-										&rows, &width,
-										&startup_cost, &total_cost);
-
-				/* Must calculate required outer rels for this path */
+				/* Calculate required outer rels for the resulting path */
 				required_outer = bms_union(rinfo->clause_relids,
 										   baserel->lateral_relids);
 				required_outer = bms_del_member(required_outer, baserel->relid);
 				if (bms_is_empty(required_outer))
-					required_outer = NULL;
+					continue;
 
-				path = create_foreignscan_path(root, baserel,
-											   rows,
-											   startup_cost,
-											   total_cost,
-											   NIL,		/* no pathkeys */
-											   required_outer,
-											   NIL);	/* no fdw_private */
-				add_path(baserel, (Path *) path);
+				/* Get the ParamPathInfo */
+				param_info = get_baserel_parampathinfo(root, baserel,
+													   required_outer);
+				Assert(param_info != NULL);
+
+				/* Add it to list unless we already have it */
+				ppi_list = list_append_unique_ptr(ppi_list, param_info);
 			}
 
 			/* Try again, now ignoring the expression we found this time */
 			arg.already_used = lappend(arg.already_used, arg.current);
 		}
+	}
+
+	/*
+	 * Now build a path for each useful outer relation.
+	 */
+	foreach(lc, ppi_list)
+	{
+		ParamPathInfo *param_info = (ParamPathInfo *) lfirst(lc);
+		double		rows;
+		int			width;
+		Cost		startup_cost;
+		Cost		total_cost;
+
+		/* Get a cost estimate from the remote */
+		estimate_path_cost_size(root, baserel,
+								param_info->ppi_clauses,
+								&rows, &width,
+								&startup_cost, &total_cost);
+
+		/*
+		 * ppi_rows currently won't get looked at by anything, but still we
+		 * may as well ensure that it matches our idea of the rowcount.
+		 */
+		param_info->ppi_rows = rows;
+
+		/* Make the path */
+		path = create_foreignscan_path(root, baserel,
+									   rows,
+									   startup_cost,
+									   total_cost,
+									   NIL,		/* no pathkeys */
+									   param_info->ppi_req_outer,
+									   NIL);	/* no fdw_private list */
+		add_path(baserel, (Path *) path);
 	}
 }
 
@@ -725,14 +755,13 @@ postgresGetForeignPlan(PlannerInfo *root,
 	 * those that can't.  baserestrictinfo clauses that were previously
 	 * determined to be safe or unsafe by classifyClauses are shown in
 	 * fpinfo->remote_conds and fpinfo->local_conds.  Anything else in the
-	 * scan_clauses list should be a join clause that was found safe by
-	 * postgresGetForeignPaths.
+	 * scan_clauses list will be a join clause, which we have to check for
+	 * remote-safety.
 	 *
-	 * Note: for clauses extracted from EquivalenceClasses, it's possible that
-	 * what we get here is a different representation of the clause than what
-	 * postgresGetForeignPaths saw; for example we might get a commuted
-	 * version of the clause.  So we can't insist on simple equality as we do
-	 * for the baserestrictinfo clauses.
+	 * Note: the join clauses we see here should be the exact same ones
+	 * previously examined by postgresGetForeignPaths.	Possibly it'd be worth
+	 * passing forward the classification work done then, rather than
+	 * repeating it here.
 	 *
 	 * This code must match "extract_actual_clauses(scan_clauses, false)"
 	 * except for the additional decision about remote versus local execution.
@@ -754,11 +783,10 @@ postgresGetForeignPlan(PlannerInfo *root,
 			remote_conds = lappend(remote_conds, rinfo);
 		else if (list_member_ptr(fpinfo->local_conds, rinfo))
 			local_exprs = lappend(local_exprs, rinfo->clause);
-		else
-		{
-			Assert(is_foreign_expr(root, baserel, rinfo->clause));
+		else if (is_foreign_expr(root, baserel, rinfo->clause))
 			remote_conds = lappend(remote_conds, rinfo);
-		}
+		else
+			local_exprs = lappend(local_exprs, rinfo->clause);
 	}
 
 	/*
@@ -1040,7 +1068,7 @@ postgresReScanForeignScan(ForeignScanState *node)
 	 */
 	res = PQexec(fsstate->conn, sql);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		pgfdw_report_error(ERROR, res, true, sql);
+		pgfdw_report_error(ERROR, res, fsstate->conn, true, sql);
 	PQclear(res);
 
 	/* Now force a fresh FETCH. */
@@ -1374,7 +1402,7 @@ postgresExecForeignInsert(EState *estate,
 						 0);
 	if (PQresultStatus(res) !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		pgfdw_report_error(ERROR, res, true, fmstate->query);
+		pgfdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
 
 	/* Check number of rows affected, and fetch RETURNING tuple if any */
 	if (fmstate->has_returning)
@@ -1444,7 +1472,7 @@ postgresExecForeignUpdate(EState *estate,
 						 0);
 	if (PQresultStatus(res) !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		pgfdw_report_error(ERROR, res, true, fmstate->query);
+		pgfdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
 
 	/* Check number of rows affected, and fetch RETURNING tuple if any */
 	if (fmstate->has_returning)
@@ -1514,7 +1542,7 @@ postgresExecForeignDelete(EState *estate,
 						 0);
 	if (PQresultStatus(res) !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		pgfdw_report_error(ERROR, res, true, fmstate->query);
+		pgfdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
 
 	/* Check number of rows affected, and fetch RETURNING tuple if any */
 	if (fmstate->has_returning)
@@ -1563,7 +1591,7 @@ postgresEndForeignModify(EState *estate,
 		 */
 		res = PQexec(fmstate->conn, sql);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			pgfdw_report_error(ERROR, res, true, sql);
+			pgfdw_report_error(ERROR, res, fmstate->conn, true, sql);
 		PQclear(res);
 		fmstate->p_name = NULL;
 	}
@@ -1689,9 +1717,20 @@ estimate_path_cost_size(PlannerInfo *root,
 	 */
 	if (fpinfo->use_remote_estimate)
 	{
+		List	   *remote_join_conds;
+		List	   *local_join_conds;
 		StringInfoData sql;
 		List	   *retrieved_attrs;
 		PGconn	   *conn;
+		Selectivity local_sel;
+		QualCost	local_cost;
+
+		/*
+		 * join_conds might contain both clauses that are safe to send across,
+		 * and clauses that aren't.
+		 */
+		classifyConditions(root, baserel, join_conds,
+						   &remote_join_conds, &local_join_conds);
 
 		/*
 		 * Construct EXPLAIN query including the desired SELECT, FROM, and
@@ -1705,8 +1744,8 @@ estimate_path_cost_size(PlannerInfo *root,
 		if (fpinfo->remote_conds)
 			appendWhereClause(&sql, root, baserel, fpinfo->remote_conds,
 							  true, NULL);
-		if (join_conds)
-			appendWhereClause(&sql, root, baserel, join_conds,
+		if (remote_join_conds)
+			appendWhereClause(&sql, root, baserel, remote_join_conds,
 							  (fpinfo->remote_conds == NIL), NULL);
 
 		/* Get the remote estimate */
@@ -1717,12 +1756,22 @@ estimate_path_cost_size(PlannerInfo *root,
 
 		retrieved_rows = rows;
 
-		/* Factor in the selectivity of the local_conds */
-		rows = clamp_row_est(rows * fpinfo->local_conds_sel);
+		/* Factor in the selectivity of the locally-checked quals */
+		local_sel = clauselist_selectivity(root,
+										   local_join_conds,
+										   baserel->relid,
+										   JOIN_INNER,
+										   NULL);
+		local_sel *= fpinfo->local_conds_sel;
 
-		/* Add in the eval cost of the local_conds */
+		rows = clamp_row_est(rows * local_sel);
+
+		/* Add in the eval cost of the locally-checked quals */
 		startup_cost += fpinfo->local_conds_cost.startup;
 		total_cost += fpinfo->local_conds_cost.per_tuple * retrieved_rows;
+		cost_qual_eval(&local_cost, local_join_conds, root);
+		startup_cost += local_cost.startup;
+		total_cost += local_cost.per_tuple * retrieved_rows;
 	}
 	else
 	{
@@ -1800,7 +1849,7 @@ get_remote_estimate(const char *sql, PGconn *conn,
 		 */
 		res = PQexec(conn, sql);
 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-			pgfdw_report_error(ERROR, res, false, sql);
+			pgfdw_report_error(ERROR, res, conn, false, sql);
 
 		/*
 		 * Extract cost numbers for topmost plan node.	Note we search for a
@@ -1934,7 +1983,7 @@ create_cursor(ForeignScanState *node)
 	res = PQexecParams(conn, buf.data, numParams, NULL, values,
 					   NULL, NULL, 0);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		pgfdw_report_error(ERROR, res, true, fsstate->query);
+		pgfdw_report_error(ERROR, res, conn, true, fsstate->query);
 	PQclear(res);
 
 	/* Mark the cursor as created, and show no tuples have been retrieved */
@@ -1985,7 +2034,7 @@ fetch_more_data(ForeignScanState *node)
 		res = PQexec(conn, sql);
 		/* On error, report the original query, not the FETCH. */
 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-			pgfdw_report_error(ERROR, res, false, fsstate->query);
+			pgfdw_report_error(ERROR, res, conn, false, fsstate->query);
 
 		/* Convert the data into HeapTuples */
 		numrows = PQntuples(res);
@@ -2091,7 +2140,7 @@ close_cursor(PGconn *conn, unsigned int cursor_number)
 	 */
 	res = PQexec(conn, sql);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		pgfdw_report_error(ERROR, res, true, sql);
+		pgfdw_report_error(ERROR, res, conn, true, sql);
 	PQclear(res);
 }
 
@@ -2128,7 +2177,7 @@ prepare_foreign_modify(PgFdwModifyState *fmstate)
 					NULL);
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		pgfdw_report_error(ERROR, res, true, fmstate->query);
+		pgfdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
 	PQclear(res);
 
 	/* This action shows that the prepare has been done. */
@@ -2278,7 +2327,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	{
 		res = PQexec(conn, sql.data);
 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-			pgfdw_report_error(ERROR, res, false, sql.data);
+			pgfdw_report_error(ERROR, res, conn, false, sql.data);
 
 		if (PQntuples(res) != 1 || PQnfields(res) != 1)
 			elog(ERROR, "unexpected result from deparseAnalyzeSizeSql query");
@@ -2372,7 +2421,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	{
 		res = PQexec(conn, sql.data);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			pgfdw_report_error(ERROR, res, false, sql.data);
+			pgfdw_report_error(ERROR, res, conn, false, sql.data);
 		PQclear(res);
 		res = NULL;
 
@@ -2403,7 +2452,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 			res = PQexec(conn, fetch_sql);
 			/* On error, report the original query, not the FETCH. */
 			if (PQresultStatus(res) != PGRES_TUPLES_OK)
-				pgfdw_report_error(ERROR, res, false, sql.data);
+				pgfdw_report_error(ERROR, res, conn, false, sql.data);
 
 			/* Process whatever we got. */
 			numrows = PQntuples(res);

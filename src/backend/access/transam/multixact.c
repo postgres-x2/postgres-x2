@@ -72,6 +72,7 @@
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
 #include "funcapi.h"
+#include "lib/ilist.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "postmaster/autovacuum.h"
@@ -261,13 +262,15 @@ static MultiXactId *OldestVisibleMXactId;
  */
 typedef struct mXactCacheEnt
 {
-	struct mXactCacheEnt *next;
 	MultiXactId multi;
 	int			nmembers;
+	dlist_node	node;
 	MultiXactMember members[FLEXIBLE_ARRAY_MEMBER];
 } mXactCacheEnt;
 
-static mXactCacheEnt *MXactCache = NULL;
+#define MAX_CACHE_ENTRIES	256
+static dlist_head	MXactCache = DLIST_STATIC_INIT(MXactCache);
+static int			MXactCacheMembers = 0;
 static MemoryContext MXactContext = NULL;
 
 #ifdef MULTIXACT_DEBUG
@@ -286,7 +289,6 @@ static MemoryContext MXactContext = NULL;
 
 /* internal MultiXactId management */
 static void MultiXactIdSetOldestVisible(void);
-static MultiXactId CreateMultiXactId(int nmembers, MultiXactMember *members);
 static void RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 				   int nmembers, MultiXactMember *members);
 static MultiXactId GetNewMultiXactId(int nmembers, MultiXactOffset *offset);
@@ -333,6 +335,9 @@ MultiXactIdCreate(TransactionId xid1, MultiXactStatus status1,
 
 	Assert(!TransactionIdEquals(xid1, xid2) || (status1 != status2));
 
+	/* MultiXactIdSetOldestMember() must have been called already. */
+	Assert(MultiXactIdIsValid(OldestMemberMXactId[MyBackendId]));
+
 	/*
 	 * Note: unlike MultiXactIdExpand, we don't bother to check that both XIDs
 	 * are still running.  In typical usage, xid2 will be our own XID and the
@@ -344,7 +349,7 @@ MultiXactIdCreate(TransactionId xid1, MultiXactStatus status1,
 	members[1].xid = xid2;
 	members[1].status = status2;
 
-	newMulti = CreateMultiXactId(2, members);
+	newMulti = MultiXactIdCreateFromMembers(2, members);
 
 	debug_elog3(DEBUG2, "Create: %s",
 				mxid_to_string(newMulti, 2, members));
@@ -384,6 +389,9 @@ MultiXactIdExpand(MultiXactId multi, TransactionId xid, MultiXactStatus status)
 	AssertArg(MultiXactIdIsValid(multi));
 	AssertArg(TransactionIdIsValid(xid));
 
+	/* MultiXactIdSetOldestMember() must have been called already. */
+	Assert(MultiXactIdIsValid(OldestMemberMXactId[MyBackendId]));
+
 	debug_elog5(DEBUG2, "Expand: received multi %u, xid %u status %s",
 				multi, xid, mxstatus_to_string(status));
 
@@ -407,7 +415,7 @@ MultiXactIdExpand(MultiXactId multi, TransactionId xid, MultiXactStatus status)
 		 */
 		member.xid = xid;
 		member.status = status;
-		newMulti = CreateMultiXactId(1, &member);
+		newMulti = MultiXactIdCreateFromMembers(1, &member);
 
 		debug_elog4(DEBUG2, "Expand: %u has no members, create singleton %u",
 					multi, newMulti);
@@ -459,7 +467,7 @@ MultiXactIdExpand(MultiXactId multi, TransactionId xid, MultiXactStatus status)
 
 	newMembers[j].xid = xid;
 	newMembers[j++].status = status;
-	newMulti = CreateMultiXactId(j, newMembers);
+	newMulti = MultiXactIdCreateFromMembers(j, newMembers);
 
 	pfree(members);
 	pfree(newMembers);
@@ -569,8 +577,13 @@ MultiXactIdSetOldestMember(void)
 		 * another someone else could compute an OldestVisibleMXactId that
 		 * would be after the value we are going to store when we get control
 		 * back.  Which would be wrong.
+		 *
+		 * Note that a shared lock is sufficient, because it's enough to stop
+		 * someone from advancing nextMXact; and nobody else could be trying to
+		 * write to our OldestMember entry, only reading (and we assume storing
+		 * it is atomic.)
 		 */
-		LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
+		LWLockAcquire(MultiXactGenLock, LW_SHARED);
 
 		/*
 		 * We have to beware of the possibility that nextMXact is in the
@@ -664,16 +677,16 @@ ReadNextMultiXactId(void)
 }
 
 /*
- * CreateMultiXactId
- *		Make a new MultiXactId
+ * MultiXactIdCreateFromMembers
+ *		Make a new MultiXactId from the specified set of members
  *
  * Make XLOG, SLRU and cache entries for a new MultiXactId, recording the
  * given TransactionIds as members.  Returns the newly created MultiXactId.
  *
  * NB: the passed members[] array will be sorted in-place.
  */
-static MultiXactId
-CreateMultiXactId(int nmembers, MultiXactMember *members)
+MultiXactId
+MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 {
 	MultiXactId multi;
 	MultiXactOffset offset;
@@ -704,6 +717,13 @@ CreateMultiXactId(int nmembers, MultiXactMember *members)
 	 * Assign the MXID and offsets range to use, and make sure there is space
 	 * in the OFFSETs and MEMBERs files.  NB: this routine does
 	 * START_CRIT_SECTION().
+	 *
+	 * Note: unlike MultiXactIdCreate and MultiXactIdExpand, we do not check
+	 * that we've called MultiXactIdSetOldestMember here.  This is because
+	 * this routine is used in some places to create new MultiXactIds of which
+	 * the current backend is not a member, notably during freezing of multis
+	 * in vacuum.  During vacuum, in particular, it would be unacceptable to
+	 * keep OldestMulti set, in case it runs for long.
 	 */
 	multi = GetNewMultiXactId(nmembers, &offset);
 
@@ -760,7 +780,8 @@ CreateMultiXactId(int nmembers, MultiXactMember *members)
  * RecordNewMultiXact
  *		Write info about a new multixact into the offsets and members files
  *
- * This is broken out of CreateMultiXactId so that xlog replay can use it.
+ * This is broken out of MultiXactIdCreateFromMembers so that xlog replay can
+ * use it.
  */
 static void
 RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
@@ -863,9 +884,6 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	MultiXactOffset nextOffset;
 
 	debug_elog3(DEBUG2, "GetNew: for %d xids", nmembers);
-
-	/* MultiXactIdSetOldestMember() must have been called already */
-	Assert(MultiXactIdIsValid(OldestMemberMXactId[MyBackendId]));
 
 	/* safety check, we should never get this far in a HS slave */
 	if (RecoveryInProgress())
@@ -1262,6 +1280,39 @@ retry:
 }
 
 /*
+ * MultiXactHasRunningRemoteMembers
+ * 		Does the given multixact have still-live members from
+ * 		transactions other than our own?
+ */
+bool
+MultiXactHasRunningRemoteMembers(MultiXactId multi)
+{
+	MultiXactMember *members;
+	int			nmembers;
+	int			i;
+
+	nmembers = GetMultiXactIdMembers(multi, &members, true);
+	if (nmembers <= 0)
+		return false;
+
+	for (i = 0; i < nmembers; i++)
+	{
+		/* not interested in our own members */
+		if (TransactionIdIsCurrentTransactionId(members[i].xid))
+			continue;
+
+		if (TransactionIdIsInProgress(members[i].xid))
+		{
+			pfree(members);
+			return true;
+		}
+	}
+
+	pfree(members);
+	return false;
+}
+
+/*
  * mxactMemberComparator
  *		qsort comparison function for MultiXactMember
  *
@@ -1301,7 +1352,7 @@ mxactMemberComparator(const void *arg1, const void *arg2)
 static MultiXactId
 mXactCacheGetBySet(int nmembers, MultiXactMember *members)
 {
-	mXactCacheEnt *entry;
+	dlist_iter	iter;
 
 	debug_elog3(DEBUG2, "CacheGet: looking for %s",
 				mxid_to_string(InvalidMultiXactId, nmembers, members));
@@ -1309,8 +1360,10 @@ mXactCacheGetBySet(int nmembers, MultiXactMember *members)
 	/* sort the array so comparison is easy */
 	qsort(members, nmembers, sizeof(MultiXactMember), mxactMemberComparator);
 
-	for (entry = MXactCache; entry != NULL; entry = entry->next)
+	dlist_foreach(iter, &MXactCache)
 	{
+		mXactCacheEnt *entry = dlist_container(mXactCacheEnt, node, iter.cur);
+
 		if (entry->nmembers != nmembers)
 			continue;
 
@@ -1321,6 +1374,7 @@ mXactCacheGetBySet(int nmembers, MultiXactMember *members)
 		if (memcmp(members, entry->members, nmembers * sizeof(MultiXactMember)) == 0)
 		{
 			debug_elog3(DEBUG2, "CacheGet: found %u", entry->multi);
+			dlist_move_head(&MXactCache, iter.cur);
 			return entry->multi;
 		}
 	}
@@ -1340,12 +1394,14 @@ mXactCacheGetBySet(int nmembers, MultiXactMember *members)
 static int
 mXactCacheGetById(MultiXactId multi, MultiXactMember **members)
 {
-	mXactCacheEnt *entry;
+	dlist_iter	iter;
 
 	debug_elog3(DEBUG2, "CacheGet: looking for %u", multi);
 
-	for (entry = MXactCache; entry != NULL; entry = entry->next)
+	dlist_foreach(iter, &MXactCache)
 	{
+		mXactCacheEnt *entry = dlist_container(mXactCacheEnt, node, iter.cur);
+
 		if (entry->multi == multi)
 		{
 			MultiXactMember *ptr;
@@ -1361,6 +1417,14 @@ mXactCacheGetById(MultiXactId multi, MultiXactMember **members)
 						mxid_to_string(multi,
 									   entry->nmembers,
 									   entry->members));
+
+			/*
+			 * Note we modify the list while not using a modifiable iterator.
+			 * This is acceptable only because we exit the iteration
+			 * immediately afterwards.
+			 */
+			dlist_move_head(&MXactCache, iter.cur);
+
 			return entry->nmembers;
 		}
 	}
@@ -1404,8 +1468,22 @@ mXactCachePut(MultiXactId multi, int nmembers, MultiXactMember *members)
 	/* mXactCacheGetBySet assumes the entries are sorted, so sort them */
 	qsort(entry->members, nmembers, sizeof(MultiXactMember), mxactMemberComparator);
 
-	entry->next = MXactCache;
-	MXactCache = entry;
+	dlist_push_head(&MXactCache, &entry->node);
+	if (MXactCacheMembers++ >= MAX_CACHE_ENTRIES)
+	{
+		dlist_node *node;
+		mXactCacheEnt *entry;
+
+		node = dlist_tail_node(&MXactCache);
+		dlist_delete(node);
+		MXactCacheMembers--;
+
+		entry = dlist_container(mXactCacheEnt, node, node);
+		debug_elog3(DEBUG2, "CachePut: pruning cached multi %u",
+					entry->multi);
+
+		pfree(entry);
+	}
 }
 
 static char *
@@ -1480,12 +1558,13 @@ AtEOXact_MultiXact(void)
 	 * a child of TopTransactionContext, we needn't delete it explicitly.
 	 */
 	MXactContext = NULL;
-	MXactCache = NULL;
+	dlist_init(&MXactCache);
+	MXactCacheMembers = 0;
 }
 
 /*
  * AtPrepare_MultiXact
- *		Save multixact state at 2PC tranasction prepare
+ *		Save multixact state at 2PC transaction prepare
  *
  * In this phase, we only store our OldestMemberMXactId value in the two-phase
  * state file.
@@ -1546,7 +1625,8 @@ PostPrepare_MultiXact(TransactionId xid)
 	 * Discard the local MultiXactId cache like in AtEOX_MultiXact
 	 */
 	MXactContext = NULL;
-	MXactCache = NULL;
+	dlist_init(&MXactCache);
+	MXactCacheMembers = 0;
 }
 
 /*
@@ -1975,11 +2055,13 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 	Assert(MultiXactIdIsValid(oldest_datminmxid));
 
 	/*
-	 * The place where we actually get into deep trouble is halfway around
-	 * from the oldest potentially-existing XID/multi.	(This calculation is
-	 * probably off by one or two counts for Xids, because the special XIDs
-	 * reduce the size of the loop a little bit.  But we throw in plenty of
-	 * slop below, so it doesn't matter.)
+	 * Since multixacts wrap differently from transaction IDs, this logic is
+	 * not entirely correct: in some scenarios we could go for longer than 2
+	 * billion multixacts without seeing any data loss, and in some others we
+	 * could get in trouble before that if the new pg_multixact/members data
+	 * stomps on the previous cycle's data.  For lack of a better mechanism we
+	 * use the same logic as for transaction IDs, that is, start taking action
+	 * halfway around the oldest potentially-existing multixact.
 	 */
 	multiWrapLimit = oldest_datminmxid + (MaxMultiXactId >> 1);
 	if (multiWrapLimit < FirstMultiXactId)
@@ -2013,12 +2095,13 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 
 	/*
 	 * We'll start trying to force autovacuums when oldest_datminmxid gets to
-	 * be more than autovacuum_freeze_max_age mxids old.
+	 * be more than autovacuum_multixact_freeze_max_age mxids old.
 	 *
-	 * It's a bit ugly to just reuse limits for xids that way, but it doesn't
-	 * seem worth adding separate GUCs for that purpose.
+	 * Note: autovacuum_multixact_freeze_max_age is a PGC_POSTMASTER parameter
+	 * so that we don't have to worry about dealing with on-the-fly changes in
+	 * its value.  See SetTransactionIdLimit.
 	 */
-	multiVacLimit = oldest_datminmxid + autovacuum_freeze_max_age;
+	multiVacLimit = oldest_datminmxid + autovacuum_multixact_freeze_max_age;
 	if (multiVacLimit < FirstMultiXactId)
 		multiVacLimit += FirstMultiXactId;
 
@@ -2179,7 +2262,6 @@ ExtendMultiXactMember(MultiXactOffset offset, int nmembers)
 	{
 		int			flagsoff;
 		int			flagsbit;
-		int			difference;
 
 		/*
 		 * Only zero when at first entry of a page.
@@ -2200,10 +2282,25 @@ ExtendMultiXactMember(MultiXactOffset offset, int nmembers)
 			LWLockRelease(MultiXactMemberControlLock);
 		}
 
-		/* Advance to next page (OK if nmembers goes negative) */
-		difference = MULTIXACT_MEMBERS_PER_PAGE - offset % MULTIXACT_MEMBERS_PER_PAGE;
-		offset += difference;
-		nmembers -= difference;
+		/*
+		 * Advance to next page, taking care to properly handle the wraparound
+		 * case.  OK if nmembers goes negative.
+		 */
+		if ((unsigned int) (offset + nmembers) < offset)
+		{
+			uint32		difference = offset + MULTIXACT_MEMBERS_PER_PAGE;
+
+			nmembers -= (unsigned int) (MULTIXACT_MEMBERS_PER_PAGE - difference);
+			offset = 0;
+		}
+		else
+		{
+			int			difference;
+
+			difference = MULTIXACT_MEMBERS_PER_PAGE - offset % MULTIXACT_MEMBERS_PER_PAGE;
+			nmembers -= difference;
+			offset += difference;
+		}
 	}
 }
 
@@ -2260,6 +2357,65 @@ GetOldestMultiXactId(void)
 	return oldestMXact;
 }
 
+/*
+ * SlruScanDirectory callback.
+ * 		This callback deletes segments that are outside the range determined by
+ * 		the given page numbers.
+ *
+ * Both range endpoints are exclusive (that is, segments containing any of
+ * those pages are kept.)
+ */
+typedef struct MembersLiveRange
+{
+	int		rangeStart;
+	int		rangeEnd;
+} MembersLiveRange;
+
+static bool
+SlruScanDirCbRemoveMembers(SlruCtl ctl, char *filename, int segpage,
+						   void *data)
+{
+	MembersLiveRange *range = (MembersLiveRange *) data;
+	MultiXactOffset	nextOffset;
+
+	if ((segpage == range->rangeStart) ||
+		(segpage == range->rangeEnd))
+		return false;		/* easy case out */
+
+	/*
+	 * To ensure that no segment is spuriously removed, we must keep track
+	 * of new segments added since the start of the directory scan; to do this,
+	 * we update our end-of-range point as we run.
+	 *
+	 * As an optimization, we can skip looking at shared memory if we know for
+	 * certain that the current segment must be kept.  This is so because
+	 * nextOffset never decreases, and we never increase rangeStart during any
+	 * one run.
+	 */
+	if (!((range->rangeStart > range->rangeEnd &&
+		   segpage > range->rangeEnd && segpage < range->rangeStart) ||
+		  (range->rangeStart < range->rangeEnd &&
+		   (segpage < range->rangeStart || segpage > range->rangeEnd))))
+		return false;
+
+	/*
+	 * Update our idea of the end of the live range.
+	 */
+	LWLockAcquire(MultiXactGenLock, LW_SHARED);
+	nextOffset = MultiXactState->nextOffset;
+	LWLockRelease(MultiXactGenLock);
+	range->rangeEnd = MXOffsetToMemberPage(nextOffset);
+
+	/* Recheck the deletion condition.  If it still holds, perform deletion */
+	if ((range->rangeStart > range->rangeEnd &&
+		 segpage > range->rangeEnd && segpage < range->rangeStart) ||
+		(range->rangeStart < range->rangeEnd &&
+		 (segpage < range->rangeStart || segpage > range->rangeEnd)))
+		SlruDeleteSegment(ctl, filename);
+
+	return false;				/* keep going */
+}
+
 typedef struct mxtruncinfo
 {
 	int			earliestExistingPage;
@@ -2301,8 +2457,10 @@ void
 TruncateMultiXact(MultiXactId oldestMXact)
 {
 	MultiXactOffset oldestOffset;
+	MultiXactOffset	nextOffset;
 	mxtruncinfo trunc;
 	MultiXactId earliest;
+	MembersLiveRange	range;
 
 	/*
 	 * Note we can't just plow ahead with the truncation; it's possible that
@@ -2349,9 +2507,23 @@ TruncateMultiXact(MultiXactId oldestMXact)
 	SimpleLruTruncate(MultiXactOffsetCtl,
 					  MultiXactIdToOffsetPage(oldestMXact));
 
-	/* truncate MultiXactMembers and we're done */
-	SimpleLruTruncate(MultiXactMemberCtl,
-					  MXOffsetToMemberPage(oldestOffset));
+	/*
+	 * To truncate MultiXactMembers, we need to figure out the active page
+	 * range and delete all files outside that range.  The start point is the
+	 * start of the segment containing the oldest offset; an end point of the
+	 * segment containing the next offset to use is enough.  The end point is
+	 * updated as MultiXactMember gets extended concurrently, elsewhere.
+	 */
+	range.rangeStart = MXOffsetToMemberPage(oldestOffset);
+	range.rangeStart -= range.rangeStart % SLRU_PAGES_PER_SEGMENT;
+
+	LWLockAcquire(MultiXactGenLock, LW_SHARED);
+	nextOffset = MultiXactState->nextOffset;
+	LWLockRelease(MultiXactGenLock);
+
+	range.rangeEnd = MXOffsetToMemberPage(nextOffset);
+
+	SlruScanDirectory(MultiXactMemberCtl, SlruScanDirCbRemoveMembers, &range);
 }
 
 /*

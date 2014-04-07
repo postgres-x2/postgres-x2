@@ -288,6 +288,10 @@ XLogReadBuffer(RelFileNode rnode, BlockNumber blkno, bool init)
  *
  * In RBM_ZERO and RBM_ZERO_ON_ERROR modes, if the page doesn't exist, the
  * relation is extended with all-zeroes pages up to the given block number.
+ *
+ * In RBM_NORMAL_NO_LOG mode, we return InvalidBuffer if the page doesn't
+ * exist, and we don't check for all-zeroes.  Thus, no log entry is made
+ * to imply that the page should be dropped or truncated later.
  */
 Buffer
 XLogReadBufferExtended(RelFileNode rnode, ForkNumber forknum,
@@ -328,19 +332,27 @@ XLogReadBufferExtended(RelFileNode rnode, ForkNumber forknum,
 			log_invalid_page(rnode, forknum, blkno, false);
 			return InvalidBuffer;
 		}
+		if (mode == RBM_NORMAL_NO_LOG)
+			return InvalidBuffer;
 		/* OK to extend the file */
 		/* we do this in recovery only - no rel-extension lock needed */
 		Assert(InRecovery);
 		buffer = InvalidBuffer;
-		while (blkno >= lastblock)
+		do
 		{
 			if (buffer != InvalidBuffer)
 				ReleaseBuffer(buffer);
 			buffer = ReadBufferWithoutRelcache(rnode, forknum,
 											   P_NEW, mode, NULL);
-			lastblock++;
 		}
-		Assert(BufferGetBlockNumber(buffer) == blkno);
+		while (BufferGetBlockNumber(buffer) < blkno);
+		/* Handle the corner case that P_NEW returns non-consecutive pages */
+		if (BufferGetBlockNumber(buffer) != blkno)
+		{
+			ReleaseBuffer(buffer);
+			buffer = ReadBufferWithoutRelcache(rnode, forknum, blkno,
+											   mode, NULL);
+		}
 	}
 
 	if (mode == RBM_NORMAL)
@@ -433,6 +445,9 @@ CreateFakeRelcacheEntry(RelFileNode rnode)
 void
 FreeFakeRelcacheEntry(Relation fakerel)
 {
+	/* make sure the fakerel is not referenced by the SmgrRelation anymore */
+	if (fakerel->rd_smgr != NULL)
+		smgrclearowner(&fakerel->rd_smgr, fakerel->rd_smgr);
 	pfree(fakerel);
 }
 

@@ -139,8 +139,6 @@ static Node *makeBitStringConst(char *str, int location);
 static Node *makeNullAConst(int location);
 static Node *makeAConst(Value *v, int location);
 static Node *makeBoolAConst(bool state, int location);
-static FuncCall *makeOverlaps(List *largs, List *rargs,
-							  int location, core_yyscan_t yyscanner);
 static void check_qualified_name(List *names, core_yyscan_t yyscanner);
 static List *check_func_name(List *names, core_yyscan_t yyscanner);
 static List *check_indirection(List *indirection, core_yyscan_t yyscanner);
@@ -340,7 +338,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				oper_argtypes RuleActionList RuleActionMulti
 				opt_column_list columnList opt_name_list
 				sort_clause opt_sort_clause sortby_list index_params
-				name_list from_clause from_list opt_array_bounds
+				name_list role_list from_clause from_list opt_array_bounds
 				qualified_name_list any_name any_name_list
 				any_operator expr_list attrs
 				target_list insert_column_list set_target_list
@@ -927,7 +925,7 @@ AlterOptRoleElem:
 					$$ = makeDefElem("validUntil", (Node *)makeString($3));
 				}
 		/*	Supported but not documented for roles, for use by ALTER GROUP. */
-			| USER name_list
+			| USER role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
@@ -991,19 +989,19 @@ CreateOptRoleElem:
 				{
 					$$ = makeDefElem("sysid", (Node *)makeInteger($2));
 				}
-			| ADMIN name_list
+			| ADMIN role_list
 				{
 					$$ = makeDefElem("adminmembers", (Node *)$2);
 				}
-			| ROLE name_list
+			| ROLE role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
-			| IN_P ROLE name_list
+			| IN_P ROLE role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
-			| IN_P GROUP_P name_list
+			| IN_P GROUP_P role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
@@ -1110,14 +1108,14 @@ AlterUserSetStmt:
  *****************************************************************************/
 
 DropRoleStmt:
-			DROP ROLE name_list
+			DROP ROLE role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP ROLE IF_P EXISTS name_list
+			| DROP ROLE IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -1136,14 +1134,14 @@ DropRoleStmt:
  *****************************************************************************/
 
 DropUserStmt:
-			DROP USER name_list
+			DROP USER role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP USER IF_P EXISTS name_list
+			| DROP USER IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->roles = $5;
@@ -1178,7 +1176,7 @@ CreateGroupStmt:
  *****************************************************************************/
 
 AlterGroupStmt:
-			ALTER GROUP_P RoleId add_drop USER name_list
+			ALTER GROUP_P RoleId add_drop USER role_list
 				{
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1202,14 +1200,14 @@ add_drop:	ADD_P									{ $$ = +1; }
  *****************************************************************************/
 
 DropGroupStmt:
-			DROP GROUP_P name_list
+			DROP GROUP_P role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP GROUP_P IF_P EXISTS name_list
+			| DROP GROUP_P IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -5247,7 +5245,7 @@ DropOpFamilyStmt:
  *
  *****************************************************************************/
 DropOwnedStmt:
-			DROP OWNED BY name_list opt_drop_behavior
+			DROP OWNED BY role_list opt_drop_behavior
 				{
 					DropOwnedStmt *n = makeNode(DropOwnedStmt);
 					n->roles = $4;
@@ -5257,7 +5255,7 @@ DropOwnedStmt:
 		;
 
 ReassignOwnedStmt:
-			REASSIGN OWNED BY name_list TO name
+			REASSIGN OWNED BY role_list TO name
 				{
 					ReassignOwnedStmt *n = makeNode(ReassignOwnedStmt);
 					n->roles = $4;
@@ -6123,7 +6121,7 @@ function_with_argtypes:
  *****************************************************************************/
 
 GrantRoleStmt:
-			GRANT privilege_list TO name_list opt_grant_admin_option opt_granted_by
+			GRANT privilege_list TO role_list opt_grant_admin_option opt_granted_by
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = true;
@@ -6136,7 +6134,7 @@ GrantRoleStmt:
 		;
 
 RevokeRoleStmt:
-			REVOKE privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			REVOKE privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -6146,7 +6144,7 @@ RevokeRoleStmt:
 					n->behavior = $6;
 					$$ = (Node*)n;
 				}
-			| REVOKE ADMIN OPTION FOR privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			| REVOKE ADMIN OPTION FOR privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -6192,11 +6190,11 @@ DefACLOption:
 				{
 					$$ = makeDefElem("schemas", (Node *)$3);
 				}
-			| FOR ROLE name_list
+			| FOR ROLE role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
-			| FOR USER name_list
+			| FOR USER role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
@@ -8674,6 +8672,8 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 						n->options |= VACOPT_VERBOSE;
 					n->freeze_min_age = $3 ? 0 : -1;
 					n->freeze_table_age = $3 ? 0 : -1;
+					n->multixact_freeze_min_age = $3 ? 0 : -1;
+					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -8688,6 +8688,8 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 						n->options |= VACOPT_VERBOSE;
 					n->freeze_min_age = $3 ? 0 : -1;
 					n->freeze_table_age = $3 ? 0 : -1;
+					n->multixact_freeze_min_age = $3 ? 0 : -1;
+					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					n->relation = $5;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -8702,6 +8704,8 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 						n->options |= VACOPT_VERBOSE;
 					n->freeze_min_age = $3 ? 0 : -1;
 					n->freeze_table_age = $3 ? 0 : -1;
+					n->multixact_freeze_min_age = $3 ? 0 : -1;
+					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					$$ = (Node *)n;
 				}
 			| VACUUM '(' vacuum_option_list ')'
@@ -8709,9 +8713,17 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 					VacuumStmt *n = makeNode(VacuumStmt);
 					n->options = VACOPT_VACUUM | $3;
 					if (n->options & VACOPT_FREEZE)
+					{
 						n->freeze_min_age = n->freeze_table_age = 0;
+						n->multixact_freeze_min_age = 0;
+						n->multixact_freeze_table_age = 0;
+					}
 					else
+					{
 						n->freeze_min_age = n->freeze_table_age = -1;
+						n->multixact_freeze_min_age = -1;
+						n->multixact_freeze_table_age = -1;
+					}
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *) n;
@@ -8721,9 +8733,17 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 					VacuumStmt *n = makeNode(VacuumStmt);
 					n->options = VACOPT_VACUUM | $3;
 					if (n->options & VACOPT_FREEZE)
+					{
 						n->freeze_min_age = n->freeze_table_age = 0;
+						n->multixact_freeze_min_age = 0;
+						n->multixact_freeze_table_age = 0;
+					}
 					else
+					{
 						n->freeze_min_age = n->freeze_table_age = -1;
+						n->multixact_freeze_min_age = -1;
+						n->multixact_freeze_table_age = -1;
+					}
 					n->relation = $5;
 					n->va_cols = $6;
 					if (n->va_cols != NIL)	/* implies analyze */
@@ -8753,6 +8773,8 @@ AnalyzeStmt:
 						n->options |= VACOPT_VERBOSE;
 					n->freeze_min_age = -1;
 					n->freeze_table_age = -1;
+					n->multixact_freeze_min_age = -1;
+					n->multixact_freeze_table_age = -1;
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -8765,6 +8787,8 @@ AnalyzeStmt:
 						n->options |= VACOPT_VERBOSE;
 					n->freeze_min_age = -1;
 					n->freeze_table_age = -1;
+					n->multixact_freeze_min_age = -1;
+					n->multixact_freeze_table_age = -1;
 					n->relation = $3;
 					n->va_cols = $4;
 					$$ = (Node *)n;
@@ -11110,7 +11134,26 @@ a_expr:		c_expr									{ $$ = $1; }
 				}
 			| row OVERLAPS row
 				{
-					$$ = (Node *)makeOverlaps($1, $3, @2, yyscanner);
+					FuncCall *n = makeNode(FuncCall);
+					n->funcname = SystemFuncName("overlaps");
+					if (list_length($1) != 2)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("wrong number of parameters on left side of OVERLAPS expression"),
+								 parser_errposition(@1)));
+					if (list_length($3) != 2)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("wrong number of parameters on right side of OVERLAPS expression"),
+								 parser_errposition(@3)));
+					n->args = list_concat($1, $3);
+					n->agg_order = NIL;
+					n->agg_star = FALSE;
+					n->agg_distinct = FALSE;
+					n->func_variadic = FALSE;
+					n->over = NULL;
+					n->location = @2;
+					$$ = (Node *)n;
 				}
 			| a_expr IS TRUE_P							%prec IS
 				{
@@ -11647,10 +11690,15 @@ func_expr:	func_name '(' ')' over_clause
 					 * of type-input conversion functions.  (As of PG 7.3
 					 * that is actually possible, but not clear that we want
 					 * to rely on it.)
+					 *
+					 * The token location is attached to the run-time
+					 * typecast, not to the Const, for the convenience of
+					 * pg_stat_statements (which doesn't want these constructs
+					 * to appear to be replaceable constants).
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("date"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("date"), @1);
 				}
 			| CURRENT_TIME
 				{
@@ -11659,8 +11707,8 @@ func_expr:	func_name '(' ')' over_clause
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timetz"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timetz"), @1);
 				}
 			| CURRENT_TIME '(' Iconst ')'
 				{
@@ -11670,10 +11718,10 @@ func_expr:	func_name '(' ')' over_clause
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timetz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_TIMESTAMP
 				{
@@ -11700,10 +11748,10 @@ func_expr:	func_name '(' ')' over_clause
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamptz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| LOCALTIME
 				{
@@ -11712,8 +11760,8 @@ func_expr:	func_name '(' ')' over_clause
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), @1);
 				}
 			| LOCALTIME '(' Iconst ')'
 				{
@@ -11723,10 +11771,10 @@ func_expr:	func_name '(' ')' over_clause
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("time");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast((Node *)n, d, -1);
+					$$ = makeTypeCast((Node *)n, d, @1);
 				}
 			| LOCALTIMESTAMP
 				{
@@ -11735,8 +11783,8 @@ func_expr:	func_name '(' ')' over_clause
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timestamp"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timestamp"), @1);
 				}
 			| LOCALTIMESTAMP '(' Iconst ')'
 				{
@@ -11746,10 +11794,10 @@ func_expr:	func_name '(' ')' over_clause
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamp");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_ROLE
 				{
@@ -12995,6 +13043,12 @@ Iconst:		ICONST									{ $$ = $1; };
 Sconst:		SCONST									{ $$ = $1; };
 RoleId:		NonReservedWord							{ $$ = $1; };
 
+role_list:	RoleId
+					{ $$ = list_make1(makeString($1)); }
+			| role_list ',' RoleId
+					{ $$ = lappend($1, makeString($3)); }
+		;
+
 SignedIconst: Iconst								{ $$ = $1; }
 			| '+' Iconst							{ $$ = + $2; }
 			| '-' Iconst							{ $$ = - $2; }
@@ -13691,39 +13745,6 @@ makeBoolAConst(bool state, int location)
 	n->location = location;
 
 	return makeTypeCast((Node *)n, SystemTypeName("bool"), -1);
-}
-
-/* makeOverlaps()
- * Create and populate a FuncCall node to support the OVERLAPS operator.
- */
-static FuncCall *
-makeOverlaps(List *largs, List *rargs, int location, core_yyscan_t yyscanner)
-{
-	FuncCall *n = makeNode(FuncCall);
-
-	n->funcname = SystemFuncName("overlaps");
-	if (list_length(largs) == 1)
-		largs = lappend(largs, largs);
-	else if (list_length(largs) != 2)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("wrong number of parameters on left side of OVERLAPS expression"),
-				 parser_errposition(location)));
-	if (list_length(rargs) == 1)
-		rargs = lappend(rargs, rargs);
-	else if (list_length(rargs) != 2)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("wrong number of parameters on right side of OVERLAPS expression"),
-				 parser_errposition(location)));
-	n->args = list_concat(largs, rargs);
-	n->agg_order = NIL;
-	n->agg_star = FALSE;
-	n->agg_distinct = FALSE;
-	n->func_variadic = FALSE;
-	n->over = NULL;
-	n->location = location;
-	return n;
 }
 
 /* check_qualified_name --- check the result of qualified_name production

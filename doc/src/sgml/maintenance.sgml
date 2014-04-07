@@ -108,7 +108,8 @@
 
      <listitem>
       <simpara>To protect against loss of very old data due to
-      <firstterm>transaction ID wraparound</>.</simpara>
+      <firstterm>transaction ID wraparound</> or
+      <firstterm>multixact ID wraparound</>.</simpara>
      </listitem>
     </orderedlist>
 
@@ -379,6 +380,11 @@
     <secondary>wraparound</secondary>
    </indexterm>
 
+    <indexterm>
+     <primary>wraparound</primary>
+     <secondary>of transaction IDs</secondary>
+    </indexterm>
+
    <para>
     <productname>PostgreSQL</productname>'s MVCC transaction semantics
     depend on being able to compare transaction ID (<acronym>XID</>)
@@ -401,7 +407,7 @@
     as <literal>FrozenXID</>.  This XID does not follow the normal XID
     comparison rules and is always considered older
     than every normal XID. Normal XIDs are
-    compared using modulo-2<superscript>31</> arithmetic. This means
+    compared using modulo-2<superscript>32</> arithmetic. This means
     that for every normal XID, there are two billion XIDs that are
     <quote>older</> and two billion that are <quote>newer</>; another
     way to say it is that the normal XID space is circular with no
@@ -599,6 +605,57 @@ HINT:  Stop the postmaster and use a standalone backend to VACUUM in "mydb".
     page for details about using a single-user backend.
    </para>
 
+   <sect3 id="vacuum-for-multixact-wraparound">
+    <title>Multixacts and Wraparound</title>
+
+    <indexterm>
+     <primary>MultiXactId</primary>
+    </indexterm>
+
+    <indexterm>
+     <primary>wraparound</primary>
+     <secondary>of multixact IDs</secondary>
+    </indexterm>
+
+    <para>
+     <firstterm>Multixact IDs</> are used to support row locking by
+     multiple transactions.  Since there is only limited space in a tuple
+     header to store lock information, that information is encoded as
+     a <quote>multiple transaction ID</>, or multixact ID for short,
+     whenever there is more than one transaction concurrently locking a
+     row.  Information about which transaction IDs are included in any
+     particular multixact ID is stored separately in
+     the <filename>pg_multixact</> subdirectory, and only the multixact ID
+     appears in the <structfield>xmax</> field in the tuple header.
+     Like transaction IDs, multixact IDs are implemented as a
+     32-bit counter and corresponding storage, all of which requires
+     careful aging management, storage cleanup, and wraparound handling.
+    </para>
+
+    <para>
+     During a <command>VACUUM</> table scan, either partial or of the whole
+     table, any multixact ID older than
+     <xref linkend="guc-vacuum-multixact-freeze-min-age">
+     is replaced by a different value, which can be the zero value, a single
+     transaction ID, or a newer multixact ID.  For each table,
+     <structname>pg_class</>.<structfield>relminmxid</> stores the oldest
+     possible multixact ID still appearing in any tuple of that table.
+     If this value is older than
+     <xref linkend="guc-vacuum-multixact-freeze-table-age">, a whole-table
+     scan is forced.  Whole-table <command>VACUUM</> scans, regardless of
+     what causes them, enable advancing the value for that table.
+     Eventually, as all tables in all databases are scanned and their
+     oldest multixact values are advanced, on-disk storage for older
+     multixacts can be removed.
+    </para>
+
+    <para>
+     As a safety device, a whole-table vacuum scan will occur for any table
+     whose multixact-age is greater than
+     <xref linkend="guc-autovacuum-multixact-freeze-max-age">.
+     This will occur even if autovacuum is nominally disabled.
+    </para>
+   </sect3>
   </sect2>
 
   <sect2 id="autovacuum">
@@ -750,8 +807,9 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
 
   <para>
    In some situations it is worthwhile to rebuild indexes periodically
-   with the <xref linkend="sql-reindex">
-   command.
+   with the <xref linkend="sql-reindex"> command or a series of individual
+   rebuilding steps.
+
   </para>
 
   <para>
@@ -776,6 +834,23 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
    adjacent pages are usually also physically adjacent in a newly built index.
    (This consideration does not apply to non-B-tree indexes.)  It
    might be worthwhile to reindex periodically just to improve access speed.
+  </para>
+
+  <para>
+   <xref linkend="sql-reindex"> can be used safely and easily in all cases.
+   But since the command requires an exclusive table lock, it is
+   often preferable to execute an index rebuild with a sequence of
+   creation and replacement steps.  Index types that support
+   <xref linkend="sql-createindex"> with the <literal>CONCURRENTLY</>
+   option can instead be recreated that way. If that is successful and the
+   resulting index is valid, the original index can then be replaced by
+   the newly built one using a combination of <xref linkend="sql-alterindex">
+   and <xref linkend="sql-dropindex">. When an index is used to enforce
+   uniqueness or other constraints, <xref linkend="sql-altertable"> might
+   be necessary to swap the existing constraint with one enforced by
+   the new index. Review this alternate multi-step rebuild approach
+   carefully before using it as there are limitations on which
+   indexes can be reindexed this way, and errors must be handled.
   </para>
  </sect1>
 

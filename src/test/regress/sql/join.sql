@@ -366,8 +366,6 @@ ORDER BY x1, x2, y1, y2;
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
-analyze tenk1;		-- ensure we get consistent plans here
-
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -1164,6 +1162,14 @@ select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
   ) on c.q2 = ss2.q1,
   lateral (select * from int4_tbl i where ss2.y > f1) ss3;
 
+-- check processing of postponed quals (bug #9041)
+explain (verbose, costs off)
+select * from
+  (select 1 as x) x cross join (select 2 as y) y
+  left join lateral (
+    select * from (select 3 as z) z where z.z = x.x
+  ) zz on zz.z = y.y;
+
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;
 select f1,g from int4_tbl a, (select a.f1 as g) ss;
@@ -1177,3 +1183,20 @@ select * from
   int8_tbl x cross join (int4_tbl x cross join lateral (select x.f1) ss);
 -- LATERAL can be used to put an aggregate into the FROM clause of its query
 select 1 from tenk1 a, lateral (select max(a.unique1) from int4_tbl b) ss;
+
+-- check behavior of LATERAL in UPDATE/DELETE
+
+create temp table xx1 as select f1 as x1, -f1 as x2 from int4_tbl;
+
+-- error, can't do this:
+update xx1 set x2 = f1 from (select * from int4_tbl where f1 = x1) ss;
+update xx1 set x2 = f1 from (select * from int4_tbl where f1 = xx1.x1) ss;
+-- can't do it even with LATERAL:
+update xx1 set x2 = f1 from lateral (select * from int4_tbl where f1 = x1) ss;
+-- we might in future allow something like this, but for now it's an error:
+update xx1 set x2 = f1 from xx1, lateral (select * from int4_tbl where f1 = x1) ss;
+
+-- also errors:
+delete from xx1 using (select * from int4_tbl where f1 = x1) ss;
+delete from xx1 using (select * from int4_tbl where f1 = xx1.x1) ss;
+delete from xx1 using lateral (select * from int4_tbl where f1 = x1) ss;

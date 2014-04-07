@@ -377,7 +377,9 @@ SELECT * FROM hogeview WHERE i < 10;
 ---
 (0 rows)
 
-VACUUM ANALYZE;
+-- The following statement does not work with 1.2.1 and master so far.
+VACUUM ANALYZE hogeview;
+ERROR:  relation "hogeview" does not exist
 SELECT * FROM hogeview WHERE i < 10;
  i 
 ---
@@ -398,17 +400,43 @@ ALTER TABLE v RENAME COLUMN i TO x;
 INSERT INTO v values (1, 2);
 CREATE UNIQUE INDEX mv_v_ii ON mv_v (ii);
 REFRESH MATERIALIZED VIEW mv_v;
-SELECT * FROM v;
+SELECT * FROM v ORDER BY 1;
  x | j 
 ---+---
  1 | 2
 (1 row)
 
-SELECT * FROM mv_v;
+SELECT * FROM mv_v ORDER BY 1;
  ii | jj 
 ----+----
   1 |  2
 (1 row)
+
+DROP TABLE v CASCADE;
+NOTICE:  drop cascades to materialized view mv_v
+-- make sure that matview rows can be referenced as source rows (bug #9398)
+CREATE TABLE v AS SELECT generate_series(1,10) AS a;
+CREATE MATERIALIZED VIEW mv_v AS SELECT a FROM v WHERE a <= 5;
+DELETE FROM v WHERE EXISTS ( SELECT * FROM mv_v WHERE mv_v.a = v.a );
+SELECT * FROM v ORDER BY 1;
+ a  
+----
+  6
+  7
+  8
+  9
+ 10
+(5 rows)
+
+SELECT * FROM mv_v ORDER BY 1;
+ a 
+---
+ 1
+ 2
+ 3
+ 4
+ 5
+(5 rows)
 
 DROP TABLE v CASCADE;
 NOTICE:  drop cascades to materialized view mv_v

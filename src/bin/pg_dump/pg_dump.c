@@ -406,7 +406,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	while ((c = getopt_long(argc, argv, "abcCd:E:f:F:h:ij:K:n:N:oOp:RsS:t:T:U:vwWxZ:",
+	while ((c = getopt_long(argc, argv, "abcCd:E:f:F:h:ij:n:N:oOp:RsS:t:T:U:vwWxZ:",
 							long_options, &optindex)) != -1)
 	{
 		switch (c)
@@ -14231,6 +14231,10 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 	destroyPQExpBuffer(query);
 }
 
+/*
+ * dumpTrigger
+ *	  write the declaration of one user-defined table trigger
+ */
 static void
 dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 {
@@ -14243,6 +14247,10 @@ dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 	const char *p;
 	int			findx;
 
+	/*
+	 * we needn't check dobj.dump because TriggerInfo wouldn't have been
+	 * created in the first place for non-dumpable triggers
+	 */
 	if (dataOnly)
 		return;
 
@@ -14433,11 +14441,19 @@ dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 	destroyPQExpBuffer(labelq);
 }
 
+/*
+ * dumpEventTrigger
+ *	  write the declaration of one user-defined event trigger
+ */
 static void
 dumpEventTrigger(Archive *fout, EventTriggerInfo *evtinfo)
 {
 	PQExpBuffer query;
 	PQExpBuffer labelq;
+
+	/* Skip if not to be dumped */
+	if (!evtinfo->dobj.dump || dataOnly)
+		return;
 
 	query = createPQExpBuffer();
 	labelq = createPQExpBuffer();

@@ -737,7 +737,11 @@ WalRcvSigHupHandler(SIGNAL_ARGS)
 static void
 WalRcvSigUsr1Handler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	latch_sigusr1_handler();
+
+	errno = save_errno;
 }
 
 /* SIGTERM: set flag for main loop, or shutdown immediately if safe */
@@ -1007,7 +1011,10 @@ XLogWalRcvFlush(bool dying)
 
 		/* Also let the master know that we made some progress */
 		if (!dying)
+		{
 			XLogWalRcvSendReply(false, false);
+			XLogWalRcvSendHSFeedback(false);
+		}
 	}
 }
 

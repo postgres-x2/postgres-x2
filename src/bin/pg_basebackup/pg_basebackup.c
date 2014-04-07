@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <time.h>
 
 #ifdef HAVE_LIBZ
@@ -73,6 +74,7 @@ static PQExpBuffer recoveryconfcontents = NULL;
 
 /* Function headers */
 static void usage(void);
+static void disconnect_and_exit(int code);
 static void verify_dir_is_empty_or_create(char *dirname);
 static void progress_report(int tablespacenum, const char *filename);
 
@@ -84,6 +86,26 @@ static void BaseBackup(void);
 
 static bool reached_end_position(XLogRecPtr segendpos, uint32 timeline,
 					 bool segment_finished);
+
+
+static void disconnect_and_exit(int code)
+{
+	if (conn != NULL)
+		PQfinish(conn);
+
+#ifndef WIN32
+	/*
+	 * On windows, our background thread dies along with the process.
+	 * But on Unix, if we have started a subprocess, we want to kill
+	 * it off so it doesn't remain running trying to stream data.
+	 */
+	if (bgchild> 0)
+		kill(bgchild, SIGTERM);
+#endif
+
+	exit(code);
+}
+
 
 #ifdef HAVE_LIBZ
 static const char *
@@ -563,6 +585,7 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 			else
 #endif
 				tarfile = stdout;
+			strcpy(filename, "-");
 		}
 		else
 		{
@@ -880,9 +903,9 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 	FILE	   *file = NULL;
 
 	if (basetablespace)
-		strcpy(current_path, basedir);
+		strlcpy(current_path, basedir, sizeof(current_path));
 	else
-		strcpy(current_path, PQgetvalue(res, rownum, 1));
+		strlcpy(current_path, PQgetvalue(res, rownum, 1), sizeof(current_path));
 
 	/*
 	 * Get the COPY data
@@ -1409,7 +1432,7 @@ BaseBackup(void)
 		disconnect_and_exit(1);
 	}
 
-	strcpy(xlogstart, PQgetvalue(res, 0, 0));
+	strlcpy(xlogstart, PQgetvalue(res, 0, 0), sizeof(xlogstart));
 
 	/*
 	 * 9.3 and later sends the TLI of the starting point. With older servers,
@@ -1521,7 +1544,7 @@ BaseBackup(void)
 				progname);
 		disconnect_and_exit(1);
 	}
-	strcpy(xlogend, PQgetvalue(res, 0, 0));
+	strlcpy(xlogend, PQgetvalue(res, 0, 0), sizeof(xlogend));
 	if (verbose && includewal)
 		fprintf(stderr, "transaction log end point: %s\n", xlogend);
 	PQclear(res);

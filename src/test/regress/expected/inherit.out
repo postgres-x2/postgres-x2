@@ -1071,8 +1071,7 @@ insert into bar2 values(2,2,2);
 insert into bar2 values(3,3,3);
 insert into bar2 values(4,4,4);
 update bar set f2 = f2 + 100 where f1 in (select f1 from foo);
-SELECT relname, bar.* FROM bar, pg_class where bar.tableoid = pg_class.oid
-order by 1,2;
+select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
  relname | f1 | f2  
 ---------+----+-----
  bar     |  1 | 101
@@ -1085,6 +1084,7 @@ order by 1,2;
  bar2    |  4 |   4
 (8 rows)
 
+<<<<<<< HEAD
 -- In Postgres-XC OIDs are not consistent across the cluster. Hence above
 -- queries do not show any result. Hence in order to ensure data consistency, we
 -- add following SQLs. In case above set of queries start producing valid
@@ -1120,6 +1120,26 @@ SELECT * FROM bar2 ORDER BY f1, f2;
   4 |   4 |  4
 (4 rows)
 
+=======
+-- Check UPDATE with inherited target and an appendrel subquery
+update bar set f2 = f2 + 100
+from
+  ( select f1 from foo union all select f1+3 from foo ) ss
+where bar.f1 = ss.f1;
+select tableoid::regclass::text as relname, bar.* from bar order by 1,2;
+ relname | f1 | f2  
+---------+----+-----
+ bar     |  1 | 201
+ bar     |  2 | 202
+ bar     |  3 | 203
+ bar     |  4 | 104
+ bar2    |  1 | 201
+ bar2    |  2 | 202
+ bar2    |  3 | 203
+ bar2    |  4 | 104
+(8 rows)
+
+>>>>>>> REL9_3_4
 /* Test multiple inheritance of column defaults */
 CREATE TABLE firstparent (tomorrow date default now()::date + 1);
 CREATE TABLE secondparent (tomorrow date default  now() :: date  +  1);

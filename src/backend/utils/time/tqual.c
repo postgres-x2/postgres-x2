@@ -686,8 +686,36 @@ HeapTupleSatisfiesUpdate(HeapTupleHeader tuple, CommandId curcid,
 			if (tuple->t_infomask & HEAP_XMAX_INVALID)	/* xid invalid */
 				return HeapTupleMayBeUpdated;
 
-			if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))	/* not deleter */
-				return HeapTupleMayBeUpdated;
+			if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
+			{
+				TransactionId	xmax;
+
+				xmax = HeapTupleHeaderGetRawXmax(tuple);
+
+				/*
+				 * Careful here: even though this tuple was created by our own
+				 * transaction, it might be locked by other transactions, if
+				 * the original version was key-share locked when we updated
+				 * it.
+				 */
+
+				if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
+				{
+					if (MultiXactHasRunningRemoteMembers(xmax))
+						return HeapTupleBeingUpdated;
+					else
+						return HeapTupleMayBeUpdated;
+				}
+
+				/* if locker is gone, all's well */
+				if (!TransactionIdIsInProgress(xmax))
+					return HeapTupleMayBeUpdated;
+
+				if (!TransactionIdIsCurrentTransactionId(xmax))
+					return HeapTupleBeingUpdated;
+				else
+					return HeapTupleMayBeUpdated;
+			}
 
 			if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
 			{
@@ -700,7 +728,11 @@ HeapTupleSatisfiesUpdate(HeapTupleHeader tuple, CommandId curcid,
 
 				/* updating subtransaction must have aborted */
 				if (!TransactionIdIsCurrentTransactionId(xmax))
+				{
+					if (MultiXactHasRunningRemoteMembers(HeapTupleHeaderGetRawXmax(tuple)))
+						return HeapTupleBeingUpdated;
 					return HeapTupleMayBeUpdated;
+				}
 				else
 				{
 					if (HeapTupleHeaderGetCmax(tuple) >= curcid)
@@ -789,13 +821,26 @@ HeapTupleSatisfiesUpdate(HeapTupleHeader tuple, CommandId curcid,
 		if (TransactionIdDidCommit(xmax))
 			return HeapTupleUpdated;
 
-		/* no member, even just a locker, alive anymore */
+		/*
+		 * By here, the update in the Xmax is either aborted or crashed, but
+		 * what about the other members?
+		 */
+
 		if (!MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple)))
+		{
+			/*
+			 * There's no member, even just a locker, alive anymore, so we can
+			 * mark the Xmax as invalid.
+			 */
 			SetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
 						InvalidTransactionId);
-
-		/* it must have aborted or crashed */
-		return HeapTupleMayBeUpdated;
+			return HeapTupleMayBeUpdated;
+		}
+		else
+		{
+			/* There are lockers running */
+			return HeapTupleBeingUpdated;
+		}
 	}
 
 	if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))

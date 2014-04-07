@@ -178,7 +178,10 @@ CREATE LANGUAGE plsample
     or updated a function written in the procedural language.
     The passed-in OID is the OID of the function's <classname>pg_proc</>
     row.  The validator must fetch this row in the usual way, and do
-    whatever checking is appropriate.  Typical checks include verifying
+    whatever checking is appropriate.
+    First, call <function>CheckFunctionValidatorAccess()</> to diagnose
+    explicit calls to the validator that the user could not achieve through
+    <command>CREATE FUNCTION</>.  Typical checks then include verifying
     that the function's argument and result types are supported by the
     language, and that the function's body is syntactically correct
     in the language.  If the validator finds the function to be okay,
@@ -191,11 +194,13 @@ CREATE LANGUAGE plsample
    <para>
     Validator functions should typically honor the <xref
     linkend="guc-check-function-bodies"> parameter: if it is turned off then
-    any expensive or context-sensitive checking should be skipped.
-    In particular, this parameter is turned off by <application>pg_dump</>
-    so that it can load procedural language functions without worrying
-    about possible dependencies of the function bodies on other database
-    objects.  (Because of this requirement, the call handler should avoid
+    any expensive or context-sensitive checking should be skipped.  If the
+    language provides for code execution at compilation time, the validator
+    must suppress checks that would induce such execution.  In particular,
+    this parameter is turned off by <application>pg_dump</> so that it can
+    load procedural language functions without worrying about side effects or
+    dependencies of the function bodies on other database objects.
+    (Because of this requirement, the call handler should avoid
     assuming that the validator has fully checked the function.  The point
     of having a validator is not to let the call handler omit checks, but
     to notify the user immediately if there are obvious errors in a

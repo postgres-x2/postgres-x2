@@ -1616,6 +1616,8 @@ typedef struct Constraint
 	/* Fields used for constraints that allow a NOT VALID specification */
 	bool		skip_validation;	/* skip validation of existing rows? */
 	bool		initially_valid;	/* mark the new constraint as valid? */
+
+	Oid			old_pktable_oid; /* pg_constraint.confrelid of my former self */
 } Constraint;
 
 /* ----------------------
@@ -2471,6 +2473,11 @@ typedef struct VacuumStmt
 	int			freeze_table_age;		/* age at which to scan whole table */
 	RangeVar   *relation;		/* single table to process, or NULL */
 	List	   *va_cols;		/* list of column names, or NIL for all */
+	/* place these at the end, to avoid ABI break within 9.3 branch */
+	int			multixact_freeze_min_age;		/* min multixact freeze age,
+												 * or -1 to use default */
+	int			multixact_freeze_table_age;		/* multixact age at which to
+												 * scan whole table */
 } VacuumStmt;
 
 #ifdef PGXC

@@ -406,15 +406,32 @@ where a.thousand = b.thousand
 --
 -- Check that nested sub-selects are not pulled up if they contain volatiles
 --
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select x, x from
     (select (select now()) as x from (values(1),(2)) v(y)) ss;
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select x, x from
     (select (select random()) as x from (values(1),(2)) v(y)) ss;
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select x, x from
     (select (select now() where y=y) as x from (values(1),(2)) v(y)) ss;
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select x, x from
     (select (select random() where y=y) as x from (values(1),(2)) v(y)) ss;
+
+--
+-- Check we behave sanely in corner case of empty SELECT list (bug #8648)
+--
+create temp table nocolumns();
+select exists(select * from nocolumns);
+
+--
+-- Check sane behavior with nested IN SubLinks
+--
+explain (verbose, costs off, nodes off, num_nodes off)
+select * from int4_tbl where
+  (case when f1 in (select unique1 from tenk1 a) then f1 else null end) in
+  (select ten from tenk1 b);
+select * from int4_tbl where
+  (case when f1 in (select unique1 from tenk1 a) then f1 else null end) in
+  (select ten from tenk1 b);

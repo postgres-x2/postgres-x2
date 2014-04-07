@@ -2502,6 +2502,7 @@ _copyConstraint(const Constraint *from)
 	COPY_SCALAR_FIELD(fk_upd_action);
 	COPY_SCALAR_FIELD(fk_del_action);
 	COPY_NODE_FIELD(old_conpfeqop);
+	COPY_SCALAR_FIELD(old_pktable_oid);
 	COPY_SCALAR_FIELD(skip_validation);
 	COPY_SCALAR_FIELD(initially_valid);
 
@@ -3363,6 +3364,8 @@ _copyVacuumStmt(const VacuumStmt *from)
 	COPY_SCALAR_FIELD(options);
 	COPY_SCALAR_FIELD(freeze_min_age);
 	COPY_SCALAR_FIELD(freeze_table_age);
+	COPY_SCALAR_FIELD(multixact_freeze_min_age);
+	COPY_SCALAR_FIELD(multixact_freeze_table_age);
 	COPY_NODE_FIELD(relation);
 	COPY_NODE_FIELD(va_cols);
 

@@ -1224,6 +1224,17 @@ restart:;
 	(void) SlruScanDirectory(ctl, SlruScanDirCbDeleteCutoff, &cutoffPage);
 }
 
+void
+SlruDeleteSegment(SlruCtl ctl, char *filename)
+{
+	char		path[MAXPGPATH];
+
+	snprintf(path, MAXPGPATH, "%s/%s", ctl->Dir, filename);
+	ereport(DEBUG2,
+			(errmsg("removing file \"%s\"", path)));
+	unlink(path);
+}
+
 /*
  * SlruScanDirectory callback
  *		This callback reports true if there's any segment prior to the one
@@ -1249,16 +1260,10 @@ SlruScanDirCbReportPresence(SlruCtl ctl, char *filename, int segpage, void *data
 static bool
 SlruScanDirCbDeleteCutoff(SlruCtl ctl, char *filename, int segpage, void *data)
 {
-	char		path[MAXPGPATH];
 	int			cutoffPage = *(int *) data;
 
 	if (ctl->PagePrecedes(segpage, cutoffPage))
-	{
-		snprintf(path, MAXPGPATH, "%s/%s", ctl->Dir, filename);
-		ereport(DEBUG2,
-				(errmsg("removing file \"%s\"", path)));
-		unlink(path);
-	}
+		SlruDeleteSegment(ctl, filename);
 
 	return false;				/* keep going */
 }
@@ -1270,12 +1275,7 @@ SlruScanDirCbDeleteCutoff(SlruCtl ctl, char *filename, int segpage, void *data)
 bool
 SlruScanDirCbDeleteAll(SlruCtl ctl, char *filename, int segpage, void *data)
 {
-	char		path[MAXPGPATH];
-
-	snprintf(path, MAXPGPATH, "%s/%s", ctl->Dir, filename);
-	ereport(DEBUG2,
-			(errmsg("removing file \"%s\"", path)));
-	unlink(path);
+	SlruDeleteSegment(ctl, filename);
 
 	return false;				/* keep going */
 }
@@ -1285,6 +1285,11 @@ SlruScanDirCbDeleteAll(SlruCtl ctl, char *filename, int segpage, void *data)
  *
  * If the callback returns true, the scan is stopped.  The last return value
  * from the callback is returned.
+ *
+ * The callback receives the following arguments: 1. the SlruCtl struct for the
+ * slru being truncated; 2. the filename being considered; 3. the page number
+ * for the first page of that file; 4. a pointer to the opaque data given to us
+ * by the caller.
  *
  * Note that the ordering in which the directory is scanned is not guaranteed.
  *
@@ -1302,8 +1307,12 @@ SlruScanDirectory(SlruCtl ctl, SlruScanCallback callback, void *data)
 	cldir = AllocateDir(ctl->Dir);
 	while ((clde = ReadDir(cldir, ctl->Dir)) != NULL)
 	{
-		if (strlen(clde->d_name) == 4 &&
-			strspn(clde->d_name, "0123456789ABCDEF") == 4)
+		size_t	len;
+
+		len = strlen(clde->d_name);
+
+		if ((len == 4 || len == 5) &&
+			strspn(clde->d_name, "0123456789ABCDEF") == len)
 		{
 			segno = (int) strtol(clde->d_name, NULL, 16);
 			segpage = segno * SLRU_PAGES_PER_SEGMENT;

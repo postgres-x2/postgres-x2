@@ -212,7 +212,6 @@ FROM bool_test;
 -- In Postgres-XC, plans printed by explain are the ones created on the
 -- coordinator. Coordinator does not generate index scan plans.
 --
-analyze tenk1;		-- ensure we get consistent plans here
 
 -- Basic cases
 explain (costs off, nodes off, num_nodes off, nodes off)

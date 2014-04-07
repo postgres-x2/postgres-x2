@@ -1734,6 +1734,10 @@ scalararraysel(PlannerInfo *root,
 	leftop = (Node *) linitial(clause->args);
 	rightop = (Node *) lsecond(clause->args);
 
+	/* aggressively reduce both sides to constants */
+	leftop = estimate_expression_value(root, leftop);
+	rightop = estimate_expression_value(root, rightop);
+
 	/* get nominal (after relabeling) element type of rightop */
 	nominal_element_type = get_base_element_type(exprType(rightop));
 	if (!OidIsValid(nominal_element_type))
@@ -4962,6 +4966,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			HeapTuple	tup;
 			Datum		values[INDEX_MAX_KEYS];
 			bool		isnull[INDEX_MAX_KEYS];
+			SnapshotData SnapshotDirty;
 
 			estate = CreateExecutorState();
 			econtext = GetPerTupleExprContext(estate);
@@ -4984,6 +4989,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			slot = MakeSingleTupleTableSlot(RelationGetDescr(heapRel));
 			econtext->ecxt_scantuple = slot;
 			get_typlenbyval(vardata->atttype, &typLen, &typByVal);
+			InitDirtySnapshot(SnapshotDirty);
 
 			/* set up an IS NOT NULL scan key so that we ignore nulls */
 			ScanKeyEntryInitialize(&scankeys[0],
@@ -5000,8 +5006,23 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			/* If min is requested ... */
 			if (min)
 			{
-				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, 0);
+				/*
+				 * In principle, we should scan the index with our current
+				 * active snapshot, which is the best approximation we've got
+				 * to what the query will see when executed.  But that won't
+				 * be exact if a new snap is taken before running the query,
+				 * and it can be very expensive if a lot of uncommitted rows
+				 * exist at the end of the index (because we'll laboriously
+				 * fetch each one and reject it).  What seems like a good
+				 * compromise is to use SnapshotDirty.	That will accept
+				 * uncommitted rows, and thus avoid fetching multiple heap
+				 * tuples in this scenario.  On the other hand, it will reject
+				 * known-dead rows, and thus not give a bogus answer when the
+				 * extreme value has been deleted; that case motivates not
+				 * using SnapshotAny here.
+				 */
+				index_scan = index_beginscan(heapRel, indexRel,
+											 &SnapshotDirty, 1, 0);
 				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in sortop's direction */
@@ -5032,8 +5053,8 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			/* If max is requested, and we didn't find the index is empty */
 			if (max && have_data)
 			{
-				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, 0);
+				index_scan = index_beginscan(heapRel, indexRel,
+											 &SnapshotDirty, 1, 0);
 				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in reverse direction */
@@ -6860,7 +6881,8 @@ gincost_pattern(IndexOptInfo *index, int indexcol,
  * appropriately.  If the query is unsatisfiable, return false.
  */
 static bool
-gincost_opexpr(IndexOptInfo *index, OpExpr *clause, GinQualCounts *counts)
+gincost_opexpr(PlannerInfo *root, IndexOptInfo *index, OpExpr *clause,
+			   GinQualCounts *counts)
 {
 	Node	   *leftop = get_leftop((Expr *) clause);
 	Node	   *rightop = get_rightop((Expr *) clause);
@@ -6883,6 +6905,9 @@ gincost_opexpr(IndexOptInfo *index, OpExpr *clause, GinQualCounts *counts)
 		elog(ERROR, "could not match index to operand");
 		operand = NULL;			/* keep compiler quiet */
 	}
+
+	/* aggressively reduce to a constant, and look through relabeling */
+	operand = estimate_expression_value(root, operand);
 
 	if (IsA(operand, RelabelType))
 		operand = (Node *) ((RelabelType *) operand)->arg;
@@ -6922,7 +6947,8 @@ gincost_opexpr(IndexOptInfo *index, OpExpr *clause, GinQualCounts *counts)
  * by N, causing gincostestimate to scale up its estimates accordingly.
  */
 static bool
-gincost_scalararrayopexpr(IndexOptInfo *index, ScalarArrayOpExpr *clause,
+gincost_scalararrayopexpr(PlannerInfo *root,
+						  IndexOptInfo *index, ScalarArrayOpExpr *clause,
 						  double numIndexEntries,
 						  GinQualCounts *counts)
 {
@@ -6946,6 +6972,9 @@ gincost_scalararrayopexpr(IndexOptInfo *index, ScalarArrayOpExpr *clause,
 	/* index column must be on the left */
 	if ((indexcol = find_index_column(leftop, index)) < 0)
 		elog(ERROR, "could not match index to operand");
+
+	/* aggressively reduce to a constant, and look through relabeling */
+	rightop = estimate_expression_value(root, rightop);
 
 	if (IsA(rightop, RelabelType))
 		rightop = (Node *) ((RelabelType *) rightop)->arg;
@@ -7164,7 +7193,8 @@ gincostestimate(PG_FUNCTION_ARGS)
 		clause = rinfo->clause;
 		if (IsA(clause, OpExpr))
 		{
-			matchPossible = gincost_opexpr(index,
+			matchPossible = gincost_opexpr(root,
+										   index,
 										   (OpExpr *) clause,
 										   &counts);
 			if (!matchPossible)
@@ -7172,7 +7202,8 @@ gincostestimate(PG_FUNCTION_ARGS)
 		}
 		else if (IsA(clause, ScalarArrayOpExpr))
 		{
-			matchPossible = gincost_scalararrayopexpr(index,
+			matchPossible = gincost_scalararrayopexpr(root,
+													  index,
 												(ScalarArrayOpExpr *) clause,
 													  numEntries,
 													  &counts);
