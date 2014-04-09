@@ -732,7 +732,6 @@ start_node(PGXCNodeTypeNum node, bool is_coord, bool is_main)
 	if (node == PGXC_GTM)
 	{
 		/* Case of a GTM start */
-		header(_("starting GTM process"));
 		snprintf(buf, sizeof(buf),
 				 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -p %d -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
 				 bindir, temp_install, data_folder, port_number,
@@ -3027,14 +3026,17 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		}
 #endif
 
+#ifdef PGXC
+		/* Start GTM */
+		header(_("starting GTM process"));
+		start_node(PGXC_GTM, false, false);
+#endif
+
 		/*
 		 * Start the temp postmaster
 		 */
 		header(_("starting postmaster"));
 #ifdef PGXC
-		/* Start GTM */
-		start_node(PGXC_GTM, false, false);
-
 		/* Start all the nodes */
 		start_node(PGXC_COORD_1, true, true);
 		start_node(PGXC_COORD_2, true, false);
