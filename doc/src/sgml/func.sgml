@@ -5645,6 +5645,10 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
         <entry><literal>tz</literal></entry>
         <entry>lower case time-zone name</entry>
        </row>
+       <row>
+        <entry><literal>OF</literal></entry>
+        <entry>time-zone offset</entry>
+       </row>
       </tbody>
      </tgroup>
     </table>
@@ -10205,12 +10209,11 @@ table2-mapping
   </indexterm>
 
   <para>
-   This section describes <productname>PostgreSQL</productname>'s
-   functions for operating on <firstterm>sequence objects</firstterm>.
-   Sequence objects (also called sequence generators or just
-   sequences) are special single-row tables created with <xref
+   This section describes functions for operating on <firstterm>sequence
+   objects</firstterm>, also called sequence generators or just sequences.
+   Sequence objects are special single-row tables created with <xref
    linkend="sql-createsequence">.
-   A sequence object is usually used to generate unique identifiers
+   Sequence objects are commonly used to generate unique identifiers
    for rows of a table.  The sequence functions, listed in <xref
    linkend="functions-sequence-table">, provide simple, multiuser-safe
    methods for obtaining successive sequence values from sequence
@@ -10563,6 +10566,16 @@ SELECT a,
 SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 </programlisting>
    </para>
+
+   <note>
+    <para>
+     As described in <xref linkend="xfunc-volatility">, functions and
+     operators marked <literal>IMMUTABLE</literal> can be evaluated when
+     the query is planned rather than when it is executed.  This means
+     that constant parts of a subexpression that is not evaluated during
+     query execution might still be evaluated during query planning.
+    </para>
+   </note>
   </sect2>
 
   <sect2 id="functions-coalesce-nvl-ifnull">

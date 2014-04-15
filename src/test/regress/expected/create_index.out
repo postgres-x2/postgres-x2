@@ -2498,7 +2498,7 @@ CREATE INDEX dupindexcols_i ON dupindexcols (f1, id, f1 text_pattern_ops);
 ANALYZE dupindexcols;
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
   SELECT count(*) FROM dupindexcols
-    WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
+    WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
                     QUERY PLAN                    
 --------------------------------------------------
  Aggregate
@@ -2506,7 +2506,7 @@ EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 (2 rows)
 
 SELECT count(*) FROM dupindexcols
-  WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
+  WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
  count 
 -------
     97

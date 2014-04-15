@@ -1220,8 +1220,7 @@ do_status(void)
 	/*
 	 * The Linux Standard Base Core Specification 3.1 says this should return
 	 * '3'
-	 * http://refspecs.freestandards.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-ge
-	 * neric/iniscrptact.html
+	 * https://refspecs.linuxbase.org/LSB_3.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html
 	 */
 	exit(3);
 }
@@ -2030,13 +2029,12 @@ main(int argc, char **argv)
 	/* support --help and --version even if invoked as root */
 	if (argc > 1)
 	{
-		if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0 ||
-			strcmp(argv[1], "-?") == 0)
+		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			do_help();
 			exit(0);
 		}
-		else if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0)
+		else if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
 			puts("pg_ctl (PostgreSQL) " PG_VERSION);
 			exit(0);

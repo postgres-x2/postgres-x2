@@ -48,7 +48,7 @@ parseCommandLine(int argc, char *argv[])
 		{"old-port", required_argument, NULL, 'p'},
 		{"new-port", required_argument, NULL, 'P'},
 
-		{"user", required_argument, NULL, 'u'},
+		{"username", required_argument, NULL, 'U'},
 		{"check", no_argument, NULL, 'c'},
 		{"link", no_argument, NULL, 'k'},
 		{"retain", no_argument, NULL, 'r'},
@@ -82,8 +82,7 @@ parseCommandLine(int argc, char *argv[])
 
 	if (argc > 1)
 	{
-		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 ||
-			strcmp(argv[1], "-?") == 0)
+		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			usage();
 			exit(0);
@@ -102,7 +101,7 @@ parseCommandLine(int argc, char *argv[])
 	if ((log_opts.internal = fopen_priv(INTERNAL_LOG_FILE, "a")) == NULL)
 		pg_log(PG_FATAL, "cannot write to log file %s\n", INTERNAL_LOG_FILE);
 
-	while ((option = getopt_long(argc, argv, "d:D:b:B:cj:ko:O:p:P:ru:v",
+	while ((option = getopt_long(argc, argv, "d:D:b:B:cj:ko:O:p:P:rU:v",
 								 long_options, &optindex)) != -1)
 	{
 		switch (option)
@@ -170,9 +169,10 @@ parseCommandLine(int argc, char *argv[])
 				log_opts.retain = true;
 				break;
 
-			case 'u':
+			case 'U':
 				pg_free(os_info.user);
 				os_info.user = pg_strdup(optarg);
+				os_info.user_specified = true;
 
 				/*
 				 * Push the user name into the environment so pre-9.1
@@ -229,22 +229,22 @@ usage(void)
   pg_upgrade [OPTION]...\n\
 \n\
 Options:\n\
-  -b, --old-bindir=OLDBINDIR    old cluster executable directory\n\
-  -B, --new-bindir=NEWBINDIR    new cluster executable directory\n\
+  -b, --old-bindir=BINDIR      old cluster executable directory\n\
+  -B, --new-bindir=BINDIR       new cluster executable directory\n\
   -c, --check                   check clusters only, don't change any data\n\
-  -d, --old-datadir=OLDDATADIR  old cluster data directory\n\
-  -D, --new-datadir=NEWDATADIR  new cluster data directory\n\
+  -d, --old-datadir=DATADIR     old cluster data directory\n\
+  -D, --new-datadir=DATADIR     new cluster data directory\n\
   -j, --jobs                    number of simultaneous processes or threads to use\n\
   -k, --link                    link instead of copying files to new cluster\n\
   -o, --old-options=OPTIONS     old cluster options to pass to the server\n\
   -O, --new-options=OPTIONS     new cluster options to pass to the server\n\
-  -p, --old-port=OLDPORT        old cluster port number (default %d)\n\
-  -P, --new-port=NEWPORT        new cluster port number (default %d)\n\
+  -p, --old-port=PORT           old cluster port number (default %d)\n\
+  -P, --new-port=PORT           new cluster port number (default %d)\n\
   -r, --retain                  retain SQL and log files after success\n\
-  -u, --user=NAME               cluster superuser (default \"%s\")\n\
+  -U, --username=NAME           cluster superuser (default \"%s\")\n\
   -v, --verbose                 enable verbose internal logging\n\
   -V, --version                 display version information, then exit\n\
-  -?, -h, --help                show this help, then exit\n\
+  -?, --help                    show this help, then exit\n\
 \n\
 Before running pg_upgrade you must:\n\
   create a new database cluster (using the new version of initdb)\n\
@@ -252,10 +252,10 @@ Before running pg_upgrade you must:\n\
   shutdown the postmaster servicing the new cluster\n\
 \n\
 When you run pg_upgrade, you must provide the following information:\n\
-  the data directory for the old cluster  (-d OLDDATADIR)\n\
-  the data directory for the new cluster  (-D NEWDATADIR)\n\
-  the \"bin\" directory for the old version (-b OLDBINDIR)\n\
-  the \"bin\" directory for the new version (-B NEWBINDIR)\n\
+  the data directory for the old cluster  (-d DATADIR)\n\
+  the data directory for the new cluster  (-D DATADIR)\n\
+  the \"bin\" directory for the old version (-b BINDIR)\n\
+  the \"bin\" directory for the new version (-B BINDIR)\n\
 \n\
 For example:\n\
   pg_upgrade -d oldCluster/data -D newCluster/data -b oldCluster/bin -B newCluster/bin\n\

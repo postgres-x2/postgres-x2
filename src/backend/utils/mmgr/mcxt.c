@@ -24,6 +24,7 @@
 
 #include "postgres.h"
 
+#include "utils/memdebug.h"
 #include "utils/memutils.h"
 
 
@@ -138,6 +139,8 @@ MemoryContextReset(MemoryContext context)
 	{
 		(*context->methods->reset) (context);
 		context->isReset = true;
+		VALGRIND_DESTROY_MEMPOOL(context);
+		VALGRIND_CREATE_MEMPOOL(context, 0, false);
 	}
 }
 
@@ -187,6 +190,7 @@ MemoryContextDelete(MemoryContext context)
 	MemoryContextSetParent(context, NULL);
 
 	(*context->methods->delete_context) (context);
+	VALGRIND_DESTROY_MEMPOOL(context);
 	pfree(context);
 }
 
@@ -454,14 +458,7 @@ MemoryContextContains(MemoryContext context, void *pointer)
 	header = (StandardChunkHeader *)
 		((char *) pointer - STANDARDCHUNKHEADERSIZE);
 
-	/*
-	 * If the context link doesn't match then we certainly have a non-member
-	 * chunk.  Also check for a reasonable-looking size as extra guard against
-	 * being fooled by bogus pointers.
-	 */
-	if (header->context == context && AllocSizeIsValid(header->size))
-		return true;
-	return false;
+	return header->context == context;
 }
 
 /*--------------------
@@ -558,6 +555,8 @@ MemoryContextCreate(NodeTag tag, Size size,
 		parent->firstchild = node;
 	}
 
+	VALGRIND_CREATE_MEMPOOL(node, 0, false);
+
 	/* Return to type-specific creation routine to finish up */
 	return node;
 }
@@ -572,6 +571,8 @@ MemoryContextCreate(NodeTag tag, Size size,
 void *
 MemoryContextAlloc(MemoryContext context, Size size)
 {
+	void	   *ret;
+
 	AssertArg(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
@@ -580,7 +581,10 @@ MemoryContextAlloc(MemoryContext context, Size size)
 
 	context->isReset = false;
 
-	return (*context->methods->alloc) (context, size);
+	ret = (*context->methods->alloc) (context, size);
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
+
+	return ret;
 }
 
 /*
@@ -604,6 +608,7 @@ MemoryContextAllocZero(MemoryContext context, Size size)
 	context->isReset = false;
 
 	ret = (*context->methods->alloc) (context, size);
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 
 	MemSetAligned(ret, 0, size);
 
@@ -631,6 +636,7 @@ MemoryContextAllocZeroAligned(MemoryContext context, Size size)
 	context->isReset = false;
 
 	ret = (*context->methods->alloc) (context, size);
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 
 	MemSetLoop(ret, 0, size);
 
@@ -641,6 +647,8 @@ void *
 palloc(Size size)
 {
 	/* duplicates MemoryContextAlloc to avoid increased overhead */
+	void	   *ret;
+
 	AssertArg(MemoryContextIsValid(CurrentMemoryContext));
 
 	if (!AllocSizeIsValid(size))
@@ -649,7 +657,10 @@ palloc(Size size)
 
 	CurrentMemoryContext->isReset = false;
 
-	return (*CurrentMemoryContext->methods->alloc) (CurrentMemoryContext, size);
+	ret = (*CurrentMemoryContext->methods->alloc) (CurrentMemoryContext, size);
+	VALGRIND_MEMPOOL_ALLOC(CurrentMemoryContext, ret, size);
+
+	return ret;
 }
 
 void *
@@ -667,6 +678,7 @@ palloc0(Size size)
 	CurrentMemoryContext->isReset = false;
 
 	ret = (*CurrentMemoryContext->methods->alloc) (CurrentMemoryContext, size);
+	VALGRIND_MEMPOOL_ALLOC(CurrentMemoryContext, ret, size);
 
 	MemSetAligned(ret, 0, size);
 
@@ -680,7 +692,7 @@ palloc0(Size size)
 void
 pfree(void *pointer)
 {
-	StandardChunkHeader *header;
+	MemoryContext context;
 
 	/*
 	 * Try to detect bogus pointers handed to us, poorly though we can.
@@ -693,12 +705,13 @@ pfree(void *pointer)
 	/*
 	 * OK, it's probably safe to look at the chunk header.
 	 */
-	header = (StandardChunkHeader *)
-		((char *) pointer - STANDARDCHUNKHEADERSIZE);
+	context = ((StandardChunkHeader *)
+			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
 
-	AssertArg(MemoryContextIsValid(header->context));
+	AssertArg(MemoryContextIsValid(context));
 
-	(*header->context->methods->free_p) (header->context, pointer);
+	(*context->methods->free_p) (context, pointer);
+	VALGRIND_MEMPOOL_FREE(context, pointer);
 }
 
 /*
@@ -708,7 +721,12 @@ pfree(void *pointer)
 void *
 repalloc(void *pointer, Size size)
 {
-	StandardChunkHeader *header;
+	MemoryContext context;
+	void	   *ret;
+
+	if (!AllocSizeIsValid(size))
+		elog(ERROR, "invalid memory alloc request size %lu",
+			 (unsigned long) size);
 
 	/*
 	 * Try to detect bogus pointers handed to us, poorly though we can.
@@ -721,20 +739,83 @@ repalloc(void *pointer, Size size)
 	/*
 	 * OK, it's probably safe to look at the chunk header.
 	 */
-	header = (StandardChunkHeader *)
-		((char *) pointer - STANDARDCHUNKHEADERSIZE);
+	context = ((StandardChunkHeader *)
+			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
 
-	AssertArg(MemoryContextIsValid(header->context));
+	AssertArg(MemoryContextIsValid(context));
 
-	if (!AllocSizeIsValid(size))
+	/* isReset must be false already */
+	Assert(!context->isReset);
+
+	ret = (*context->methods->realloc) (context, pointer, size);
+	VALGRIND_MEMPOOL_CHANGE(context, pointer, ret, size);
+
+	return ret;
+}
+
+/*
+ * MemoryContextAllocHuge
+ *		Allocate (possibly-expansive) space within the specified context.
+ *
+ * See considerations in comment at MaxAllocHugeSize.
+ */
+void *
+MemoryContextAllocHuge(MemoryContext context, Size size)
+{
+	void	   *ret;
+
+	AssertArg(MemoryContextIsValid(context));
+
+	if (!AllocHugeSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
-	/* isReset must be false already */
-	Assert(!header->context->isReset);
+	context->isReset = false;
 
-	return (*header->context->methods->realloc) (header->context,
-												 pointer, size);
+	ret = (*context->methods->alloc) (context, size);
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
+
+	return ret;
+}
+
+/*
+ * repalloc_huge
+ *		Adjust the size of a previously allocated chunk, permitting a large
+ *		value.  The previous allocation need not have been "huge".
+ */
+void *
+repalloc_huge(void *pointer, Size size)
+{
+	MemoryContext context;
+	void	   *ret;
+
+	if (!AllocHugeSizeIsValid(size))
+		elog(ERROR, "invalid memory alloc request size %lu",
+			 (unsigned long) size);
+
+	/*
+	 * Try to detect bogus pointers handed to us, poorly though we can.
+	 * Presumably, a pointer that isn't MAXALIGNED isn't pointing at an
+	 * allocated chunk.
+	 */
+	Assert(pointer != NULL);
+	Assert(pointer == (void *) MAXALIGN(pointer));
+
+	/*
+	 * OK, it's probably safe to look at the chunk header.
+	 */
+	context = ((StandardChunkHeader *)
+			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
+
+	AssertArg(MemoryContextIsValid(context));
+
+	/* isReset must be false already */
+	Assert(!context->isReset);
+
+	ret = (*context->methods->realloc) (context, pointer, size);
+	VALGRIND_MEMPOOL_CHANGE(context, pointer, ret, size);
+
+	return ret;
 }
 
 /*

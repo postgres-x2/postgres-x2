@@ -1179,8 +1179,21 @@ NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" fo
 CREATE TEMP TABLE fktable (
     id int primary key,
     fk int references pktable deferrable initially deferred
+<<<<<<< HEAD
 ) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "fktable_pkey" for table "fktable"
+=======
+);
+-- check ALTER CONSTRAINT
+ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE;
+-- illegal option
+ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED;
+ERROR:  constraint declared INITIALLY DEFERRED must be DEFERRABLE
+LINE 1: ...e ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY ...
+                                                             ^
+-- reset
+ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey DEFERRABLE INITIALLY DEFERRED;
+>>>>>>> 384f933046dc9e9a2b416f5f7b3be30b93587c63
 INSERT INTO pktable VALUES (5, 10);
 BEGIN;
 -- doesn't match PK, but no error yet
@@ -1191,6 +1204,16 @@ UPDATE fktable SET id = id + 1;
 COMMIT;
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
 DETAIL:  Key (fk)=(20) is not present in table "pktable".
+-- change the constraint definition and retest
+ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey DEFERRABLE INITIALLY IMMEDIATE;
+BEGIN;
+-- doesn't match PK, should throw error now
+INSERT INTO fktable VALUES (0, 20);
+ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
+DETAIL:  Key (fk)=(20) is not present in table "pktable".
+COMMIT;
+-- reset
+ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey DEFERRABLE INITIALLY DEFERRED;
 -- check same case when insert is in a different subtransaction than update
 BEGIN;
 -- doesn't match PK, but no error yet

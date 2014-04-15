@@ -301,6 +301,11 @@ typedef struct CollateClause
  * construct *must* be an aggregate call.  Otherwise, it might be either an
  * aggregate or some other kind of function.  However, if OVER is present
  * it had better be an aggregate or window function.
+ *
+ * Normally, you'd initialize this via makeFuncCall() and then only
+ * change the parts of the struct its defaults don't match afterwards
+ * if needed.
+ *
  */
 typedef struct FuncCall
 {
@@ -1232,6 +1237,7 @@ typedef enum AlterTableType
 	AT_AddConstraint,			/* add constraint */
 	AT_AddConstraintRecurse,	/* internal to commands/tablecmds.c */
 	AT_ReAddConstraint,			/* internal to commands/tablecmds.c */
+	AT_AlterConstraint,			/* alter constraint */
 	AT_ValidateConstraint,		/* validate constraint */
 	AT_ValidateConstraintRecurse,		/* internal to commands/tablecmds.c */
 	AT_ProcessedConstraint,		/* pre-processed add constraint (local in

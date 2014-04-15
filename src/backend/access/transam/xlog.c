@@ -1610,6 +1610,8 @@ XLogWrite(XLogwrtRqst WriteRqst, bool flexible, bool xlog_switch)
 		{
 			char	   *from;
 			Size		nbytes;
+			Size		nleft;
+			int			written;
 
 			/* Need to seek in the file? */
 			if (openLogOff != startoffset)
@@ -1626,19 +1628,25 @@ XLogWrite(XLogwrtRqst WriteRqst, bool flexible, bool xlog_switch)
 			/* OK to write the page(s) */
 			from = XLogCtl->pages + startidx * (Size) XLOG_BLCKSZ;
 			nbytes = npages * (Size) XLOG_BLCKSZ;
-			errno = 0;
-			if (write(openLogFile, from, nbytes) != nbytes)
+			nleft = nbytes;
+			do
 			{
-				/* if write didn't set errno, assume no disk space */
-				if (errno == 0)
-					errno = ENOSPC;
-				ereport(PANIC,
-						(errcode_for_file_access(),
-						 errmsg("could not write to log file %s "
-								"at offset %u, length %lu: %m",
-								XLogFileNameP(ThisTimeLineID, openLogSegNo),
-								openLogOff, (unsigned long) nbytes)));
-			}
+				errno = 0;
+				written  = write(openLogFile, from, nleft);
+				if (written <= 0)
+				{
+					if (errno == EINTR)
+						continue;
+					ereport(PANIC,
+							(errcode_for_file_access(),
+							 errmsg("could not write to log file %s "
+									"at offset %u, length %lu: %m",
+									XLogFileNameP(ThisTimeLineID, openLogSegNo),
+									openLogOff, (unsigned long) nbytes)));
+				}
+				nleft -= written;
+				from += written;
+			} while (nleft > 0);
 
 			/* Update state for write */
 			openLogOff += nbytes;
@@ -5466,6 +5474,9 @@ StartupXLOG(void)
 				oldestActiveXID = checkPoint.oldestActiveXid;
 			Assert(TransactionIdIsValid(oldestActiveXID));
 
+			/* Tell procarray about the range of xids it has to deal with */
+			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
+
 			/*
 			 * Startup commit log and subtrans only. Other SLRUs are not
 			 * maintained during recovery and need not be started yet.
@@ -7756,12 +7767,9 @@ XLogRestorePoint(const char *rpName)
  * records. In that case, multiple copies of the same block would be recorded
  * in separate WAL records by different backends, though that is still OK from
  * a correctness perspective.
- *
- * Note that this only works for buffers that fit the standard page model,
- * i.e. those for which buffer_std == true
  */
 XLogRecPtr
-XLogSaveBufferForHint(Buffer buffer)
+XLogSaveBufferForHint(Buffer buffer, bool buffer_std)
 {
 	XLogRecPtr	recptr = InvalidXLogRecPtr;
 	XLogRecPtr	lsn;
@@ -7783,7 +7791,7 @@ XLogSaveBufferForHint(Buffer buffer)
 	 * and reset rdata for any actual WAL record insert.
 	 */
 	rdata[0].buffer = buffer;
-	rdata[0].buffer_std = true;
+	rdata[0].buffer_std = buffer_std;
 
 	/*
 	 * Check buffer while not holding an exclusive lock.
@@ -7797,6 +7805,9 @@ XLogSaveBufferForHint(Buffer buffer)
 		 * Copy buffer so we don't have to worry about concurrent hint bit or
 		 * lsn updates. We assume pd_lower/upper cannot be changed without an
 		 * exclusive lock, so the contents bkp are not racy.
+		 *
+		 * With buffer_std set to false, XLogCheckBuffer() sets hole_length and
+		 * hole_offset to 0; so the following code is safe for either case.
 		 */
 		memcpy(copied_buffer, origdata, bkpb.hole_offset);
 		memcpy(copied_buffer + bkpb.hole_offset,
@@ -7819,7 +7830,7 @@ XLogSaveBufferForHint(Buffer buffer)
 		rdata[1].buffer = InvalidBuffer;
 		rdata[1].next = NULL;
 
-		recptr = XLogInsert(RM_XLOG_ID, XLOG_HINT, rdata);
+		recptr = XLogInsert(RM_XLOG_ID, XLOG_FPI, rdata);
 	}
 
 	return recptr;
@@ -8184,14 +8195,14 @@ xlog_redo(XLogRecPtr lsn, XLogRecord *record)
 	{
 		/* nothing to do here */
 	}
-	else if (info == XLOG_HINT)
+	else if (info == XLOG_FPI)
 	{
 		char	   *data;
 		BkpBlock	bkpb;
 
 		/*
-		 * Hint bit records contain a backup block stored "inline" in the
-		 * normal data since the locking when writing hint records isn't
+		 * Full-page image (FPI) records contain a backup block stored "inline"
+		 * in the normal data since the locking when writing hint records isn't
 		 * sufficient to use the normal backup block mechanism, which assumes
 		 * exclusive lock on the buffer supplied.
 		 *

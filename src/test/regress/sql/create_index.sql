@@ -891,9 +891,9 @@ ANALYZE dupindexcols;
 
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
   SELECT count(*) FROM dupindexcols
-    WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
+    WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
 SELECT count(*) FROM dupindexcols
-  WHERE f1 > 'WA' and id < 1000 and f1 ~<~ 'YX';
+  WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX';
 
 --
 -- Check ordering of =ANY indexqual results (bug in 9.2.0)

@@ -119,12 +119,15 @@ static bool ConditionalMultiXactIdWait(MultiXactId multi,
  * update them).  This table (and the macros below) helps us determine the
  * heavyweight lock mode and MultiXactStatus values to use for any particular
  * tuple lock strength.
+ *
+ * Don't look at lockstatus/updstatus directly!  Use get_mxact_status_for_lock
+ * instead.
  */
 static const struct
 {
 	LOCKMODE	hwlock;
-	MultiXactStatus lockstatus;
-	MultiXactStatus updstatus;
+	int			lockstatus;
+	int			updstatus;
 }
 
 			tupleLockExtraInfo[MaxLockTupleMode + 1] =
@@ -3869,7 +3872,7 @@ simple_heap_update(Relation relation, ItemPointer otid, HeapTuple tup)
 static MultiXactStatus
 get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
 {
-	MultiXactStatus retval;
+	int		retval;
 
 	if (is_update)
 		retval = tupleLockExtraInfo[mode].updstatus;
@@ -3880,7 +3883,7 @@ get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
 		elog(ERROR, "invalid lock tuple mode %d/%s", mode,
 			 is_update ? "true" : "false");
 
-	return retval;
+	return (MultiXactStatus) retval;
 }
 
 
