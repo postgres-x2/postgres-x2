@@ -52,6 +52,7 @@
 #include "../interfaces/libpq/libpq-fe.h"
 
 #define CMD_ID_MSG_LEN 8
+#define PGXC_CANCEL_DELAY 15
 
 /* Number of connections held */
 static int	datanode_count = 0;
