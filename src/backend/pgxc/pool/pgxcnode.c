@@ -49,6 +49,7 @@
 #include "utils/formatting.h"
 #include "../interfaces/libpq/libpq-fe.h"
 
+#define PGXC_CANCEL_DELAY 15
 
 /* Number of connections held */
 static int	datanode_count = 0;
