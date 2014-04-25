@@ -389,7 +389,6 @@ PoolManagerCloseHandle(PoolHandle *handle)
 {
 	close(Socket(handle->port));
 	free(handle);
-	handle = NULL;
 }
 
 
@@ -818,7 +817,7 @@ PoolManagerDisconnect(void)
 	pool_putmessage(&poolHandle->port, 'd', NULL, 0);
 	pool_flush(&poolHandle->port);
 
-	close(Socket(poolHandle->port));
+	PoolManagerCloseHandle(poolHandle);
 	poolHandle = NULL;
 }
 
