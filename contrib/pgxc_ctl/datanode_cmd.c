@@ -966,7 +966,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 	}
 
 	/* Lock ddl */
-	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %d %s", aval(VAR_datanodeMasterServers)[0], atoi(aval(VAR_datanodePorts)[0]), sval(VAR_defaultDatabase))) == NULL)
+	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %d %s", aval(VAR_coordMasterServers)[0], atoi(aval(VAR_coordPorts)[0]), sval(VAR_defaultDatabase))) == NULL)
 	{
 		elog(ERROR, "ERROR: could not open psql command, %s\n", strerror(errno));
 		return 1;
