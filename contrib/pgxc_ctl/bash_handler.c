@@ -35,6 +35,7 @@ install_pgxc_ctl_bash(char *path)
 	if (!pgxc_ctl_bash)
 	{
 		elog(ERROR, "ERROR: Could not open pgxc_ctl bash script, %s, %s\n", path, strerror(errno));
+		return;
 	}
 	for (i=0; pgxc_ctl_conf_prototype[i]; i++)
 		fprintf(pgxc_ctl_bash, "%s\n", pgxc_ctl_conf_prototype[i]);
@@ -42,7 +43,8 @@ install_pgxc_ctl_bash(char *path)
 		fprintf(pgxc_ctl_bash, "%s\n", pgxc_ctl_bash_script[i]);
 	fclose(pgxc_ctl_bash);
 	sprintf(cmd, "chmod +x %s", path);
-	system(cmd);
+	if (system(cmd) == -1)
+		elog(ERROR, "ERROR: system() function returned error, %s\n", strerror(errno));
 }
 
 /*

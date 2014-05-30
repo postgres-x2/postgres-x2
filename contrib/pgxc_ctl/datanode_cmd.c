@@ -841,7 +841,9 @@ failover_oneDatanode(int datanodeIdx)
 #endif
 				"select pgxc_pool_reload();\n"
 				"\\q\n",
+#if 0
 				aval(VAR_datanodeNames)[datanodeIdx],
+#endif
 				aval(VAR_datanodeNames)[datanodeIdx], aval(VAR_datanodeMasterServers)[datanodeIdx], aval(VAR_datanodePorts)[datanodeIdx]);
 		fclose(f);
 	}

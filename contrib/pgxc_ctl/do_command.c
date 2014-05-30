@@ -1979,8 +1979,7 @@ do_clean_command(char *line)
 		} while(GetToken());
 		if (cmdList)
 		{
-			int rc;
-			rc = doCmdList(cmdList);
+			doCmdList(cmdList);
 			cleanCmdList(cmdList);
 			elog(INFO, "Done.\n");
 		}
