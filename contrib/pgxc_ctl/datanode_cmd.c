@@ -833,9 +833,9 @@ failover_oneDatanode(int datanodeIdx)
 			continue;
 		}
 		fprintf(f,
-#if 0 /* Current alter node does't work well in this context */
+#if 1
 				"ALTER NODE %s WITH (HOST='%s', PORT=%s);\n"
-#else
+#else /* When alter node does't work. It does not help anyway */
 				"DROP NODE %s;\n"
 				"CREATE NODE %s WITH (type = datanode, HOST='%s', PORT=%s);\n"
 #endif
