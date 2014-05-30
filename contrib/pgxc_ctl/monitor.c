@@ -286,7 +286,6 @@ void
 do_monitor_command(char *line)
 {
 	char *token;
-	int rc = 0;
 
 	if (!GetToken())
 	{
@@ -309,10 +308,10 @@ do_monitor_command(char *line)
 			if (isVarYes(VAR_gtmSlave))
 				monitor_gtm_slave();
 			else
-				elog(ERROR, "ERROR: gtm slave is not configured.\n"), rc=-1;
+				elog(ERROR, "ERROR: gtm slave is not configured.\n");
 		}
 		else
-			elog(ERROR, "Invalid monitor gtm command option.\n"), rc=-1;
+			elog(ERROR, "Invalid monitor gtm command option.\n");
 		return;
 	}
 	else if (TestToken("gtm_proxy"))
@@ -356,7 +355,7 @@ do_monitor_command(char *line)
 		else if (TestToken("slave"))
 		{
 			if (!isVarYes(VAR_coordSlave))
-				elog(ERROR, "ERROR: coordinator slave is not configured.\n"), rc = -1;
+				elog(ERROR, "ERROR: coordinator slave is not configured.\n");
 			else
 				if (!GetToken() || TestToken("all"))
 					monitor_coordinator_slave(aval(VAR_coordNames));
@@ -405,7 +404,7 @@ do_monitor_command(char *line)
 		else if (TestToken("slave"))
 		{
 			if (!isVarYes(VAR_coordSlave))
-				elog(ERROR, "ERROR: datanode slave is not configured.\n"), rc = -1;
+				elog(ERROR, "ERROR: datanode slave is not configured.\n");
 			else
 				if (!GetToken() || TestToken("all"))
 					monitor_datanode_slave(aval(VAR_coordNames));

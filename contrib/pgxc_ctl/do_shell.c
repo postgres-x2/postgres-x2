@@ -528,8 +528,8 @@ appendCmdEl(cmd_t *src, cmd_t *new)
 {
 	cmd_t *curr;
 
-	for(curr = src; src->next; src = src->next);
-	src->next = new;
+	for(curr = src; curr->next; curr = curr->next);
+	curr->next = new;
 }
 
 void

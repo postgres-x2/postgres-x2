@@ -298,13 +298,12 @@ get_prog_pid(char *host, char *progname, char *dir)
 			 "\"ps -f -C %s | grep %s\"",
 			 sval(VAR_pgxcUser), host, progname, dir);
 	wkf = popen(cmd, "r");
-	if (wkf == NULL)
+	if ((wkf == NULL) || (fgets(pid_s, MAXLINE, wkf) != pid_s))
 	{
 		elog(ERROR, "ERROR: cannot obtain pid value of the remote postmaster, host \"%s\" dir \"%s\", %s\n",
 					host, dir, strerror(errno));
 		return(-1);
 	}
-	fgets(pid_s, MAXLINE, wkf);
 	fclose(wkf);
 	/* Get the second token */
 	line = pid_s;
@@ -404,7 +403,8 @@ getIpAddress(char *hostName)
 		return NULL;
 	}
 	ipAddr = Malloc(MAXTOKEN+1);
-	fgets(ipAddr, MAXTOKEN, f);
+	if (fgets(ipAddr, MAXTOKEN, f) != ipAddr)
+		ipAddr[0] = '\0';
 	fclose(f);
 	trimNl(ipAddr);
 	return ipAddr;

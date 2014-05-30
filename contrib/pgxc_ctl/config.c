@@ -226,7 +226,8 @@ install_conf_prototype(char *path)
 		fprintf(pgxc_config_proto, "%s\n", pgxc_ctl_conf_prototype[i]);
 	fclose(pgxc_config_proto);
 	snprintf(cmd, MAXPATH, "chmod +x %s", path);
-	system(cmd);
+	if (system(cmd) == -1)
+		elog(ERROR, "ERROR: system() function error, %s\n", strerror(errno));
 }
 
 /*

@@ -168,7 +168,11 @@ set_bash:
 			}
 		}
 		snprintf(cmd, MAXLINE, "mkdir -p %s", pgxc_ctl_home);
-		system(cmd);
+		if (system(cmd) == -1)
+		{
+			fprintf(stderr, "ERROR: system() function error, %s\n", strerror(errno));
+			return;
+		}
 		if (stat(pgxc_ctl_home, &buf) ==0)
 		{
 			if (S_ISDIR(buf.st_mode))
@@ -285,7 +289,8 @@ pgxcCtlMkdir(char *path)
 	char cmd[MAXPATH+1];
 
 	snprintf(cmd, MAXPATH, "mkdir -p %s", path);
-	system(cmd);
+	if (system(cmd) == -1)
+		elog(ERROR, "ERROR: system() function error, %s\n", strerror(errno));
 }
 
 static void
@@ -521,6 +526,8 @@ main(int argc, char *argv[])
 		reset_var_val(VAR_logDir, logdir);
 	if (logfile)
 		reset_var_val(VAR_logFile, logfile);
+	if (verbose)
+		reset_var_val(VAR_verbose, verbose);
 	startLog(sval(VAR_logDir), sval(VAR_logFile));
 	prepare_pgxc_ctl_bash(pgxc_ctl_bash_path);
 	build_configuration_path(configuration);
