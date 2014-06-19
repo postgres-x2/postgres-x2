@@ -93,21 +93,21 @@ EXECUTE DIRECT ON ( <replaceable class="parameter">nodename</replaceable> [, ...
   <para>
    Select some data in a given table tenk1 on remote Datanode named dn1:
 <programlisting>
-EXECUTE DIRECT ON NODE dn1 'SELECT * FROM tenk1 WHERE col_char = ''foo''';
+EXECUTE DIRECT ON (dn1) 'SELECT * FROM tenk1 WHERE col_char = ''foo''';
 </programlisting>
   </para>
 
   <para>
    Select local timestamp of a remote node named coord2:
 <programlisting>
-EXECUTE DIRECT ON coord2 'select clock_timestamp()';
+EXECUTE DIRECT ON (coord2) 'select clock_timestamp()';
 </programlisting>
   </para>
 
   <para>
    Select list of tables of a remote node named dn50:
 <programlisting>
-EXECUTE DIRECT ON dn50 'select tablename from pg_tables';
+EXECUTE DIRECT ON (dn50) 'select tablename from pg_tables';
 </programlisting>
   </para>
  </refsect1>
