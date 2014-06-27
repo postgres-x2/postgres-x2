@@ -295,7 +295,7 @@ fi
 if [ "$configFile" != "" ] && [ -f "$configFile" ]; then
 	source $configFile
 fi
-# Log option can be overriden by command-line option
+# Log option can be overridden by command-line option
 
 print_values
 
