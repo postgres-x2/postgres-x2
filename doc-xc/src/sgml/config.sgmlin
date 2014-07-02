@@ -1372,7 +1372,7 @@ include 'filename'
       <para>
        Current release of <emphasis>Postgres-XC only:</emphasis> <productname>Postgres-XC</productname>
        does not support Windows.
-       The following description applies onlyh to <productname>PostgreSQL</productname>.
+       The following description applies only to <productname>PostgreSQL</productname>.
       </para>
 <!## end>
 
@@ -2482,7 +2482,7 @@ include 'filename'
      <para>
       Current release of <productname>Postgres-XC</productname> does not
       provide consistent view of standby servers.
-      Staandby server of a coordinator does not provide global view of
+      Standby server of a coordinator does not provide global view of
       datanode standbys.
       Each standby server provides only local view of the database.
       Please also note that the view is not governed by MVCC.
@@ -7068,7 +7068,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </indexterm>
       <listitem>
        <para>
-        Minumum number of the connection from the Coordinator to
+        Minimum number of the connection from the Coordinator to
         Datanodes.
        </para>
       </listitem>
