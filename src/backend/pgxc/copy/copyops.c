@@ -141,6 +141,7 @@ attribute_out_text(StringInfo buf, char *string)
 			{
 				DUMPSOFAR();
 				appendStringInfoCharMacro(buf, '\\');
+				appendStringInfoCharMacro(buf, c);
 				start = ++ptr;
 			}
 			else if (IS_HIGHBIT_SET(c))
@@ -201,6 +202,7 @@ attribute_out_text(StringInfo buf, char *string)
 			{
 				DUMPSOFAR();
 				appendStringInfoCharMacro(buf, '\\');
+				appendStringInfoCharMacro(buf, c);
 				start = ++ptr;
 			}
 			else
