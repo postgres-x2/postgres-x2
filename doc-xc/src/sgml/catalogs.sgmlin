@@ -3349,7 +3349,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    foreign data wrapper.
   </para>
@@ -3457,7 +3457,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    foreign data wrapper.
   </para>
@@ -3562,7 +3562,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    foreign data wrapper.
   </para>
@@ -4031,7 +4031,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    large object.
   </para>
@@ -4120,7 +4120,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    large object.
   </para>
@@ -6990,7 +6990,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    foreign data wrapper.
   </para>
@@ -9527,7 +9527,7 @@
 <!## XC>
   <para>
    This catalog exists in each coordinator and datanode in 
-   <productname>Postgres-XC</productname> as inheritted from <productname>PostgreSQL</productname>.
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
    Please note that current release of <productname>Postgres-XC</productname> does not support
    foreign data wrapper.
   </para>

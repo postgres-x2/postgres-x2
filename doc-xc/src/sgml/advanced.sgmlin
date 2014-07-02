@@ -155,7 +155,7 @@ DETAIL:  Key (city)=(Berkeley) is not present in table "cities".
 &xconly;
    <para>
     In the current <productname>Postgres-XC</> release, you can
-    specify columns of a replciated table or the distribution column
+    specify columns of a replicated table or the distribution column
     of a distributed column as referred column.
    </para>
 <!## end>
@@ -232,7 +232,7 @@ UPDATE branches SET balance = balance + 100.00
     related to the notion of atomic updates: when multiple transactions
     are running concurrently, each one should not be able to see the
     incomplete changes made by others.  For example, if one transaction
-    is busy totalling all the branch balances, it would not do for it
+    is busy totaling all the branch balances, it would not do for it
     to include the debit from Alice's branch but not the credit to
     Bob's branch, nor vice versa.  So transactions must be all-or-nothing
     not only in terms of their permanent effect on the database, but
@@ -317,7 +317,7 @@ COMMIT;
 
 <!## PG>
 <!-- NOTE:
-     Again, XC does not supoprt savepoint yet.
+     Again, XC does not support savepoint yet.
 -->
 
    <para>
