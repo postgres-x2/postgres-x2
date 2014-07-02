@@ -90,6 +90,16 @@
   also available.
  </para>
 
+<!## XC>
+&xconly;
+ <para>
+  At failover, you should be careful to synchronize restoration point of
+  all the coordinators and datanodes.
+  Barrier will help this synchronization.
+  See <xref linkend="SQL-CREATEBARRIER"> for details.
+ </para>
+<!## end>
+
  <sect1 id="different-replication-solutions">
  <title>Comparison of Different Solutions</title>
 
@@ -1446,7 +1456,9 @@ if (!triggered)
    <para>
     Please note that <productname>Postgres-XC</productname> does not provide integrated database view
     to applications.
-    Also note that you cannot connect to hot standby node throught coordiantors.
+    Please note that you cannot connect to hot standby node of datanodes through coordinators.
+    You can connect directly to hot-standby nodes using conventional manners and
+    read only their local database.
    </para>
 <!## end>
   <sect2 id="hot-standby-users">

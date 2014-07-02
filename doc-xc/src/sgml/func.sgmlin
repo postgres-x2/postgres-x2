@@ -14143,7 +14143,7 @@ SELECT collation for ('foo' COLLATE "de_DE");
 &xconly;
    <para>
     In <productname>Postgres-XC</>, OID is maintained locally in each Coordinator and Datanode.
-    If you specify specific OID value, you should do it in SQL statements targeted to specif
+    If you specify specific OID value, you should do it in SQL statements targeted to specific
     Coordinator or Datanode by <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -15787,8 +15787,8 @@ SELECT (pg_stat_file('filename')).modification;
    </indexterm>
    <para>
     <function>pgxc_lock_for_backup</> locks the cluster for taking backup using <application>pg_dump/pg_dumpall</application>.
-    Locking means that we disallow the statemets that change the portions of the catalog which are
-    backed up by <application>pg_dump/pg_dumpall</application>. When locked only the following utility statemets are allowed.
+    Locking means that we disallow the statements that change the portions of the catalog which are
+    backed up by <application>pg_dump/pg_dumpall</application>. When locked only the following utility statements are allowed.
     Please note that this function does not impact SELECTs or DMLs.
    </para>
 

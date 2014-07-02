@@ -1321,6 +1321,14 @@ SET ENABLE_SEQSCAN TO OFF;
        </para>
 
      <note>
+<!## XC>
+      <para>
+       Current release of <emphasis>Postgres-XC only:</emphasis> <productname>Postgres-XC</productname>
+       does not support Windows.
+       The following description applies only to <productname>PostgreSQL</productname>.
+      </para>
+<!## end>
+
       <para>
         On Windows hosts, preloading a library at server start will not reduce
         the time required to start each new server process; each server process
@@ -2446,6 +2454,19 @@ SET ENABLE_SEQSCAN TO OFF;
     <sect2 id="runtime-config-replication-standby">
      <title>Standby Servers</title>
 
+<!## XC>
+&xconly;
+     <para>
+      Current release of <productname>Postgres-XC</productname> does not
+      provide consistent view of standby servers.
+      Standby server of a coordinator does not provide global view of
+      datanode standbys.
+      Each standby server provides only local view of the database.
+      Please also note that the view is not governed by MVCC.
+     </para>
+<!## end>
+
+&common;
      <para>
       These settings control the behavior of a standby server that is
       to receive replication data.  Their values on the master server
@@ -6993,7 +7014,8 @@ Postgres-XC Specific Parameters
       </indexterm>
       <listitem>
        <para>
-        Minumum number of the connection from the Coordinator to Datanodes.
+        Minimum number of the connection from the Coordinator to
+        Datanodes.
        </para>
       </listitem>
      </varlistentry>

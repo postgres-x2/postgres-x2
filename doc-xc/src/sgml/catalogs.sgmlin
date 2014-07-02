@@ -3106,6 +3106,15 @@
    <primary>pg_foreign_data_wrapper</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   foreign data wrapper.
+  </para>
+<!## end>
+&common;
   <para>
    The catalog <structname>pg_foreign_data_wrapper</structname> stores
    foreign-data wrapper definitions.  A foreign-data wrapper is the
@@ -3198,6 +3207,15 @@
    <primary>pg_foreign_server</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   foreign data wrapper.
+  </para>
+<!## end>
+&common;
   <para>
    The catalog <structname>pg_foreign_server</structname> stores
    foreign server definitions.  A foreign server describes a source
@@ -3287,6 +3305,14 @@
    <primary>pg_foreign_table</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   foreign data wrapper.
+  </para>
+<!## end>
   <para>
    The catalog <structname>pg_foreign_table</structname> contains
    auxiliary information about foreign tables.  A foreign table is
@@ -3728,6 +3754,15 @@
    <primary>pg_largeobject</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   large object.
+  </para>
+<!## end>
+&common;
   <para>
    The catalog <structname>pg_largeobject</structname> holds the data making up
    <quote>large objects</quote>.  A large object is identified by an OID
@@ -3808,6 +3843,15 @@
    <primary>pg_largeobject_metadata</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   large object.
+  </para>
+<!## end>
+&common;
   <para>
    The catalog <structname>pg_largeobject_metadata</structname>
    holds metadata associated with large objects.  The actual large object
@@ -6550,6 +6594,15 @@
    <primary>pg_user_mapping</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   foreign data wrapper.
+  </para>
+<!## end>
+&common;
   <para>
    The catalog <structname>pg_user_mapping</structname> stores
    the mappings from local user to remote.  Access to this catalog is
@@ -8951,6 +9004,15 @@
    <primary>pg_user_mappings</primary>
   </indexterm>
 
+<!## XC>
+  <para>
+   This catalog exists in each coordinator and datanode in 
+   <productname>Postgres-XC</productname> as inherited from <productname>PostgreSQL</productname>.
+   Please note that current release of <productname>Postgres-XC</productname> does not support
+   foreign data wrapper.
+  </para>
+<!## end>
+&common;
   <para>
    The view <structname>pg_user_mappings</structname> provides access
    to information about user mappings.  This is essentially a publicly
