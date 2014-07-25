@@ -386,6 +386,7 @@ getChPidList(char *host, pid_t ppid)
 		strncat(rv, line, MAXLINE);
 		strncat(rv, " ", MAXLINE);
 	}
+	pclose(wkf);
 	return rv;
 }
 	
@@ -405,7 +406,7 @@ getIpAddress(char *hostName)
 	ipAddr = Malloc(MAXTOKEN+1);
 	if (fgets(ipAddr, MAXTOKEN, f) != ipAddr)
 		ipAddr[0] = '\0';
-	fclose(f);
+	pclose(f);
 	trimNl(ipAddr);
 	return ipAddr;
 }

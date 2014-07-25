@@ -763,7 +763,7 @@ failover_oneDatanode(int datanodeIdx)
 			"# End of addition\n",
 			timeStampString(timestamp, MAXTOKEN),
 			gtmHost, gtmPort);
-	fclose(f);
+	pclose(f);
 
 	/* Restart datanode slave (as the new master) */
 	rc_local = doImmediate(aval(VAR_datanodeSlaveServers)[datanodeIdx], NULL,
@@ -845,7 +845,7 @@ failover_oneDatanode(int datanodeIdx)
 				aval(VAR_datanodeNames)[datanodeIdx],
 #endif
 				aval(VAR_datanodeNames)[datanodeIdx], aval(VAR_datanodeMasterServers)[datanodeIdx], aval(VAR_datanodePorts)[datanodeIdx]);
-		fclose(f);
+		pclose(f);
 	}
 	return rc;
 
@@ -985,7 +985,7 @@ add_datanodeMaster(char *name, char *host, int port, char *dir)
 				"# End of Additon\n",
 				timeStampString(date, MAXTOKEN+1),
 				port, gtmHost, gtmPort);
-		fclose(f);
+		pclose(f);
 	}
 	CleanArray(confFiles);
 	jj = datanodeIdx(name);
@@ -1001,7 +1001,7 @@ add_datanodeMaster(char *name, char *host, int port, char *dir)
 							sval(VAR_pgxcOwner), aval(VAR_datanodePgHbaEntries)[kk]);
 		}
 		fprintf(f, "# End of addition\n");
-		fclose(f);
+		pclose(f);
 	}
 
 	/* Lock ddl */
@@ -1045,13 +1045,13 @@ add_datanodeMaster(char *name, char *host, int port, char *dir)
 			}
 			fprintf(f, "CREATE NODE %s WITH (TYPE = 'datanode', host='%s', PORT=%d);\n", name, host, port);
 			fprintf(f, "\\q\n");
-			fclose(f);
+			pclose(f);
 		}
 	}
 
 	/* Quit DDL lokkup session */
 	fprintf(lockf, "\\q\n");
-	fclose(lockf);
+	pclose(lockf);
 	return 0;
 
 }
@@ -1123,7 +1123,7 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			timeStampString(date, MAXPATH),
 			sval(VAR_pgxcUser), host, archDir,
 			getDefaultWalSender(FALSE));
-	fclose(f);
+	pclose(f);
 	/* pg_hba.conf for replication */
 	if ((f = pgxc_popen_w(aval(VAR_datanodeMasterServers)[idx], "cat >> %s/pg_hba.conf", aval(VAR_datanodeMasterDirs)[idx])) == NULL)
 	{
@@ -1138,7 +1138,7 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			"# End of addition ===============================\n",
 			timeStampString(date, MAXPATH),
 			sval(VAR_pgxcOwner), getIpAddress(host));
-	fclose(f);
+	pclose(f);
 	/* Reconfigure pgxc_ctl configuration with the new slave */
 #if 0
 	/* Need an API to expand the array to desired size */
@@ -1208,7 +1208,7 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			"archive_command = ''\n"	/* No archive mode */
 			"# End of Addition\n",
 			timeStampString(date, MAXTOKEN), aval(VAR_datanodePorts)[idx]);
-	fclose(f);
+	pclose(f);
 	/* Update the slave recovery.conf */
 	if ((f = pgxc_popen_w(host, "cat >> %s/recovery.conf", dir)) == NULL)
 	{
@@ -1227,7 +1227,7 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 			timeStampString(date, MAXTOKEN), aval(VAR_datanodeMasterServers)[idx], aval(VAR_datanodePorts)[idx],
 			sval(VAR_pgxcOwner), aval(VAR_datanodeNames)[idx], 
 			aval(VAR_datanodeArchLogDirs)[idx], aval(VAR_datanodeArchLogDirs)[idx]);
-	fclose(f);
+	pclose(f);
 	/* Start the slave */
 	doImmediate(host, NULL, "pg_ctl start -Z datanode -D %s -w", dir);
 	return 0;
@@ -1333,7 +1333,7 @@ remove_datanodeMaster(char *name, int clean_opt)
 			}
 			fprintf(f, "DROP NODE %s;\n", name);
 			fprintf(f, "\\q");
-			fclose(f);
+			pclose(f);
 		}
 	}
 #if 1
@@ -1428,7 +1428,7 @@ remove_datanodeSlave(char *name, int clean_opt)
 				"archive_command = ''\n"
 				"# End of the update\n",
 				timeStampString(date, MAXTOKEN));
-		fclose(f);
+		pclose(f);
 	}
 	doImmediate(aval(VAR_datanodeMasterServers)[idx], NULL, "pg_ctl restart -Z datanode -D %s", aval(VAR_datanodeMasterDirs)[idx]);
 
