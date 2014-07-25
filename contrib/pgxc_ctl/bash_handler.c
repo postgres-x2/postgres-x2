@@ -72,5 +72,5 @@ void read_config_file(char *path, char *conf)
 		sprintf(cmd, "bash %s/pgxc_ctl_bash print_values", path);
 	vars = popen(cmd, "r");
 	read_vars(vars);
-	fclose(vars);
+	pclose(vars);
 }

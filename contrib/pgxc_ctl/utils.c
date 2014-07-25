@@ -370,6 +370,7 @@ char *getChPidList(char *host, pid_t ppid)
 		strncat(rv, line, MAXLINE);
 		strncat(rv, " ", MAXLINE);
 	}
+	pclose(wkf);
 	return rv;
 }
 	
@@ -387,7 +388,7 @@ char *getIpAddress(char *hostName)
 	}
 	ipAddr = Malloc(MAXTOKEN+1);
 	fgets(ipAddr, MAXTOKEN, f);
-	fclose(f);
+	pclose(f);
 	trimNl(ipAddr);
 	return ipAddr;
 }
