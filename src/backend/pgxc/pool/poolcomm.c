@@ -778,7 +778,7 @@ pool_recvpids(PoolPort *port, int **pids)
 	{
 		int n;
 		memcpy(&n, buf + 5 + i * sizeof(int), sizeof(int));
-		*pids[i] = ntohl(n);
+		(*pids)[i] = ntohl(n);
 	}
 	return n32;
 
