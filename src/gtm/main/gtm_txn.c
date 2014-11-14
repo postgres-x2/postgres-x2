@@ -2641,7 +2641,7 @@ bool GTM_NeedXidRestoreUpdate(void)
 
 void GTM_WriteRestorePointXid(FILE *f)
 {
-	if ((MaxGlobalTransactionId - GTMTransactions.gt_nextXid) <= RestoreDuration)
+	if ((MaxGlobalTransactionId - GTMTransactions.gt_nextXid) >= RestoreDuration)
 		GTMTransactions.gt_backedUpXid = GTMTransactions.gt_nextXid + RestoreDuration;
 	else
 		GTMTransactions.gt_backedUpXid = FirstNormalGlobalTransactionId + (RestoreDuration - (MaxGlobalTransactionId - GTMTransactions.gt_nextXid));
