@@ -635,7 +635,7 @@ main(int argc, char **argv)
 		if (serializable_deferrable)
 			ExecuteSqlStatement(fout,
 								"SET TRANSACTION ISOLATION LEVEL "
-								"SERIALIZABLE, READ ONLY, DEFERRABLE");
+								"SERIALIZABLE, DEFERRABLE");
 		else
 			ExecuteSqlStatement(fout,
 								"SET TRANSACTION ISOLATION LEVEL "
