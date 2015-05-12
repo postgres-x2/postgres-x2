@@ -1015,11 +1015,11 @@ setup_connection(Archive *AH, const char *dumpencoding, char *use_role)
 		if (serializable_deferrable)
 			ExecuteSqlStatement(AH,
 								"SET TRANSACTION ISOLATION LEVEL "
-								"SERIALIZABLE, READ ONLY, DEFERRABLE");
+								"SERIALIZABLE, DEFERRABLE");
 		else
 			ExecuteSqlStatement(AH,
 								"SET TRANSACTION ISOLATION LEVEL "
-								"REPEATABLE READ, READ ONLY");
+								"REPEATABLE READ");
 	}
 	else if (AH->remoteVersion >= 70400)
 	{
