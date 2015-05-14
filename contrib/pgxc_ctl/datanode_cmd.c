@@ -1187,9 +1187,9 @@ add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
 	 * It is much better to shutdow the target coordinator master fast because it does not affect
 	 * transactions this coordinator is not involved.
 	 */
-	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
+	doImmediate(aval(VAR_datanodeMasterServers)[idx], NULL, 
 				"pg_ctl stop -Z datanode -D %s -m fast", aval(VAR_datanodeMasterDirs)[idx]);
-	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
+	doImmediate(aval(VAR_datanodeMasterServers)[idx], NULL, 
 				"pg_ctl start -Z datanode -D %s -w", aval(VAR_datanodeMasterDirs)[idx]);
 	/* pg_basebackup */
 	doImmediate(host, NULL, "pg_basebackup -p %s -h %s -D %s -x",
