@@ -710,10 +710,10 @@ doConfigBackup(void)
 {
 	int rc;
 
-	rc = doImmediateRaw("ssh %s@%s mkdir -p %s;scp %s %s@%sp:%s",
+	rc = doImmediateRaw("ssh %s@%s mkdir -p %s;scp %s %s@%s:%s/%s",
 						sval(VAR_pgxcUser), sval(VAR_configBackupHost), sval(VAR_configBackupDir),
 						pgxc_ctl_config_path, sval(VAR_pgxcUser), sval(VAR_configBackupHost),
-						sval(VAR_configBackupFile));
+						sval(VAR_configBackupDir), sval(VAR_configBackupFile));
 	return(rc);
 }
 
