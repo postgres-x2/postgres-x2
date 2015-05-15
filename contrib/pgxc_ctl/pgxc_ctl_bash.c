@@ -615,7 +615,7 @@ char *pgxc_ctl_conf_prototype[] = {
 "#---- Datanodes ---------------------",
 "",
 "#---- Shortcuts --------------",
-"dnMstrDi=$HOME/pgxc/nodes/dn_master",
+"dnMstrDir=$HOME/pgxc/nodes/dn_master",
 "dnSlvDir=$HOME/pgxc/nodes/dn_slave",
 "dnALDir=$HOME/pgxc/nodes/datanode_archlog",
 "",
