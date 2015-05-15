@@ -2597,7 +2597,11 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 {
 	GTM_ProxyMsgHeader proxyhdr;
 	int namelen;
-
+          
+	if(conninfo->con_port == NULL)
+	{
+		return ;
+	}
 	/* Mark node as disconnected if it is a postmaster backend */
 	Recovery_PGXCNodeDisconnect(conninfo->con_port);
 
