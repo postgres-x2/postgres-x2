@@ -886,7 +886,7 @@ verifyResource(void)
 #if 0
 	char *datanodeSlaveSVars[] = {VAR_datanodeSlaveSync, NULL};	/* For extension, see above */
 #endif
-	
+	char *walArchiveVars[] = {VAR_walArchive, NULL};
 	/*
 	 * -------------- Fundamental check -------------------
 	 */
@@ -921,6 +921,7 @@ verifyResource(void)
 #endif
 		checkConfiguredAndSize(datanodeSlaveVars, "datanode slave");
 	}
+	checkIfConfigured(walArchiveVars);
 	if (anyConfigErrors)
 	{
 		elog(ERROR, "ERROR: Found fundamental configuration error.\n");
