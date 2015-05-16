@@ -145,13 +145,24 @@ prepare_initDatanodeMaster(char *nodeName)
 			cleanCmd(cmd);
 			return(NULL);
 		}
-		fprintf(f,
-				"wal_level = hot_standby\n"
+		fprintf(f, "wal_level = hot_standby\n");
+		if (strcasecmp(sval(VAR_walArchive), "y") == 0)
+		{
+			fprintf(f,
 				"archive_mode = on\n"
-				"archive_command = 'rsync %%p %s@%s:%s/%%f'\n"
+				"archive_command = 'rsync %%p %s@%s:%s/%%f'\n",
+				sval(VAR_pgxcUser),
+				aval(VAR_datanodeSlaveServers)[idx],
+				aval(VAR_datanodeArchLogDirs)[idx]);
+		}
+		else
+		{
+			fprintf(f, "archive_mode = off\n");
+		}
+
+		fprintf(f,
 				"max_wal_senders = %s\n"
 				"# End of Addition\n",
-				sval(VAR_pgxcUser), aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodeArchLogDirs)[idx],
 				aval(VAR_datanodeMaxWALSenders)[idx]);
 		fclose(f);
 	}
