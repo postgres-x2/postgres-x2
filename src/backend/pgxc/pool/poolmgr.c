@@ -2308,7 +2308,8 @@ destroy_node_pool(PGXCNodePool *node_pool)
 /*
  * Main handling loop
  */
-static void PoolerLoop(void)
+static void
+PoolerLoop(void)
 {
 	StringInfoData input_message;
 	int maxfd = MaxConnections + 1024;   //add additional 1024
