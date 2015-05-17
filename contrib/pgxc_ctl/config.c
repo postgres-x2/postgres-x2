@@ -922,7 +922,10 @@ verifyResource(void)
 		checkConfiguredAndSize(datanodeSlaveVars, "datanode slave");
 	}
 	if (anyConfigErrors)
+	{
 		elog(ERROR, "ERROR: Found fundamental configuration error.\n");
+		exit(1);
+	}
 	/*
 	 * --------------- Resource Conflict Check ---------------------
 	 */
