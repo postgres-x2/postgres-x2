@@ -2364,8 +2364,6 @@ PoolerLoop(void)
 			nfds = Max(nfds, sockfd);
 		}
 
-		/* wait for event */
-		retval = select(nfds + 1, &rfds, NULL, NULL, NULL);
 		if (shutdown_requested)
 		{
 			for (i = agentCount - 1; i >= 0; i--)
@@ -2381,6 +2379,9 @@ PoolerLoop(void)
 			close(server_fd);
 			exit(0);
 		}
+		/* wait for event */
+		retval = select(nfds + 1, &rfds, NULL, NULL, NULL);
+
 		if (retval > 0)
 		{
 			/*
