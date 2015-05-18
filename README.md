@@ -17,6 +17,9 @@ Postgres-XC is an advanced object-relational cluster database management system 
 [Report Issues] (https://github.com/postgres-x2/postgres-x2/issues)
 
 # How to run
+## Download
+## Installation
+## Configure and Run
 
 # Architecture
 
