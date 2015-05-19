@@ -182,7 +182,7 @@ int abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int bkup_abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 							   char *nodestring);
-int backup_start_prepared_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, char *gid,
+int backup_start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 									  char *nodestring);
 int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int bkup_prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
