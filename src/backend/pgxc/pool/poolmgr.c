@@ -34,7 +34,7 @@
  */
 
 #include "postgres.h"
-
+#include <poll.h>
 #include <signal.h>
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -108,7 +108,7 @@ static int	node_info_check(PoolAgent *agent);
 static void agent_init(PoolAgent *agent, const char *database, const char *user_name,
 	                   const char *pgoptions);
 static void agent_destroy(PoolAgent *agent);
-static void agent_create(void);
+static void agent_create(int new_fd);
 static void agent_handle_input(PoolAgent *agent, StringInfo s);
 static int agent_session_command(PoolAgent *agent,
 								 const char *set_command,
@@ -396,23 +396,10 @@ PoolManagerCloseHandle(PoolHandle *handle)
  * Create agent
  */
 static void
-agent_create(void)
+agent_create(int new_fd)
 {
 	MemoryContext oldcontext;
-	int			new_fd;
 	PoolAgent  *agent;
-
-	new_fd = accept(server_fd, NULL, NULL);
-	if (new_fd < 0)
-	{
-		int			saved_errno = errno;
-
-		ereport(LOG,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("pool manager failed to accept connection: %m")));
-		errno = saved_errno;
-		return;
-	}
 
 	oldcontext = MemoryContextSwitchTo(PoolerAgentContext);
 
@@ -2318,7 +2305,6 @@ destroy_node_pool(PGXCNodePool *node_pool)
 	}
 }
 
-
 /*
  * Main handling loop
  */
@@ -2326,20 +2312,35 @@ static void
 PoolerLoop(void)
 {
 	StringInfoData input_message;
+	int maxfd = MaxConnections + 1024;   //add additional 1024
+	struct pollfd *pool_fd;
+	int i;
+
+	pool_fd = (struct pollfd *) palloc(maxfd * sizeof(struct pollfd));
 
 	server_fd = pool_listen(PoolerPort, UnixSocketDir);
+
 	if (server_fd == -1)
 	{
 		/* log error */
 		return;
 	}
+
 	initStringInfo(&input_message);
+
+	pool_fd[0].fd = server_fd;
+	pool_fd[0].events = POLLIN; //POLLRDNORM;
+
+	for (i = 1; i < maxfd; i++)
+	{
+		pool_fd[i].fd = -1;
+		pool_fd[i].events = POLLIN | POLLPRI | POLLRDNORM | POLLRDBAND;
+	}
+
 	for (;;)
 	{
-		int			nfds;
-		fd_set		rfds;
-		int			retval;
-		int			i;
+		int retval;
+		int i;
 
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
@@ -2348,39 +2349,45 @@ PoolerLoop(void)
 		if (!PostmasterIsAlive())
 			exit(1);
 
-		/* watch for incoming connections */
-		FD_ZERO(&rfds);
-		FD_SET(server_fd, &rfds);
-
-		nfds = server_fd;
-
 		/* watch for incoming messages */
 		for (i = 0; i < agentCount; i++)
 		{
-			PoolAgent  *agent = poolAgents[i];
-			int			sockfd = Socket(agent->port);
-			FD_SET		(sockfd, &rfds);
+			PoolAgent *agent = poolAgents[i];
+			int sockfd = Socket(agent->port);
+			pool_fd[i + 1].fd = sockfd;
 
-			nfds = Max(nfds, sockfd);
 		}
 
 		if (shutdown_requested)
 		{
+
 			for (i = agentCount - 1; i >= 0; i--)
 			{
-				PoolAgent  *agent = poolAgents[i];
+				PoolAgent *agent = poolAgents[i];
 
 				agent_destroy(agent);
 			}
+
 			while (databasePools)
-				if (destroy_database_pool(databasePools->database,
-										  databasePools->user_name) == 0)
+				if (destroy_database_pool(databasePools->database,databasePools->user_name) == 0)
 					break;
+
 			close(server_fd);
+
 			exit(0);
 		}
 		/* wait for event */
-		retval = select(nfds + 1, &rfds, NULL, NULL, NULL);
+
+		retval = poll(pool_fd, agentCount + 1, -1);
+
+		if (retval < 0)
+		{
+
+			if (errno == EINTR)
+				continue;
+			elog(FATAL, "poll returned with error %d", retval);
+
+		}
 
 		if (retval > 0)
 		{
@@ -2391,17 +2398,32 @@ PoolerLoop(void)
 			 */
 			for (i = agentCount - 1; i >= 0; i--)
 			{
-				PoolAgent  *agent = poolAgents[i];
-				int			sockfd = Socket(agent->port);
+				PoolAgent *agent = poolAgents[i];
+				int sockfd = Socket(agent->port);
 
-				if (FD_ISSET(sockfd, &rfds))
+				if ((sockfd == pool_fd[i + 1].fd) && pool_fd[i + 1].revents)
 					agent_handle_input(agent, &input_message);
 			}
-			if (FD_ISSET(server_fd, &rfds))
-				agent_create();
+
+			if (pool_fd[0].revents & POLLIN)
+			{
+				int new_fd = accept(server_fd, NULL, NULL);
+
+				if (new_fd < 0)
+				{
+					int saved_errno = errno;
+					ereport(LOG,
+							(errcode(ERRCODE_CONNECTION_FAILURE), errmsg("pool manager failed to accept connection: %m")));
+					errno = saved_errno;
+					return;
+				}
+
+				agent_create(new_fd);
+			}
 		}
 	}
 }
+
 
 /*
  * Clean Connection in all Database Pools for given Datanode and Coordinator list
