@@ -472,6 +472,21 @@ prepare_startDatanodeSlave(char *nodeName)
 			timeStampString(timestamp, MAXTOKEN),
 			aval(VAR_datanodeNames)[idx]);
 	fclose(f);
+
+	/* Reload new config file if the master is running */
+	/* The next step might need improvement.  When GTM is dead, the following may
+	 * fail even though the master is running.
+	 */
+	if (pingNode(aval(VAR_datanodeMasterServers)[idx], aval(VAR_datanodePorts)[idx]) == 0)
+	{
+		cmd_t *cmdReloadMaster;
+
+		appendCmdEl(cmdMasterToSyncMode, (cmdReloadMaster = initCmd(aval(VAR_datanodeMasterServers)[idx])));
+		snprintf(newCommand(cmdReloadMaster), MAXLINE,
+				 "pg_ctl reload -Z datanode -D %s",
+				 aval(VAR_datanodeMasterDirs)[idx]);
+	}
+
 	return(cmd);
 }
 
