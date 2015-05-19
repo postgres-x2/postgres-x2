@@ -44,6 +44,8 @@ static GTM_Result *makeEmptyResultIfIsNull(GTM_Result *oldres);
 static int commit_prepared_transaction_internal(GTM_Conn *conn,
 												GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
 												bool is_backup);
+static int start_prepared_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+											   char *nodestring, bool is_backup);
 static int prepare_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
 static int abort_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
 static int abort_transaction_multi_internal(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
@@ -758,33 +760,24 @@ send_failed:
 }
 
 int
-backup_start_prepared_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, char *gid,
+backup_start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 								  char *nodestring)
 {
 	Assert(nodestring && gid && conn);
 
-	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_BKUP_TXN_START_PREPARED, sizeof(GTM_MessageType), conn) ||
-		gtmpqPutc(false, conn) ||
-		gtmpqPutInt(txn, sizeof(GTM_TransactionHandle), conn) ||
-		gtmpqPutInt(strlen(gid), sizeof(GTM_StrLen), conn) ||
-		gtmpqPutnchar(gid, strlen(gid), conn) ||
-		gtmpqPutInt(strlen(nodestring), sizeof(GTM_StrLen), conn) ||
-		gtmpqPutnchar(nodestring, strlen(nodestring), conn))
-		goto send_failed;
-
-	if (gtmpqPutMsgEnd(conn))
-		goto send_failed;
-
-	return GTM_RESULT_OK;
-
-send_failed:
-	return -1;
+	return start_prepared_transaction_internal(conn, gxid, gid, nodestring, true);
 }
 
 int
 start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 						   char *nodestring)
+{
+	return start_prepared_transaction_internal(conn, gxid, gid, nodestring, false);
+}
+
+static int
+start_prepared_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+						   char *nodestring, bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -793,7 +786,7 @@ start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_START_PREPARED, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_TXN_START_PREPARED : MSG_TXN_START_PREPARED, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
 		/* Send also GID for an explicit prepared transaction */
@@ -803,7 +796,6 @@ start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 		gtmpqPutnchar((char *) nodestring, strlen(nodestring), conn))
 		goto send_failed;
 
-
 	/* Finish the message. */
 	if (gtmpqPutMsgEnd(conn))
 		goto send_failed;
@@ -811,6 +803,9 @@ start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 	/* Flush to ensure backend gets it. */
 	if (gtmpqFlush(conn))
 		goto send_failed;
+
+	if (is_backup)
+		return GTM_RESULT_OK;
 
 	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
 	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
