@@ -371,6 +371,7 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 			data->gti_coordname = genAllocTop(sizeof(ll+1));	/* Should be allocated at TopMostContext */
 			memcpy(data->gti_coordname, buf+len, ll);
 			data->gti_coordname[ll] = 0;
+			len += ll;
 		}
 		else
 			data->gti_coordname = NULL;
