@@ -1077,6 +1077,9 @@ ProcessBeginTransactionCommand(Port *myport, StringInfo message)
 
 	MemoryContextSwitchTo(oldContext);
 
+	/* GXID has been received, now it's time to get a GTM timestamp */
+	timestamp = GTM_TimestampGetCurrent();
+
 	/* Backup first */
 	if (GetMyThreadInfo->thr_conn->standby)
 	{
@@ -1085,9 +1088,6 @@ ProcessBeginTransactionCommand(Port *myport, StringInfo message)
 		if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 			gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 	}
-
-	/* GXID has been received, now it's time to get a GTM timestamp */
-	timestamp = GTM_TimestampGetCurrent();
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, TXN_BEGIN_RESULT, 4);
