@@ -76,6 +76,9 @@ static PGXCNodeHandle *co_handles = NULL;
 int			NumDataNodes;
 int 		NumCoords;
 
+/* Cancel Delay duration --> set by GUC */
+int			pgxcnode_cancel_delay = 10;
+
 static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
 static void pgxc_node_free(PGXCNodeHandle *handle);
 static void pgxc_node_all_free(void);
@@ -876,12 +879,12 @@ cancel_query(void)
 		 * Hack to wait a moment to cancel requests are processed in other nodes.
 		 * If we send a new query to nodes before cancel requests get to be
 		 * processed, the query will get unanticipated failure.
-		 * As we have no way to know when to the request processed, we can't not
-		 * wait an experimental duration (10ms).
+		 * As we have no way to know when to the request processed,
+		 * and because this dulation depends upon the platform and the environment,
+		 * this value is now moved to GUC (pgxc_cancel_delay) parameter.
 		 */
-#if PGXC_CANCEL_DELAY > 0
-		pg_usleep(PGXC_CANCEL_DELAY * 1000);
-#endif
+	if (pgxcnode_cancel_delay > 0)
+		pg_usleep(pgxcnode_cancel_delay * 1000);
 }
 /*
  * This method won't return until all network buffers are empty
