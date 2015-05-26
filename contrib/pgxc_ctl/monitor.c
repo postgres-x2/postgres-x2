@@ -391,11 +391,11 @@ void do_monitor_command(char *line)
 		}
 		else if (TestToken("slave"))
 		{
-			if (!isVarYes(VAR_coordSlave))
-				elog(ERROR, "ERROR: datanode slave is not configured.\n"), rc = -1;
+			if (!isVarYes(VAR_datanodeSlave))
+				elog(ERROR, "ERROR: datanode slave is not configured.\n");
 			else
 				if (!GetToken() || TestToken("all"))
-					monitor_datanode_slave(aval(VAR_coordNames));
+					monitor_datanode_slave(aval(VAR_datanodeNames));
 				else
 				{
 					char **nodeList = NULL;
