@@ -824,6 +824,7 @@ static void verifyResource(void)
 							VAR_gtmProxyServers, 
 							VAR_gtmProxyPorts, 
 							VAR_gtmProxyDirs, 
+							VAR_gtmPxySpecificExtraConfig,
 							NULL};
 	char *coordMasterVars[] = {VAR_coordNames, 
 							   VAR_coordPorts, 
@@ -831,6 +832,8 @@ static void verifyResource(void)
 							   VAR_coordMasterServers,
 							   VAR_coordMasterDirs, 
 							   VAR_coordMaxWALSenders, 
+							   VAR_coordSpecificExtraConfig,
+							   VAR_coordSpecificExtraPgHba,
 							   NULL};
 	char *coordSlaveVars[] = {VAR_coordNames, 
 							  VAR_coordSlaveServers, 
@@ -852,6 +855,8 @@ static void verifyResource(void)
 								  VAR_datanodeMasterServers,
 								  VAR_datanodeMasterDirs, 
 								  VAR_datanodeMaxWALSenders, 
+								  VAR_datanodeSpecificExtraConfig,
+								  VAR_datanodeSpecificExtraPgHba,
 								  NULL};
 	char *datanodeSlaveVars[] = {VAR_datanodeNames,
 								 VAR_datanodeSlaveServers,
