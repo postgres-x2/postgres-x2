@@ -207,10 +207,15 @@ GetNewTransactionId(bool isSubXact)
 		}
 		else
 		{
-			/* Fallback to default */
-			elog(LOG, "Falling back to local Xid. Was = %d, now is = %d",
-					next_xid, ShmemVariableCache->nextXid);
-			xid = ShmemVariableCache->nextXid;
+			/*
+			 * Only single mode postgres process for initdb can use localXid.
+			 */
+			if(!useLocalXid)
+				elog(ERROR, "Xid is invalid. xid = %d", next_xid);
+			else
+			{
+				xid = ShmemVariableCache->nextXid;
+			}
 		}
 	}
 #else
