@@ -2119,7 +2119,10 @@ acquire_connection(DatabasePool *dbPool, Oid node)
 		else if (poll_result < 0)
 		{
 			if (errno == EAGAIN || errno == EINTR)
+			{
+				errno = 0;
 				goto retry;
+			}
 
 			elog(WARNING, "Error in checking connection, errno = %d", errno);
 		}
