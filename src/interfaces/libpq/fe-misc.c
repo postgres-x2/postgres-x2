@@ -1013,7 +1013,6 @@ pqSocketCheck(PGconn *conn, int forRead, int forWrite, time_t end_time)
 	{
 		printfPQExpBuffer(&conn->errorMessage,
 						  libpq_gettext("socket not open\n"));
-		SOCK_ERRNO=EBADF;
 		return -1;
 	}
 
