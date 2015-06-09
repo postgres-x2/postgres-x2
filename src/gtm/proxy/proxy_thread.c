@@ -388,10 +388,11 @@ GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 	 * response. We use that information to route the response back to the
 	 * approrpiate connection
 	 */
-	con_idx = thrinfo->thr_conn_count++;
+	con_idx = thrinfo->thr_conn_count;
 	conninfo->con_id = con_id;
 	thrinfo->thr_conid2idx[con_id] = con_idx;
 	thrinfo->thr_all_conns[con_idx] = conninfo;
+	thrinfo->thr_conn_count++;
 	elog(DEBUG5, "Assigned a connection id to new connection: id = %d, index = %d", con_id, con_idx);
 
 	/*
