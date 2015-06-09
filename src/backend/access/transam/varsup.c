@@ -115,6 +115,16 @@ GetNewTransactionId(bool isSubXact)
 	/* Initialize transaction ID */
 	xid = InvalidTransactionId;
 
+REGEN_XID:
+	increment_xid = true;
+	*timestamp_received = false;
+	/* if xid fall back, here we just commit he xid dummy and reget the xid from gtm */
+	if (TransactionIdIsValid(xid))
+	{
+		CommitTranGTM(xid);
+	}
+
+	
 	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord()) || IsPGXCNodeXactDatanodeDirect())
 	{
 		/*
@@ -147,9 +157,15 @@ GetNewTransactionId(bool isSubXact)
 			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
 			{
 				increment_xid = false;
-				ereport(DEBUG1,
-				   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d)",
-					   xid, ShmemVariableCache->nextXid)));
+				LWLockRelease(XidGenLock);
+				
+				/* It is a serious issue when xid fall back, so here we emit a WARNING */
+				ereport(LOG,
+				   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d), IS_PGXC_COORDINATOR:%d, IS_PGXC_DATANODE:%d, REMOTE_CONN_TYPE:%d, regen now",
+					   xid, ShmemVariableCache->nextXid, IS_PGXC_COORDINATOR, IS_PGXC_DATANODE, REMOTE_CONN_TYPE)));
+				/* here, we get a fallback xid, reget a new one to avoid data corruption */
+				
+				goto REGEN_XID;
 			}
 			else
 				ShmemVariableCache->nextXid = xid;
@@ -207,11 +223,15 @@ GetNewTransactionId(bool isSubXact)
 		}
 		else
 		{
-			/* Fallback to default */
-			if (!useLocalXid)
-				elog(LOG, "Falling back to local Xid. Was = %d, now is = %d",
-					next_xid, ShmemVariableCache->nextXid);
-			xid = ShmemVariableCache->nextXid;
+			/*
+			 * Only single mode postgres process for initdb can use localXid.
+			 */
+			if(!useLocalXid)
+				elog(ERROR, "Xid is invalid. xid = %d", next_xid);
+			else
+			{
+				xid = ShmemVariableCache->nextXid;
+			}
 		}
 	}
 #else
