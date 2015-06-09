@@ -601,6 +601,7 @@ PACKAGE_VERSION='9.4beta1'
 # Postgres-XC 1.3devel is based on PostgreSQL 9.4devel
 PACKAGE_STRING='Postgres-XC 1.2devel'
 PACKAGE_BUGREPORT='postgres-xc-bugs@lists.sourceforge.net'
+PACKAGE_XC_VERSION='1.2devel'
 
 ac_unique_file="src/backend/access/common/heaptuple.c"
 ac_default_prefix=/usr/local/pgsql
