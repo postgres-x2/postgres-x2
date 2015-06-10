@@ -12,7 +12,7 @@ Project license same as PostgreSQL, meaining [PostgreSQL license](http://www.pos
 * **Write scalable PostgreSQL cluster** : More than 3× scalability performance speedup with five servers, compared with pure PostgreSQL (DBT‐1). Result as of 1.0 release. Ways to improve more scalability are known.
 * **Synchronous multi‐master configuration** : Any update to any master is visible from other masters immediately.
 * **Table location transparent** : Can continue to use the same applications.No change in transaction handling.
-* **Based upon PostgreSQ** :Same API to Apps as PostgreSQL
+* **Based upon PostgreSQL** :Same API to Apps as PostgreSQL
 
 # Status
 * **Latest release**
@@ -30,37 +30,41 @@ Subscribing grougle groups, issueing pull request and creating issues are the wa
 Subscribe Postgres-X2-dev group(postgres-x2-dev@googlegroups.com) from [google groups](https://groups.google.com/) titled "postgres-x2-dev". You can post your issues and ideas here.
 
 * **Pull request and create issues**
+
 If you have codes for new feature or fix, you can issue pull request. This page contains Postgres-X2 development community information. Posgres-X2 repositories will be found at [postgres-x2 developer page](https://github.com/postgres-x2).
 You can also create issue to report bugs, to raise discussion, to post your ideas, etc.
 
 * **Report Bugs**
+
 [Report Issues] (https://github.com/postgres-x2/postgres-x2/issues)
 
 # Keep in touch
 For any project information please contact the project repensentive [Koichi Suzuki](mailto:koichi.dbms@gmail.com) or [Galy Lee](mailto:galylee@gmail.com)
 
 # How to run
-## Download
+* Download
+
 you can download the stable release  from here [Postgres-XC 1.2.1](https://github.com/postgres-x2/postgres-x2/releases/tag/XC1_2_1_PG9_3)
 
 or you can download the stable development version, it is here [REL1_2_STABLE](https://github.com/postgres-x2/postgres-x2/tree/REL1_2_STABLE)
 <pre><code>wget https://github.com/postgres-x2/postgres-x2/archive/REL1_2_STABLE.zip
 </code></pre>
-## Installation
-###install depedency packages
+
+* **Installation**
+
+**install depedency packages**
 <pre><code>yum -y install gcc* libtool* libxml2-devel readline-devel flex bison crypto* perl-ExtUtils-Embed zlib-devel pam-devel libxslt-devel openldap-devel python-devel openssl-devel cmake</code></pre>
-###Unzip
+**Unzip**
 <pre><code>unzip REL1_2_STABLE.zip</code></pre>
-###Configure
+**Configure**
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 ./configure --prefix=/home/galy/pgxc/stable </code></pre>
 Please change the installation path to the location you want to install.
-###make
+**make**
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 make install</code></pre>
-##Postgres-X2 Architecture
 
-## Setup & Run
+* **Setup & Run**
 The following is a quick example to setup one coordinator, two data nodes and one GTM
 <pre><code>Init gtm, datanode, coordinator
 * initgtm -Z gtm -D gtm
