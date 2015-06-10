@@ -14,13 +14,13 @@ Please refer to the [Charter](http://postgres-x2.github.io/charter.html) for the
 
 
 #License
-Project license same as PostgreSQL, meaining [PostgreSQL license](http://www.postgresql.org/about/licence/) (like BSD).
+This project uses the same license as PostgreSQL, [PostgreSQL license](http://www.postgresql.org/about/licence/) (like BSD).
 
 #What is Postgres-X2
 * **Share nothing Cluster** :Multiple collaborating PostgreSQL-like servers, No resources shared, Scaling by adding commodity hardware
-* **Write scalable PostgreSQL cluster** : More than 3× scalability performance speedup with five servers, compared with pure PostgreSQL (DBT‐1). Result as of 1.0 release. Ways to improve more scalability are known.
+* **Write scalable PostgreSQL cluster** : More than 3× scalability performance speedup with five servers, compared with pure PostgreSQL (DBT‐1). Result as of 1.0 release. 
 * **Synchronous multi‐master configuration** : Any update to any master is visible from other masters immediately.
-* **Table location transparent** : Can continue to use the same applications.No change in transaction handling.
+* **Table location transparent** : Can continue to use the same applications. No change in transaction handling.
 * **Based upon PostgreSQL** :Same API to Apps as PostgreSQL
 
 # Status
@@ -53,7 +53,7 @@ For any project information please contact the project repensentive [Koichi Suzu
 # How to run
 * **Download**
 
-you can download the stable release  from here [Postgres-XC 1.2.1](https://github.com/postgres-x2/postgres-x2/releases/tag/XC1_2_1_PG9_3)
+you can download the stable release from here [Postgres-XC 1.2.1](https://github.com/postgres-x2/postgres-x2/releases/tag/XC1_2_1_PG9_3)
 
 or you can download the stable development version, it is here [REL1_2_STABLE](https://github.com/postgres-x2/postgres-x2/tree/REL1_2_STABLE)
 <pre><code>wget https://github.com/postgres-x2/postgres-x2/archive/REL1_2_STABLE.zip
