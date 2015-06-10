@@ -115,7 +115,9 @@ There are a lot of talks materials [here](http://sourceforge.net/projects/postgr
 # Architecture
 
 * Architecture design 
+
  The architecture design and implementation detail is in this [document] (http://postgres-x2.github.io/presentation_docs/2014-07-PGXC-Implementation/pgxc.pdf)
 
 * Internal Overview
+
  The offical document has an internal of Postgres-X2 [section] (http://postgres-x2.github.io/reference/1.2/html/xc-overview.html)
