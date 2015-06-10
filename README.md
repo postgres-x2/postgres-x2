@@ -99,7 +99,7 @@ If you are just testing Postgres-XC, you need only one server. This can even be 
 
 If you are deploying Postgres-XC for more serious use, you should consider how many servers you need to store your data. You may want to run GTM at a separate server mainly for availability purpose and you may want another server to run GTM slave for hight availability.It is highly advised to install gtm_proxy, coordinator and datanode at the rest of the servers. This simplifies the configuration and maintains worload of each servers nearly even.
 
-* **Setup & Run**
+* **Quick Start**
 
 The following is a quick example to setup one coordinator, two data nodes and one GTM
  
