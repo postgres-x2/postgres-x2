@@ -140,6 +140,13 @@ Please refer to [roadmap](https://github.com/postgres-x2/postgres-x2/wiki/Roadma
 
 Postgres-X2 online reference is [here](http://postgres-x2.github.io/reference.html)
 
+* Configuration Overview 
+
+[Pgxc_ctl primer](http://postgres-x2.github.io/presentation_docs/2014-05-07_pgxc_ctl_Primer/Pgxc_ctlprimer.pdf
+) gives overall description of postgres-x2 architecture, cluster design, configuration and operation using pgxc_ctl utility.
+
+[This is the presentation](http://postgres-x2.github.io/presentation_docs/2013-09-16_Chicago/Chicago_Presentation_20130912.pdf) slide deck of postgres-x2 configuration and operation demo at PG-Open, 2013
+
 * Talks
 
 There are a lot of talks materials [here](https://github.com/postgres-x2/postgres-x2.github.io/tree/master/presentation_docs)
