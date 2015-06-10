@@ -115,6 +115,21 @@ GetNewTransactionId(bool isSubXact)
 	/* Initialize transaction ID */
 	xid = InvalidTransactionId;
 
+REGEN_XID:
+	/*
+	 * Now we use this label as goto statement target.   It's not ideal but now we took
+	 * this approach to minizie code modification.
+	 * Code maintainer: please minimize the use of this label.
+	 */
+	increment_xid = true;
+	*timestamp_received = false;
+	/* if xid fall back, here we just commit the xid dummy and reget the xid from gtm */
+	if (TransactionIdIsValid(xid))
+	{
+		CommitTranGTM(xid);
+	}
+
+	
 	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord()) || IsPGXCNodeXactDatanodeDirect())
 	{
 		/*
@@ -147,9 +162,15 @@ GetNewTransactionId(bool isSubXact)
 			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
 			{
 				increment_xid = false;
-				ereport(DEBUG1,
-				   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d)",
-					   xid, ShmemVariableCache->nextXid)));
+				LWLockRelease(XidGenLock);
+				
+				/* It is a serious issue when xid fall back, so here we emit a WARNING */
+				ereport(LOG,
+				   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d), IS_PGXC_COORDINATOR:%d, IS_PGXC_DATANODE:%d, REMOTE_CONN_TYPE:%d, regen now",
+					   xid, ShmemVariableCache->nextXid, IS_PGXC_COORDINATOR, IS_PGXC_DATANODE, REMOTE_CONN_TYPE)));
+				/* here, we get a fallback xid, reget a new one to avoid data corruption */
+				/* To code maintainer: please minimize the use of this goto target. */
+				goto REGEN_XID;
 			}
 			else
 				ShmemVariableCache->nextXid = xid;
