@@ -54,19 +54,23 @@ or you can download the stable development version, it is here [REL1_2_STABLE](h
 
 *install depedency packages*
 <pre><code>yum -y install gcc* libtool* libxml2-devel readline-devel flex bison crypto* perl-ExtUtils-Embed zlib-devel pam-devel libxslt-devel openldap-devel python-devel openssl-devel cmake</code></pre>
+
 *Unzip*
 <pre><code>unzip REL1_2_STABLE.zip</code></pre>
+
 *Configure*
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 ./configure --prefix=/home/galy/pgxc/stable </code></pre>
 Please change the installation path to the location you want to install.
+
 *make*
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 make install</code></pre>
 
 * **Setup & Run**
-The following is a quick example to setup one coordinator, two data nodes and one GTM
 
+The following is a quick example to setup one coordinator, two data nodes and one GTM
+ 
 <pre><code>Init gtm, datanode, coordinator
   * initgtm -Z gtm -D gtm
   * initdb -D datanode1 --nodename dn1 #Initialize Datanode 1
