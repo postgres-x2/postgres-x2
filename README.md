@@ -114,7 +114,7 @@ Postgres-X2 online reference is [here](http://postgres-x2.github.io/reference.ht
 
 * Talks
 
-There are a lot of talks materials [here](http://sourceforge.net/projects/postgres-xc/files/Presentation/)
+There are a lot of talks materials [here](https://github.com/postgres-x2/postgres-x2.github.io/tree/master/presentation_docs)
 
 # Architecture
 
