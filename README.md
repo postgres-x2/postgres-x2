@@ -1,5 +1,19 @@
 # Postgres-X2
 Postgres-XC is an advanced object-relational cluster database management system that supports an extended subset of the SQL standard, including transactions, foreign keys, user-defined types and functions.  This distribution also contains C language bindings.
+
+# Project information
+Please refer to the [Charter](http://postgres-x2.github.io/charter.html) for the project information
+
+#License
+Project license same as PostgreSQL, meaining [PostgreSQL license](http://www.postgresql.org/about/licence/) (like BSD).
+
+#Features
+* **Share nothing architecture**
+* **Write scalable PostgreSQL cluster** : More than 3× scalability performance speedup with five servers, compared with pure PostgreSQL (DBT‐1). Result as of 1.0 release. Ways to improve more scalability are known.
+* **Synchronous multi‐master configuration** : Any update to any master is visible from other masters immediately.
+* **Table location transparent** : Can continue to use the same applications.No change in transaction handling.
+* **Based upon PostgreSQ** :Same API to Apps as PostgreSQL
+
 # Status
 ##Latest release
 The latest release is Postgres-XC 1.2.1 based on PostgreSQL 9.3, you can download it from here [Postgres-XC 1.2.1](https://github.com/postgres-x2/postgres-x2/releases/tag/XC1_2_1_PG9_3)
@@ -22,6 +36,9 @@ You can also create issue to report bugs, to raise discussion, to post your idea
 ## Report Bugs
 [Report Issues] (https://github.com/postgres-x2/postgres-x2/issues)
 
+# Keep in touch
+For any project information please contact the project repensentive [Koichi Suzuki](mailto:koichi.dbms@gmail.com) or [Galy Lee](mailto:galylee@gmail.com)
+
 # How to run
 ## Download
 you can download the stable release  from here [Postgres-XC 1.2.1](https://github.com/postgres-x2/postgres-x2/releases/tag/XC1_2_1_PG9_3)
@@ -41,7 +58,10 @@ Please change the installation path to the location you want to install.
 ###make
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 make install</code></pre>
-## Setup
+##Postgres-X2 Architecture
+
+## Setup & Run
+The following is a quick example to setup one coordinator, two data nodes and one GTM
 <pre><code>Init gtm, datanode, coordinator
 * initgtm -Z gtm -D gtm
 * initdb -D datanode1 --nodename dn1 #Initialize Datanode 1
@@ -69,5 +89,6 @@ launch that to set up cluster:
 Then you can connect to Coordinator 1 and test your newly-made cluster
 
 </code></pre>
+
 # Architecture
 
