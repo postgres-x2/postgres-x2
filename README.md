@@ -7,6 +7,9 @@ machines.
 # Project information
 Please refer to the [Charter](http://postgres-x2.github.io/charter.html) for the project information
 
+* About the name
+This project used Postgres-XC originally, it is renamed to Postges-X2 from 2015 after it was moved to Github. In many of the documents and code, we still use Postgres-XC.
+
 #License
 Project license same as PostgreSQL, meaining [PostgreSQL license](http://www.postgresql.org/about/licence/) (like BSD).
 
