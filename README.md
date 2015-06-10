@@ -103,6 +103,10 @@ The following is a quick example to setup one coordinator, two data nodes and on
 
 </code></pre>
 
+# Roadmap
+
+Please refer to [roadmap](https://github.com/postgres-x2/postgres-x2/wiki/Roadmap) in our wiki page.
+
 # Docs
 * online reference
 
