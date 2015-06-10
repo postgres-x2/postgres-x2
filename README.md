@@ -70,6 +70,34 @@ Please change the installation path to the location you want to install.
 <pre><code>cd /home/galy/pgxc/stable (your source code place)
 make install</code></pre>
 
+* Before you start
+
+Before you start to configure Postgres-XC cluster, you need to determine several things and make hardware/software ready.
+
+**Components**
+
+Postgres-XC database cluster consists of the following components:
+
+*gtm*
+
+gtm stands for "global transaction manager", which provides core of transaction management feature needed to run all the Postgres-XC component in a integrated way. Coordinators and datanodes connect to GTM to run transactions consisitently at different servers.
+
+*gtm_proxy*
+
+This is a proxy of a connection form coordinators/datanodes to GTM to reduce the amount of interaction and data.
+
+*coordinator*
+This is a connection point to Postgres-XC applications. A coordinator accepts SQL statements from applications, analyze and determines where the data is stored and handles SQL statements to each datanode. You can configure as many coordinators in Postgres-XC.
+
+*datanode*
+
+This node stores user data Datanode reads its local SQL statements from coordinators and handle them.
+
+**How many servers you need?**
+
+If you are just testing Postgres-XC, you need only one server. This can even be a virtual machine. You can run sufficient component on this machine but it's not a good idea to run slave of each components. If you're in this stage, please read this page carefully. Pgxc_ctl will provide configuration file template but it is not suitable for this purpose. You may have to rewrite many of the template to fit to your single-server configuration.
+If you are deploying Postgres-XC for more serious use, you should consider how many servers you need to store your data. [[Scalability|The scalability data of XC] will help to determine this. Additionally, you may want to run GTM at a separate server mainly for availability purpose and you may want another server to run GTM slave for hight availability.It is highly advised to install gtm_proxy, coordinator and datanode at the rest of the servers. This simplifies the configuration and maintains worload of each servers nearly even.
+
 * **Setup & Run**
 
 The following is a quick example to setup one coordinator, two data nodes and one GTM
