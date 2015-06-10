@@ -1,5 +1,8 @@
 # Postgres-X2
-Postgres-XC is an advanced object-relational cluster database management system that supports an extended subset of the SQL standard, including transactions, foreign keys, user-defined types and functions.  This distribution also contains C language bindings.
+Postgres-X2 is an open source project to provide horizontal scalability including write-scalability,
+synchronous multi-master, and transparent PostgreSQL interface. It is a collection of tightly
+coupled database components which can be installed in more than one hardware or virtual
+machines.
 
 # Project information
 Please refer to the [Charter](http://postgres-x2.github.io/charter.html) for the project information
@@ -7,8 +10,8 @@ Please refer to the [Charter](http://postgres-x2.github.io/charter.html) for the
 #License
 Project license same as PostgreSQL, meaining [PostgreSQL license](http://www.postgresql.org/about/licence/) (like BSD).
 
-#Features
-* **Share nothing architecture**
+#What is Postgres-X2
+* **Share nothing Cluster** :Multiple collaborating PostgreSQL-like servers, No resources shared, Scaling by adding commodity hardware
 * **Write scalable PostgreSQL cluster** : More than 3× scalability performance speedup with five servers, compared with pure PostgreSQL (DBT‐1). Result as of 1.0 release. Ways to improve more scalability are known.
 * **Synchronous multi‐master configuration** : Any update to any master is visible from other masters immediately.
 * **Table location transparent** : Can continue to use the same applications.No change in transaction handling.
@@ -100,5 +103,19 @@ The following is a quick example to setup one coordinator, two data nodes and on
 
 </code></pre>
 
+# Docs
+* online reference
+
+Postgres-X2 online reference is [here](http://postgres-x2.github.io/reference.html)
+
+* Talks
+
+There are a lot of talks materials [here](http://sourceforge.net/projects/postgres-xc/files/Presentation/)
+
 # Architecture
 
+* Architecture design 
+ The architecture design and implementation detail is in this [document] (http://postgres-x2.github.io/presentation_docs/2014-07-PGXC-Implementation/pgxc.pdf)
+
+* Internal Overview
+ The offical document has an internal of Postgres-X2 [section] (http://postgres-x2.github.io/reference/1.2/html/xc-overview.html)
