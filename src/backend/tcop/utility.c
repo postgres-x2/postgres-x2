@@ -4246,8 +4246,13 @@ GetCommandLogLevel(Node *parsetree)
 #endif
 
 		default:
+#ifdef PGXC
+            elog(INFO, "unrecognized node type: %d",
+                 (int) nodeTag(parsetree));   /*default use LOGSTMT_ALL, No warring*/
+#else
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
+#endif
 			lev = LOGSTMT_ALL;
 			break;
 	}
