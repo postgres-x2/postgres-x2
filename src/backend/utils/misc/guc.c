@@ -63,6 +63,7 @@
 #include "pgxc/planner.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/nodemgr.h"
+#include "pgxc/pgxcnode.h"
 #include "pgxc/xc_maintenance_mode.h"
 #endif
 #include "postmaster/autovacuum.h"
@@ -2540,6 +2541,16 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&MaxCoords,
 		16, 2, 65535,
+		NULL, NULL, NULL
+	},
+	{
+		{"pgxcnode_cancel_delay", PGC_USERSET, DATA_NODES,
+			gettext_noop("Cancel deay dulation at the coordinator."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&pgxcnode_cancel_delay,
+		10, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 #endif
