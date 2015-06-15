@@ -3941,18 +3941,17 @@ PostgresMain(int argc, char *argv[],
 		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
 
 		InitMultinodeExecutor(false);
-		if (!IsConnFromCoord())
+
+		pool_handle = GetPoolManagerHandle();
+		if (pool_handle == NULL)
 		{
-			pool_handle = GetPoolManagerHandle();
-			if (pool_handle == NULL)
-			{
-				ereport(ERROR,
-					(errcode(ERRCODE_IO_ERROR),
-					 errmsg("Can not connect to pool manager")));
-			}
-			/* Pooler initialization has to be made before ressource is released */
-			PoolManagerConnect(pool_handle, dbname, username, session_options());
+			ereport(ERROR,
+				(errcode(ERRCODE_IO_ERROR),
+				 errmsg("Can not connect to pool manager")));
+			return STATUS_ERROR;
 		}
+		/* Pooler initialization has to be made before ressource is released */
+		PoolManagerConnect(pool_handle, dbname, username, session_options());
 
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
