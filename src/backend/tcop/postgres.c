@@ -1066,8 +1066,16 @@ exec_simple_query(const char *query_string)
 
 #ifdef PGXC
 		/* PGXC_DATANODE */
-		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
-		if (IS_PGXC_DATANODE && IsA(parsetree, VacuumStmt) && IsPostmasterEnvironment)
+		/* Force getting Xid from GTM if not autovacuum, but a vacuum or CLUSTER */
+		/* Now in the cluster command, we take GXID using BeginTranGTM(), not
+		 * BeginTrnAutovacumGTM(), which means this GXID will appear in global
+		 * snapshots.
+		 * It may be okay because CLUSTER acquires exclusive lock on all the
+		 * resource to handle.
+		 */
+		if (IS_PGXC_DATANODE
+				&& (IsA(parsetree, VacuumStmt) || IsA(parsetree, ClusterStmt))
+				&& IsPostmasterEnvironment)
 			SetForceXidFromGTM(true);
 #endif
 
