@@ -2528,7 +2528,7 @@ SELECT count(*) FROM dupindexcols
 -- Check ordering of =ANY indexqual results (bug in 9.2.0)
 --
 vacuum tenk1;		-- ensure we get consistent plans here
-explain (costs off)
+explain (costs off, NODES OFF, NUM_NODES OFF)
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
 ORDER BY unique1;
@@ -2537,8 +2537,7 @@ ORDER BY unique1;
  Sort
    Sort Key: tenk1.unique1
    ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
-         Node/s: dn1, dn2
-(4 rows)
+(3 rows)
 
 SELECT unique1 FROM tenk1
 WHERE unique1 IN (1,42,7)
@@ -2550,7 +2549,7 @@ ORDER BY unique1;
       42
 (3 rows)
 
-explain (costs off)
+explain (costs off, NODES OFF, NUM_NODES OFF)
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;
@@ -2559,8 +2558,7 @@ ORDER BY thousand;
  Sort
    Sort Key: tenk1.thousand
    ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
-         Node/s: dn1, dn2
-(4 rows)
+(3 rows)
 
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
@@ -2570,4 +2568,14 @@ ORDER BY thousand;
         0 |     3000
         1 |     1001
 (2 rows)
+
+--
+-- Check elimination of constant-NULL subexpressions
+--
+explain (costs off, NODES OFF, NUM_NODES OFF)
+  select * from tenk1 where (thousand, tenthous) in ((1,1001), (null,null));
+                QUERY PLAN                
+------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+(1 row)
 

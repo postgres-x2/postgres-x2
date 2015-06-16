@@ -35,12 +35,10 @@
  */
 typedef struct MemoryContextData *MemoryContext;
 
-#ifndef FRONTEND
-
 /*
  * CurrentMemoryContext is the default allocation context for palloc().
- * We declare it here so that palloc() can be a macro.	Avoid accessing it
- * directly!  Instead, use MemoryContextSwitchTo() to change the setting.
+ * Avoid accessing it directly!  Instead, use MemoryContextSwitchTo()
+ * to change the setting.
  */
 extern PGDLLIMPORT MemoryContext CurrentMemoryContext;
 
@@ -50,6 +48,11 @@ extern PGDLLIMPORT MemoryContext CurrentMemoryContext;
 extern void *MemoryContextAlloc(MemoryContext context, Size size);
 extern void *MemoryContextAllocZero(MemoryContext context, Size size);
 extern void *MemoryContextAllocZeroAligned(MemoryContext context, Size size);
+
+extern void *palloc(Size size);
+extern void *palloc0(Size size);
+extern void *repalloc(void *pointer, Size size);
+extern void pfree(void *pointer);
 
 /*
  * The result of palloc() is always word-aligned, so we can skip testing
@@ -68,8 +71,14 @@ extern void *MemoryContextAllocZeroAligned(MemoryContext context, Size size);
  * MemoryContextSwitchTo can't be a macro in standard C compilers.
  * But we can make it an inline function if the compiler supports it.
  * See STATIC_IF_INLINE in c.h.
+ *
+ * Although this header file is nominally backend-only, certain frontend
+ * programs like pg_controldata include it via postgres.h.  For some compilers
+ * it's necessary to hide the inline definition of MemoryContextSwitchTo in
+ * this scenario; hence the #ifndef FRONTEND.
  */
 
+#ifndef FRONTEND
 #ifndef PG_USE_INLINE
 extern MemoryContext MemoryContextSwitchTo(MemoryContext context);
 #endif   /* !PG_USE_INLINE */
@@ -83,19 +92,15 @@ MemoryContextSwitchTo(MemoryContext context)
 	return old;
 }
 #endif   /* PG_USE_INLINE || MCXT_INCLUDE_DEFINITIONS */
+#endif   /* FRONTEND */
 
 /*
  * These are like standard strdup() except the copied string is
  * allocated in a context, not with malloc().
  */
 extern char *MemoryContextStrdup(MemoryContext context, const char *string);
-#endif   /* !FRONTEND */
 
 extern char *pstrdup(const char *in);
 extern char *pnstrdup(const char *in, Size len);
-extern void *palloc(Size size);
-extern void *palloc0(Size size);
-extern void pfree(void *pointer);
-extern void *repalloc(void *pointer, Size size);
 
 #endif   /* PALLOC_H */

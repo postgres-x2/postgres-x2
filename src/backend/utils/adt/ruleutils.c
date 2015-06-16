@@ -42,6 +42,7 @@
 #include "commands/tablespace.h"
 #include "executor/spi.h"
 #include "funcapi.h"
+#include "miscadmin.h"
 #ifdef PGXC
 #include "nodes/execnodes.h"
 #endif
@@ -79,9 +80,10 @@
 
 /* Indent counts */
 #define PRETTYINDENT_STD		8
-#define PRETTYINDENT_JOIN	   13
-#define PRETTYINDENT_JOIN_ON	(PRETTYINDENT_JOIN-PRETTYINDENT_STD)
+#define PRETTYINDENT_JOIN		4
 #define PRETTYINDENT_VAR		4
+
+#define PRETTYINDENT_LIMIT		40		/* wrap limit */
 
 /* Pretty flags */
 #define PRETTYFLAG_PAREN		1
@@ -195,11 +197,14 @@ typedef struct
  * query to ensure it can be referenced unambiguously.
  *
  * Another problem is that a JOIN USING clause requires the columns to be
- * merged to have the same aliases in both input RTEs.	To handle that, we do
- * USING-column alias assignment in a recursive traversal of the query's
- * jointree.  When descending through a JOIN with USING, we preassign the
- * USING column names to the child columns, overriding other rules for column
- * alias assignment.
+ * merged to have the same aliases in both input RTEs, and that no other
+ * columns in those RTEs or their children conflict with the USING names.
+ * To handle that, we do USING-column alias assignment in a recursive
+ * traversal of the query's jointree.  When descending through a JOIN with
+ * USING, we preassign the USING column names to the child columns, overriding
+ * other rules for column alias assignment.  We also mark each RTE with a list
+ * of all USING column names selected for joins containing that RTE, so that
+ * when we assign other columns' aliases later, we can avoid conflicts.
  *
  * Another problem is that if a JOIN's input tables have had columns added or
  * deleted since the query was parsed, we must generate a column alias list
@@ -249,6 +254,9 @@ typedef struct
 
 	/* This flag tells whether we should actually print a column alias list */
 	bool		printaliases;
+
+	/* This list has all names used as USING names in joins above this RTE */
+	List	   *parentUsing;	/* names assigned to parent merged columns */
 
 	/*
 	 * If this struct is for a JOIN RTE, we fill these fields during the
@@ -327,7 +335,8 @@ static void set_deparse_for_query(deparse_namespace *dpns, Query *query,
 					  List *parent_namespaces);
 static void set_simple_column_names(deparse_namespace *dpns);
 static bool has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode);
-static void set_using_names(deparse_namespace *dpns, Node *jtnode);
+static void set_using_names(deparse_namespace *dpns, Node *jtnode,
+				List *parentUsing);
 static void set_relation_column_names(deparse_namespace *dpns,
 						  RangeTblEntry *rte,
 						  deparse_columns *colinfo);
@@ -2770,7 +2779,7 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 		 * Select names for columns merged by USING, via a recursive pass over
 		 * the query jointree.
 		 */
-		set_using_names(dpns, (Node *) query->jointree);
+		set_using_names(dpns, (Node *) query->jointree, NIL);
 	}
 
 	/*
@@ -2904,9 +2913,12 @@ has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode)
  *
  * Column alias info is saved in the dpns->rtable_columns list, which is
  * assumed to be filled with pre-zeroed deparse_columns structs.
+ *
+ * parentUsing is a list of all USING aliases assigned in parent joins of
+ * the current jointree node.  (The passed-in list must not be modified.)
  */
 static void
-set_using_names(deparse_namespace *dpns, Node *jtnode)
+set_using_names(deparse_namespace *dpns, Node *jtnode, List *parentUsing)
 {
 	if (IsA(jtnode, RangeTblRef))
 	{
@@ -2918,7 +2930,7 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 		ListCell   *lc;
 
 		foreach(lc, f->fromlist)
-			set_using_names(dpns, (Node *) lfirst(lc));
+			set_using_names(dpns, (Node *) lfirst(lc), parentUsing);
 	}
 	else if (IsA(jtnode, JoinExpr))
 	{
@@ -2998,6 +3010,9 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 		 */
 		if (j->usingClause)
 		{
+			/* Copy the input parentUsing list so we don't modify it */
+			parentUsing = list_copy(parentUsing);
+
 			/* USING names must correspond to the first join output columns */
 			expand_colnames_array_to(colinfo, list_length(j->usingClause));
 			i = 0;
@@ -3027,6 +3042,7 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 
 				/* Remember selected names for use later */
 				colinfo->usingNames = lappend(colinfo->usingNames, colname);
+				parentUsing = lappend(parentUsing, colname);
 
 				/* Push down to left column, unless it's a system column */
 				if (leftattnos[i] > 0)
@@ -3046,9 +3062,13 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 			}
 		}
 
+		/* Mark child deparse_columns structs with correct parentUsing info */
+		leftcolinfo->parentUsing = parentUsing;
+		rightcolinfo->parentUsing = parentUsing;
+
 		/* Now recursively assign USING column names in children */
-		set_using_names(dpns, j->larg);
-		set_using_names(dpns, j->rarg);
+		set_using_names(dpns, j->larg, parentUsing);
+		set_using_names(dpns, j->rarg, parentUsing);
 	}
 	else
 		elog(ERROR, "unrecognized node type: %d",
@@ -3508,6 +3528,15 @@ colname_is_unique(char *colname, deparse_namespace *dpns,
 
 	/* Also check against USING-column names that must be globally unique */
 	foreach(lc, dpns->using_names)
+	{
+		char	   *oldname = (char *) lfirst(lc);
+
+		if (strcmp(oldname, colname) == 0)
+			return false;
+	}
+
+	/* Also check against names already assigned for parent-join USING cols */
+	foreach(lc, colinfo->parentUsing)
 	{
 		char	   *oldname = (char *) lfirst(lc);
 
@@ -4370,6 +4399,10 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	deparse_context context;
 	deparse_namespace dpns;
 
+	/* Guard against excessively long or deeply-nested queries */
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
+
 	/*
 	 * Before we begin to examine the query, acquire locks on referenced
 	 * relations, and fix up deleted columns in JOIN RTEs.	This ensures
@@ -4953,6 +4986,10 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 	StringInfo	buf = context->buf;
 	bool		need_paren;
 
+	/* Guard against excessively long or deeply-nested queries */
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
+
 	if (IsA(setOp, RangeTblRef))
 	{
 		RangeTblRef *rtr = (RangeTblRef *) setOp;
@@ -4982,42 +5019,59 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 	else if (IsA(setOp, SetOperationStmt))
 	{
 		SetOperationStmt *op = (SetOperationStmt *) setOp;
-
-		if (PRETTY_INDENT(context))
-		{
-			context->indentLevel += PRETTYINDENT_STD;
-			appendStringInfoSpaces(buf, PRETTYINDENT_STD);
-		}
+		int			subindent;
 
 		/*
-		 * We force parens whenever nesting two SetOperationStmts. There are
-		 * some cases in which parens are needed around a leaf query too, but
-		 * those are more easily handled at the next level down (see code
-		 * above).
+		 * We force parens when nesting two SetOperationStmts, except when the
+		 * lefthand input is another setop of the same kind.  Syntactically,
+		 * we could omit parens in rather more cases, but it seems best to use
+		 * parens to flag cases where the setop operator changes.  If we use
+		 * parens, we also increase the indentation level for the child query.
+		 *
+		 * There are some cases in which parens are needed around a leaf query
+		 * too, but those are more easily handled at the next level down (see
+		 * code above).
 		 */
-		need_paren = !IsA(op->larg, RangeTblRef);
+		if (IsA(op->larg, SetOperationStmt))
+		{
+			SetOperationStmt *lop = (SetOperationStmt *) op->larg;
+
+			if (op->op == lop->op && op->all == lop->all)
+				need_paren = false;
+			else
+				need_paren = true;
+		}
+		else
+			need_paren = false;
 
 		if (need_paren)
+		{
 			appendStringInfoChar(buf, '(');
-		get_setop_query(op->larg, query, context, resultDesc);
-		if (need_paren)
-			appendStringInfoChar(buf, ')');
+			subindent = PRETTYINDENT_STD;
+			appendContextKeyword(context, "", subindent, 0, 0);
+		}
+		else
+			subindent = 0;
 
-		if (!PRETTY_INDENT(context))
+		get_setop_query(op->larg, query, context, resultDesc);
+
+		if (need_paren)
+			appendContextKeyword(context, ") ", -subindent, 0, 0);
+		else if (PRETTY_INDENT(context))
+			appendContextKeyword(context, "", -subindent, 0, 0);
+		else
 			appendStringInfoChar(buf, ' ');
+
 		switch (op->op)
 		{
 			case SETOP_UNION:
-				appendContextKeyword(context, "UNION ",
-									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+				appendStringInfoString(buf, "UNION ");
 				break;
 			case SETOP_INTERSECT:
-				appendContextKeyword(context, "INTERSECT ",
-									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+				appendStringInfoString(buf, "INTERSECT ");
 				break;
 			case SETOP_EXCEPT:
-				appendContextKeyword(context, "EXCEPT ",
-									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+				appendStringInfoString(buf, "EXCEPT ");
 				break;
 			default:
 				elog(ERROR, "unrecognized set op: %d",
@@ -5026,19 +5080,29 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 		if (op->all)
 			appendStringInfo(buf, "ALL ");
 
-		if (PRETTY_INDENT(context))
-			appendContextKeyword(context, "", 0, 0, 0);
+		/* Always parenthesize if RHS is another setop */
+		need_paren = IsA(op->rarg, SetOperationStmt);
 
-		need_paren = !IsA(op->rarg, RangeTblRef);
-
+		/*
+		 * The indentation code here is deliberately a bit different from that
+		 * for the lefthand input, because we want the line breaks in
+		 * different places.
+		 */
 		if (need_paren)
+		{
 			appendStringInfoChar(buf, '(');
+			subindent = PRETTYINDENT_STD;
+		}
+		else
+			subindent = 0;
+		appendContextKeyword(context, "", subindent, 0, 0);
+
 		get_setop_query(op->rarg, query, context, resultDesc);
-		if (need_paren)
-			appendStringInfoChar(buf, ')');
 
 		if (PRETTY_INDENT(context))
-			context->indentLevel -= PRETTYINDENT_STD;
+			context->indentLevel -= subindent;
+		if (need_paren)
+			appendContextKeyword(context, ")", 0, 0, 0);
 	}
 	else
 	{
@@ -6917,14 +6981,36 @@ appendContextKeyword(deparse_context *context, const char *str,
 
 	if (PRETTY_INDENT(context))
 	{
+		int			indentAmount;
+
 		context->indentLevel += indentBefore;
 
 		/* remove any trailing spaces currently in the buffer ... */
 		removeStringInfoSpaces(buf);
 		/* ... then add a newline and some spaces */
 		appendStringInfoChar(buf, '\n');
-		appendStringInfoSpaces(buf,
-							   Max(context->indentLevel, 0) + indentPlus);
+
+		if (context->indentLevel < PRETTYINDENT_LIMIT)
+			indentAmount = Max(context->indentLevel, 0) + indentPlus;
+		else
+		{
+			/*
+			 * If we're indented more than PRETTYINDENT_LIMIT characters, try
+			 * to conserve horizontal space by reducing the per-level
+			 * indentation.  For best results the scale factor here should
+			 * divide all the indent amounts that get added to indentLevel
+			 * (PRETTYINDENT_STD, etc).  It's important that the indentation
+			 * not grow unboundedly, else deeply-nested trees use O(N^2)
+			 * whitespace; so we also wrap modulo PRETTYINDENT_LIMIT.
+			 */
+			indentAmount = PRETTYINDENT_LIMIT +
+				(context->indentLevel - PRETTYINDENT_LIMIT) /
+				(PRETTYINDENT_STD / 2);
+			indentAmount %= PRETTYINDENT_LIMIT;
+			/* scale/wrap logic affects indentLevel, but not indentPlus */
+			indentAmount += indentPlus;
+		}
+		appendStringInfoSpaces(buf, indentAmount);
 
 		appendStringInfoString(buf, str);
 
@@ -7000,6 +7086,10 @@ get_rule_expr(Node *node, deparse_context *context,
 
 	if (node == NULL)
 		return;
+
+	/* Guard against excessively long or deeply-nested queries */
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
 
 	/*
 	 * Each level of get_rule_expr must emit an indivisible term
@@ -8839,27 +8929,32 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			case JOIN_INNER:
 				if (j->quals)
 					appendContextKeyword(context, " JOIN ",
-										 -PRETTYINDENT_JOIN,
-										 PRETTYINDENT_JOIN, 2);
+										 -PRETTYINDENT_STD,
+										 PRETTYINDENT_STD,
+										 PRETTYINDENT_JOIN);
 				else
 					appendContextKeyword(context, " CROSS JOIN ",
-										 -PRETTYINDENT_JOIN,
-										 PRETTYINDENT_JOIN, 1);
+										 -PRETTYINDENT_STD,
+										 PRETTYINDENT_STD,
+										 PRETTYINDENT_JOIN);
 				break;
 			case JOIN_LEFT:
 				appendContextKeyword(context, " LEFT JOIN ",
-									 -PRETTYINDENT_JOIN,
-									 PRETTYINDENT_JOIN, 2);
+									 -PRETTYINDENT_STD,
+									 PRETTYINDENT_STD,
+									 PRETTYINDENT_JOIN);
 				break;
 			case JOIN_FULL:
 				appendContextKeyword(context, " FULL JOIN ",
-									 -PRETTYINDENT_JOIN,
-									 PRETTYINDENT_JOIN, 2);
+									 -PRETTYINDENT_STD,
+									 PRETTYINDENT_STD,
+									 PRETTYINDENT_JOIN);
 				break;
 			case JOIN_RIGHT:
 				appendContextKeyword(context, " RIGHT JOIN ",
-									 -PRETTYINDENT_JOIN,
-									 PRETTYINDENT_JOIN, 2);
+									 -PRETTYINDENT_STD,
+									 PRETTYINDENT_STD,
+									 PRETTYINDENT_JOIN);
 				break;
 			default:
 				elog(ERROR, "unrecognized join type: %d",
@@ -8871,8 +8966,6 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 		get_from_clause_item(j->rarg, query, context);
 		if (need_paren_on_right)
 			appendStringInfoChar(buf, ')');
-
-		context->indentLevel -= PRETTYINDENT_JOIN_ON;
 
 		if (j->usingClause)
 		{
@@ -9321,7 +9414,7 @@ generate_relation_name(Oid relid, List *namespaces)
  *
  * If we're dealing with a potentially variadic function (in practice, this
  * means a FuncExpr and not some other way of calling the function), then
- * was_variadic must specify whether VARIADIC appeared in the original call,
+ * was_variadic should specify whether variadic arguments have been merged,
  * and *use_variadic_p will be set to indicate whether to print VARIADIC in
  * the output.	For non-FuncExpr cases, was_variadic should be FALSE and
  * use_variadic_p can be NULL.
@@ -9356,14 +9449,16 @@ generate_function_name(Oid funcid, int nargs, List *argnames, Oid *argtypes,
 	 * since it affects the lookup rules in func_get_detail().
 	 *
 	 * Currently, we always print VARIADIC if the function is variadic and
-	 * takes a variadic type other than ANY.  (In principle, if VARIADIC
-	 * wasn't originally specified and the array actual argument is
-	 * deconstructable, we could print the array elements separately and not
-	 * print VARIADIC, thus more nearly reproducing the original input.  For
-	 * the moment that seems like too much complication for the benefit.)
-	 * However, if the function takes VARIADIC ANY, then the parser didn't
-	 * fold the arguments together into an array, so we must print VARIADIC if
-	 * and only if it was used originally.
+	 * takes a variadic type other than ANY.  However, if the function takes
+	 * VARIADIC ANY, then the parser didn't fold the arguments together into
+	 * an array, so we must print VARIADIC if and only if it was used
+	 * originally.
+	 *
+	 * Note: with the current definition of funcvariadic, we could just set
+	 * use_variadic = was_variadic, which indeed is the solution adopted in
+	 * 9.4.  However, in rules/views stored before 9.3.5, funcvariadic will
+	 * reflect the previous definition (was VARIADIC written in the call?).
+	 * So in 9.3 we cannot trust it unless the function is VARIADIC ANY.
 	 */
 	if (use_variadic_p)
 	{

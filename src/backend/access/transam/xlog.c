@@ -743,9 +743,8 @@ XLogInsert(RmgrId rmid, uint8 info, XLogRecData *rdata)
 
 	if (rechdr == NULL)
 	{
-		rechdr = malloc(SizeOfXLogRecord);
-		if (rechdr == NULL)
-			elog(ERROR, "out of memory");
+		static char rechdrbuf[SizeOfXLogRecord + MAXIMUM_ALIGNOF];
+		rechdr = (XLogRecord *) MAXALIGN(&rechdrbuf);
 		MemSet(rechdr, 0, SizeOfXLogRecord);
 	}
 
@@ -2252,6 +2251,7 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 {
 	char		path[MAXPGPATH];
 	char		tmppath[MAXPGPATH];
+	char		zbuffer_raw[XLOG_BLCKSZ + MAXIMUM_ALIGNOF];
 	char	   *zbuffer;
 	XLogSegNo	installed_segno;
 	int			max_advance;
@@ -2290,16 +2290,6 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 
 	unlink(tmppath);
 
-	/*
-	 * Allocate a buffer full of zeros. This is done before opening the file
-	 * so that we don't leak the file descriptor if palloc fails.
-	 *
-	 * Note: palloc zbuffer, instead of just using a local char array, to
-	 * ensure it is reasonably well-aligned; this may save a few cycles
-	 * transferring data to the kernel.
-	 */
-	zbuffer = (char *) palloc0(XLOG_BLCKSZ);
-
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY,
 					   S_IRUSR | S_IWUSR);
@@ -2316,7 +2306,12 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 	 * fsync below) that all the indirect blocks are down on disk.	Therefore,
 	 * fdatasync(2) or O_DSYNC will be sufficient to sync future writes to the
 	 * log file.
+	 *
+	 * Note: ensure the buffer is reasonably well-aligned; this may save a few
+	 * cycles transferring data to the kernel.
 	 */
+	zbuffer = (char *) MAXALIGN(zbuffer_raw);
+	memset(zbuffer, 0, XLOG_BLCKSZ);
 	for (nbytes = 0; nbytes < XLogSegSize; nbytes += XLOG_BLCKSZ)
 	{
 		errno = 0;
@@ -2339,7 +2334,6 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 					 errmsg("could not write to file \"%s\": %m", tmppath)));
 		}
 	}
-	pfree(zbuffer);
 
 	if (pg_fsync(fd) != 0)
 	{
@@ -7896,6 +7890,7 @@ XLogReportParameters(void)
 		{
 			XLogRecData rdata;
 			xl_parameter_change xlrec;
+			XLogRecPtr	recptr;
 
 			xlrec.MaxConnections = MaxConnections;
 			xlrec.max_prepared_xacts = max_prepared_xacts;
@@ -7907,7 +7902,8 @@ XLogReportParameters(void)
 			rdata.len = sizeof(xlrec);
 			rdata.next = NULL;
 
-			XLogInsert(RM_XLOG_ID, XLOG_PARAMETER_CHANGE, &rdata);
+			recptr = XLogInsert(RM_XLOG_ID, XLOG_PARAMETER_CHANGE, &rdata);
+			XLogFlush(recptr);
 		}
 
 		ControlFile->MaxConnections = MaxConnections;

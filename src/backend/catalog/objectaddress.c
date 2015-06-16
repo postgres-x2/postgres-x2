@@ -3069,6 +3069,7 @@ getObjectIdentity(const ObjectAddress *object)
 			{
 				HeapTuple	tup;
 				Form_pg_ts_parser formParser;
+				char	   *schema;
 
 				tup = SearchSysCache1(TSPARSEROID,
 									  ObjectIdGetDatum(object->objectId));
@@ -3076,8 +3077,10 @@ getObjectIdentity(const ObjectAddress *object)
 					elog(ERROR, "cache lookup failed for text search parser %u",
 						 object->objectId);
 				formParser = (Form_pg_ts_parser) GETSTRUCT(tup);
-				appendStringInfo(&buffer, "%s",
-							 quote_identifier(NameStr(formParser->prsname)));
+				schema = get_namespace_name(formParser->prsnamespace);
+				appendStringInfoString(&buffer,
+									   quote_qualified_identifier(schema,
+											  NameStr(formParser->prsname)));
 				ReleaseSysCache(tup);
 				break;
 			}
@@ -3086,6 +3089,7 @@ getObjectIdentity(const ObjectAddress *object)
 			{
 				HeapTuple	tup;
 				Form_pg_ts_dict formDict;
+				char	   *schema;
 
 				tup = SearchSysCache1(TSDICTOID,
 									  ObjectIdGetDatum(object->objectId));
@@ -3093,8 +3097,10 @@ getObjectIdentity(const ObjectAddress *object)
 					elog(ERROR, "cache lookup failed for text search dictionary %u",
 						 object->objectId);
 				formDict = (Form_pg_ts_dict) GETSTRUCT(tup);
-				appendStringInfo(&buffer, "%s",
-							  quote_identifier(NameStr(formDict->dictname)));
+				schema = get_namespace_name(formDict->dictnamespace);
+				appendStringInfoString(&buffer,
+									   quote_qualified_identifier(schema,
+											   NameStr(formDict->dictname)));
 				ReleaseSysCache(tup);
 				break;
 			}
@@ -3103,6 +3109,7 @@ getObjectIdentity(const ObjectAddress *object)
 			{
 				HeapTuple	tup;
 				Form_pg_ts_template formTmpl;
+				char	   *schema;
 
 				tup = SearchSysCache1(TSTEMPLATEOID,
 									  ObjectIdGetDatum(object->objectId));
@@ -3110,8 +3117,11 @@ getObjectIdentity(const ObjectAddress *object)
 					elog(ERROR, "cache lookup failed for text search template %u",
 						 object->objectId);
 				formTmpl = (Form_pg_ts_template) GETSTRUCT(tup);
-				appendStringInfo(&buffer, "%s",
-							  quote_identifier(NameStr(formTmpl->tmplname)));
+				schema = get_namespace_name(formTmpl->tmplnamespace);
+				appendStringInfoString(&buffer,
+									   quote_qualified_identifier(schema,
+											   NameStr(formTmpl->tmplname)));
+				pfree(schema);
 				ReleaseSysCache(tup);
 				break;
 			}
@@ -3120,6 +3130,7 @@ getObjectIdentity(const ObjectAddress *object)
 			{
 				HeapTuple	tup;
 				Form_pg_ts_config formCfg;
+				char	   *schema;
 
 				tup = SearchSysCache1(TSCONFIGOID,
 									  ObjectIdGetDatum(object->objectId));
@@ -3127,8 +3138,10 @@ getObjectIdentity(const ObjectAddress *object)
 					elog(ERROR, "cache lookup failed for text search configuration %u",
 						 object->objectId);
 				formCfg = (Form_pg_ts_config) GETSTRUCT(tup);
-				appendStringInfo(&buffer, "%s",
-								 quote_identifier(NameStr(formCfg->cfgname)));
+				schema = get_namespace_name(formCfg->cfgnamespace);
+				appendStringInfoString(&buffer,
+									   quote_qualified_identifier(schema,
+												 NameStr(formCfg->cfgname)));
 				ReleaseSysCache(tup);
 				break;
 			}

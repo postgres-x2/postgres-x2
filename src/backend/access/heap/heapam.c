@@ -187,9 +187,6 @@ static const int MultiXactStatusLock[MaxMultiXactStatus + 1] =
 /* Get the LockTupleMode for a given MultiXactStatus */
 #define TUPLOCK_from_mxstatus(status) \
 			(MultiXactStatusLock[(status)])
-/* Get the is_update bit for a given MultiXactStatus */
-#define ISUPDATE_from_mxstatus(status) \
-			((status) > MultiXactStatusForUpdate)
 
 /* ----------------------------------------------------------------
  *						 heap support routines
@@ -2518,6 +2515,27 @@ compute_infobits(uint16 infomask, uint16 infomask2)
 }
 
 /*
+ * Given two versions of the same t_infomask for a tuple, compare them and
+ * return whether the relevant status for a tuple Xmax has changed.  This is
+ * used after a buffer lock has been released and reacquired: we want to ensure
+ * that the tuple state continues to be the same it was when we previously
+ * examined it.
+ *
+ * Note the Xmax field itself must be compared separately.
+ */
+static inline bool
+xmax_infomask_changed(uint16 new_infomask, uint16 old_infomask)
+{
+	const uint16	interesting =
+		HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_LOCK_MASK;
+
+	if ((new_infomask & interesting) != (old_infomask & interesting))
+		return true;
+
+	return false;
+}
+
+/*
  *	heap_delete - delete a tuple
  *
  * NB: do not call this directly unless you are prepared to deal with
@@ -2650,7 +2668,7 @@ l1:
 			 * update this tuple before we get to this point.  Check for xmax
 			 * change, and start over if so.
 			 */
-			if (!(tp.t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+			if (xmax_infomask_changed(tp.t_data->t_infomask, infomask) ||
 				!TransactionIdEquals(HeapTupleHeaderGetRawXmax(tp.t_data),
 									 xwait))
 				goto l1;
@@ -2676,7 +2694,7 @@ l1:
 			 * other xact could update this tuple before we get to this point.
 			 * Check for xmax change, and start over if so.
 			 */
-			if ((tp.t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+			if (xmax_infomask_changed(tp.t_data->t_infomask, infomask) ||
 				!TransactionIdEquals(HeapTupleHeaderGetRawXmax(tp.t_data),
 									 xwait))
 				goto l1;
@@ -2733,6 +2751,21 @@ l1:
 	/* replace cid with a combo cid if necessary */
 	HeapTupleHeaderAdjustCmax(tp.t_data, &cid, &iscombo);
 
+	/*
+	 * If this is the first possibly-multixact-able operation in the current
+	 * transaction, set my per-backend OldestMemberMXactId setting. We can be
+	 * certain that the transaction will never become a member of any older
+	 * MultiXactIds than that.	(We have to do this even if we end up just
+	 * using our own TransactionId below, since some other backend could
+	 * incorporate our XID into a MultiXact immediately afterwards.)
+	 */
+	MultiXactIdSetOldestMember();
+
+	compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(tp.t_data),
+							  tp.t_data->t_infomask, tp.t_data->t_infomask2,
+							  xid, LockTupleExclusive, true,
+							  &new_xmax, &new_infomask, &new_infomask2);
+
 	START_CRIT_SECTION();
 
 	/*
@@ -2751,21 +2784,6 @@ l1:
 		visibilitymap_clear(relation, BufferGetBlockNumber(buffer),
 							vmbuffer);
 	}
-
-	/*
-	 * If this is the first possibly-multixact-able operation in the current
-	 * transaction, set my per-backend OldestMemberMXactId setting. We can be
-	 * certain that the transaction will never become a member of any older
-	 * MultiXactIds than that.	(We have to do this even if we end up just
-	 * using our own TransactionId below, since some other backend could
-	 * incorporate our XID into a MultiXact immediately afterwards.)
-	 */
-	MultiXactIdSetOldestMember();
-
-	compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(tp.t_data),
-							  tp.t_data->t_infomask, tp.t_data->t_infomask2,
-							  xid, LockTupleExclusive, true,
-							  &new_xmax, &new_infomask, &new_infomask2);
 
 	/* store transaction information of xact deleting the tuple */
 	tp.t_data->t_infomask &= ~(HEAP_XMAX_BITS | HEAP_MOVED);
@@ -3152,7 +3170,7 @@ l2:
 			 * update this tuple before we get to this point.  Check for xmax
 			 * change, and start over if so.
 			 */
-			if (!(oldtup.t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+			if (xmax_infomask_changed(oldtup.t_data->t_infomask, infomask) ||
 				!TransactionIdEquals(HeapTupleHeaderGetRawXmax(oldtup.t_data),
 									 xwait))
 				goto l2;
@@ -3206,7 +3224,7 @@ l2:
 				 * recheck the locker; if someone else changed the tuple while
 				 * we weren't looking, start over.
 				 */
-				if ((oldtup.t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+				if (xmax_infomask_changed(oldtup.t_data->t_infomask, infomask) ||
 					!TransactionIdEquals(
 									HeapTupleHeaderGetRawXmax(oldtup.t_data),
 										 xwait))
@@ -3226,7 +3244,7 @@ l2:
 				 * some other xact could update this tuple before we get to
 				 * this point. Check for xmax change, and start over if so.
 				 */
-				if ((oldtup.t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+				if (xmax_infomask_changed(oldtup.t_data->t_infomask, infomask) ||
 					!TransactionIdEquals(
 									HeapTupleHeaderGetRawXmax(oldtup.t_data),
 										 xwait))
@@ -4199,7 +4217,7 @@ l3:
 						 * over.
 						 */
 						LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-						if (!(tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+						if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 							!TransactionIdEquals(HeapTupleHeaderGetRawXmax(tuple->t_data),
 												 xwait))
 						{
@@ -4218,7 +4236,7 @@ l3:
 				LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
 
 				/* if the xmax changed in the meantime, start over */
-				if ((tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+				if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 					!TransactionIdEquals(
 									HeapTupleHeaderGetRawXmax(tuple->t_data),
 										 xwait))
@@ -4282,7 +4300,7 @@ l3:
 				 * could update this tuple before we get to this point. Check
 				 * for xmax change, and start over if so.
 				 */
-				if (!(tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+				if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 					!TransactionIdEquals(
 									HeapTupleHeaderGetRawXmax(tuple->t_data),
 										 xwait))
@@ -4337,7 +4355,7 @@ l3:
 				 * some other xact could update this tuple before we get to
 				 * this point.	Check for xmax change, and start over if so.
 				 */
-				if ((tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ||
+				if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 					!TransactionIdEquals(
 									HeapTupleHeaderGetRawXmax(tuple->t_data),
 										 xwait))
@@ -6566,8 +6584,8 @@ log_newpage(RelFileNode *rnode, ForkNumber forkNum, BlockNumber blkno,
 	recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_NEWPAGE, rdata);
 
 	/*
-	 * The page may be uninitialized. If so, we can't set the LSN and TLI
-	 * because that would corrupt the page.
+	 * The page may be uninitialized. If so, we can't set the LSN because
+	 * that would corrupt the page.
 	 */
 	if (!PageIsNew(page))
 	{
