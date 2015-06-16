@@ -86,7 +86,7 @@ static char *shellprog = SHELLPROG;
 
 /*
  * On Windows we use -w in diff switches to avoid problems with inconsistent
- * newline representation.	The actual result files will generally have
+ * newline representation.  The actual result files will generally have
  * Windows-style newlines, but the comparison files might or might not.
  */
 #ifndef WIN32
@@ -1266,7 +1266,7 @@ convert_sourcefiles(void)
  * namely, it is a standard regular expression with an implicit ^ at the start.
  * (We currently support only a very limited subset of regular expressions,
  * see string_matches_pattern() above.)  What hostplatformpattern will be
- * matched against is the config.guess output.	(In the shell-script version,
+ * matched against is the config.guess output.  (In the shell-script version,
  * we also provided an indication of whether gcc or another compiler was in
  * use, but that facility isn't used anymore.)
  */
@@ -1516,7 +1516,7 @@ initialize_environment(void)
 
 		/*
 		 * GNU make stores some flags in the MAKEFLAGS environment variable to
-		 * pass arguments to its own children.	If we are invoked by make,
+		 * pass arguments to its own children.  If we are invoked by make,
 		 * that causes the make invoked by us to think its part of the make
 		 * task invoking us, and so it tries to communicate with the toplevel
 		 * make.  Which fails.
@@ -1549,7 +1549,7 @@ initialize_environment(void)
 		 * Set up shared library paths to include the temp install.
 		 *
 		 * LD_LIBRARY_PATH covers many platforms.  DYLD_LIBRARY_PATH works on
-		 * Darwin, and maybe other Mach-based systems.	LIBPATH is for AIX.
+		 * Darwin, and maybe other Mach-based systems.  LIBPATH is for AIX.
 		 * Windows needs shared libraries in PATH (only those linked into
 		 * executables, not dlopen'ed ones). Feel free to account for others
 		 * as well.
@@ -1669,7 +1669,7 @@ spawn_process(const char *cmdline)
 	pid_t		pid;
 
 	/*
-	 * Must flush I/O buffers before fork.	Ideally we'd use fflush(NULL) here
+	 * Must flush I/O buffers before fork.  Ideally we'd use fflush(NULL) here
 	 * ... does anyone still care about systems where that doesn't work?
 	 */
 	fflush(stdout);
@@ -1690,7 +1690,7 @@ spawn_process(const char *cmdline)
 		 * In child
 		 *
 		 * Instead of using system(), exec the shell directly, and tell it to
-		 * "exec" the command too.	This saves two useless processes per
+		 * "exec" the command too.  This saves two useless processes per
 		 * parallel test case.
 		 */
 		char	   *cmdline2 = malloc(strlen(cmdline) + 6);
@@ -2535,7 +2535,7 @@ create_database(const char *dbname)
 				 dbname, dbname, dbname, dbname, dbname);
 
 	/*
-	 * Install any requested procedural languages.	We use CREATE OR REPLACE
+	 * Install any requested procedural languages.  We use CREATE OR REPLACE
 	 * so that this will work whether or not the language is preinstalled.
 	 */
 	for (sl = loadlanguage; sl != NULL; sl = sl->next)

@@ -450,7 +450,7 @@ strtoint64(const char *str)
 		ptr++;
 
 		/*
-		 * Do an explicit check for INT64_MIN.	Ugly though this is, it's
+		 * Do an explicit check for INT64_MIN.  Ugly though this is, it's
 		 * cleaner than trying to get the loop below to handle it portably.
 		 */
 		if (strncmp(ptr, "9223372036854775808", 19) == 0)
@@ -1490,8 +1490,9 @@ disconnect_all(CState *state, int length)
 static void
 init(bool is_no_vacuum)
 {
-/* The scale factor at/beyond which 32bit integers are incapable of storing
- * 64bit values.
+/*
+ * The scale factor at/beyond which 32-bit integers are insufficient for
+ * storing TPC-B account IDs.
  *
  * Although the actual threshold is 21474, we use 20000 because it is easier to
  * document and remember, and isn't that far away from the real threshold.
@@ -1509,24 +1510,27 @@ init(bool is_no_vacuum)
 	 */
 	struct ddlinfo
 	{
-		char	   *table;
-		char	   *cols;
+		const char *table;		/* table name */
+		const char *smcols;		/* column decls if accountIDs are 32 bits */
+		const char *bigcols;	/* column decls if accountIDs are 64 bits */
 		int			declare_fillfactor;
 #ifdef PGXC
 		char	   *distribute_by;
 #endif
 	};
-    struct ddlinfo DDLs[] = {
+	static const struct ddlinfo DDLs[] = {
 		{
-			"pgbench_branches",
-			"bid int not null,bbalance int,filler char(88)",
-			1
+			"pgbench_history",
+			"tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
+			"tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
+			0
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
 		},
 		{
 			"pgbench_tellers",
+			"tid int not null,bid int,tbalance int,filler char(84)",
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
 #ifdef PGXC
@@ -1535,28 +1539,29 @@ init(bool is_no_vacuum)
 		},
 		{
 			"pgbench_accounts",
-			"aid int not null,bid int,abalance int,filler char(84)",
+			"aid    int not null,bid int,abalance int,filler char(84)",
+			"aid bigint not null,bid int,abalance int,filler char(84)",
 			1
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
 		},
 		{
-			"pgbench_history",
-			"tid int,bid int,aid int,delta int,mtime timestamp,filler char(22)",
-			0
+			"pgbench_branches",
+			"bid int not null,bbalance int,filler char(88)",
+			"bid int not null,bbalance int,filler char(88)",
+			1
 #ifdef PGXC
 			, "distribute by hash (bid)"
 #endif
 		}
 	};
-
-	static char *DDLAFTERs[] = {
+	static const char *const DDLINDEXes[] = {
 		"alter table pgbench_branches add primary key (bid)",
 		"alter table pgbench_tellers add primary key (tid)",
 		"alter table pgbench_accounts add primary key (aid)"
 	};
-	static char *DDLKEYs[] = {
+	static const char *const DDLKEYs[] = {
 		"alter table pgbench_tellers add foreign key (bid) references pgbench_branches",
 		"alter table pgbench_accounts add foreign key (bid) references pgbench_branches",
 		"alter table pgbench_history add foreign key (bid) references pgbench_branches",
@@ -1592,16 +1597,17 @@ init(bool is_no_vacuum)
 	{
 		char		opts[256];
 		char		buffer[256];
-		struct ddlinfo *ddl = &DDLs[i];
+		const struct ddlinfo *ddl = &DDLs[i];
+		const char *cols;
 
 		/* Remove old table, if it exists. */
-		snprintf(buffer, 256, "drop table if exists %s", ddl->table);
+		snprintf(buffer, sizeof(buffer), "drop table if exists %s", ddl->table);
 		executeStatement(con, buffer);
 
 		/* Construct new create table statement. */
 		opts[0] = '\0';
 		if (ddl->declare_fillfactor)
-			snprintf(opts + strlen(opts), 256 - strlen(opts),
+			snprintf(opts + strlen(opts), sizeof(opts) - strlen(opts),
 					 " with (fillfactor=%d)", fillfactor);
 		if (tablespace != NULL)
 		{
@@ -1609,10 +1615,13 @@ init(bool is_no_vacuum)
 
 			escape_tablespace = PQescapeIdentifier(con, tablespace,
 												   strlen(tablespace));
-			snprintf(opts + strlen(opts), 256 - strlen(opts),
+			snprintf(opts + strlen(opts), sizeof(opts) - strlen(opts),
 					 " tablespace %s", escape_tablespace);
 			PQfreemem(escape_tablespace);
 		}
+
+		cols = (scale >= SCALE_32BIT_THRESHOLD) ? ddl->bigcols : ddl->smcols;
+
 #ifdef PGXC
 		/* Add distribution columns if necessary */
 		if (use_branch)
@@ -1621,9 +1630,9 @@ init(bool is_no_vacuum)
 					 ddl->table, ddl->cols, opts, ddl->distribute_by);
 		else
 #endif
-		snprintf(buffer, 256, "create%s table %s(%s)%s",
+		snprintf(buffer, sizeof(buffer), "create%s table %s(%s)%s",
 				 unlogged_tables ? " unlogged" : "",
-				 ddl->table, ddl->cols, opts);
+				 ddl->table, cols, opts);
 
 		executeStatement(con, buffer);
 	}
@@ -1632,13 +1641,16 @@ init(bool is_no_vacuum)
 
 	for (i = 0; i < nbranches * scale; i++)
 	{
-		snprintf(sql, 256, "insert into pgbench_branches(bid,bbalance) values(%d,0)", i + 1);
+		snprintf(sql, sizeof(sql),
+				 "insert into pgbench_branches(bid,bbalance) values(%d,0)",
+				 i + 1);
 		executeStatement(con, sql);
 	}
 
 	for (i = 0; i < ntellers * scale; i++)
 	{
-		snprintf(sql, 256, "insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
+		snprintf(sql, sizeof(sql),
+			"insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
 				 i + 1, i / ntellers + 1);
 		executeStatement(con, sql);
 	}
@@ -1667,7 +1679,9 @@ init(bool is_no_vacuum)
 	{
 		int64		j = k + 1;
 
-		snprintf(sql, 256, INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n", j, k / naccounts + 1, 0);
+		snprintf(sql, sizeof(sql),
+				 INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n",
+				 j, k / naccounts + 1, 0);
 		if (PQputline(con, sql))
 		{
 			fprintf(stderr, "PQputline failed\n");
@@ -1768,11 +1782,11 @@ init(bool is_no_vacuum)
 	}
 	else
 #endif
-	for (i = 0; i < lengthof(DDLAFTERs); i++)
+	for (i = 0; i < lengthof(DDLINDEXes); i++)
 	{
 		char		buffer[256];
 
-		strncpy(buffer, DDLAFTERs[i], 256);
+		strlcpy(buffer, DDLINDEXes[i], sizeof(buffer));
 
 		if (index_tablespace != NULL)
 		{
@@ -1780,7 +1794,7 @@ init(bool is_no_vacuum)
 
 			escape_tablespace = PQescapeIdentifier(con, index_tablespace,
 												   strlen(index_tablespace));
-			snprintf(buffer + strlen(buffer), 256 - strlen(buffer),
+			snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer),
 					 " using index tablespace %s", escape_tablespace);
 			PQfreemem(escape_tablespace);
 		}
@@ -1799,7 +1813,6 @@ init(bool is_no_vacuum)
 			executeStatement(con, DDLKEYs[i]);
 		}
 	}
-
 
 	fprintf(stderr, "done.\n");
 	PQfinish(con);

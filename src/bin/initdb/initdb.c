@@ -18,7 +18,7 @@
  * to produce a new database.
  *
  * For largely-historical reasons, the template1 database is the one built
- * by the basic bootstrap process.	After it is complete, template0 and
+ * by the basic bootstrap process.  After it is complete, template0 and
  * the default database, postgres, are made just by copying template1.
  *
  * To create template1, we run the postgres (backend) program in bootstrap
@@ -590,7 +590,7 @@ walkdir(char *path, void (*action) (char *fname, bool isdir))
 	/*
 	 * It's important to fsync the destination directory itself as individual
 	 * file fsyncs don't guarantee that the directory entry for the file is
-	 * synced.	Recent versions of ext4 have made the window much wider but
+	 * synced.  Recent versions of ext4 have made the window much wider but
 	 * it's been an issue for ext3 and other filesystems in the past.
 	 */
 	(*action) (path, true);
@@ -623,7 +623,7 @@ pre_sync_fname(char *fname, bool isdir)
 	}
 
 	/*
-	 * Prefer sync_file_range, else use posix_fadvise.	We ignore any error
+	 * Prefer sync_file_range, else use posix_fadvise.  We ignore any error
 	 * here since this operation is only a hint anyway.
 	 */
 #if defined(HAVE_SYNC_FILE_RANGE)
@@ -1975,7 +1975,7 @@ setup_collation(void)
 	 * When copying collations to the final location, eliminate aliases that
 	 * conflict with an existing locale name for the same encoding.  For
 	 * example, "br_FR.iso88591" is normalized to "br_FR", both for encoding
-	 * LATIN1.	But the unnormalized locale "br_FR" already exists for LATIN1.
+	 * LATIN1.  But the unnormalized locale "br_FR" already exists for LATIN1.
 	 * Prefer the alias that matches the OS locale name, else the first locale
 	 * name by sort order (arbitrary choice to be deterministic).
 	 *
@@ -2082,7 +2082,7 @@ setup_dictionary(void)
 /*
  * Set up privileges
  *
- * We mark most system catalogs as world-readable.	We don't currently have
+ * We mark most system catalogs as world-readable.  We don't currently have
  * to touch functions, languages, or databases, because their default
  * permissions are OK.
  *
@@ -2545,7 +2545,7 @@ locale_date_order(const char *locale)
  * Is the locale name valid for the locale category?
  *
  * If successful, and canonname isn't NULL, a malloc'd copy of the locale's
- * canonical name is stored there.	This is especially useful for figuring out
+ * canonical name is stored there.  This is especially useful for figuring out
  * what locale name "" means (ie, the environment value).  (Actually,
  * it seems that on most implementations that's the only thing it's good for;
  * we could wish that setlocale gave back a canonically spelled version of
@@ -3534,6 +3534,15 @@ main(int argc, char *argv[])
 	int			option_index;
 	char	   *effective_user;
 	char		bin_dir[MAXPGPATH];
+
+	/*
+	 * Ensure that buffering behavior of stdout and stderr matches what it is
+	 * in interactive usage (at least on most platforms).  This prevents
+	 * unexpected output ordering when, eg, output is redirected to a file.
+	 * POSIX says we must do this before any other usage of these files.
+	 */
+	setvbuf(stdout, NULL, PG_IOLBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("initdb"));

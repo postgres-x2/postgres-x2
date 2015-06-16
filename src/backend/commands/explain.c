@@ -204,7 +204,7 @@ ExplainQuery(ExplainStmt *stmt, const char *queryString,
 	 * plancache.c.
 	 *
 	 * Because the rewriter and planner tend to scribble on the input, we make
-	 * a preliminary copy of the source querytree.	This prevents problems in
+	 * a preliminary copy of the source querytree.  This prevents problems in
 	 * the case that the EXPLAIN is in a portal or plpgsql function and is
 	 * executed repeatedly.  (See also the same hack in DECLARE CURSOR and
 	 * PREPARE.)  XXX FIXME someday.
@@ -556,7 +556,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
  *	  convert a QueryDesc's plan tree to text and append it to es->str
  *
  * The caller should have set up the options fields of *es, as well as
- * initializing the output buffer es->str.	Other fields in *es are
+ * initializing the output buffer es->str.  Other fields in *es are
  * initialized here.
  *
  * NB: will not work on utility statements
@@ -1173,11 +1173,18 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	/*
 	 * We have to forcibly clean up the instrumentation state because we
 	 * haven't done ExecutorEnd yet.  This is pretty grotty ...
+	 *
+	 * Note: contrib/auto_explain could cause instrumentation to be set up
+	 * even though we didn't ask for it here.  Be careful not to print any
+	 * instrumentation results the user didn't ask for.  But we do the
+	 * InstrEndLoop call anyway, if possible, to reduce the number of cases
+	 * auto_explain has to contend with.
 	 */
 	if (planstate->instrument)
 		InstrEndLoop(planstate->instrument);
 
-	if (planstate->instrument && planstate->instrument->nloops > 0)
+	if (es->analyze &&
+		planstate->instrument && planstate->instrument->nloops > 0)
 	{
 		double		nloops = planstate->instrument->nloops;
 		double		startup_sec = 1000.0 * planstate->instrument->startup / nloops;
@@ -1186,7 +1193,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 
 		if (es->format == EXPLAIN_FORMAT_TEXT)
 		{
-			if (planstate->instrument->need_timer)
+			if (es->timing)
 				appendStringInfo(es->str,
 							" (actual time=%.3f..%.3f rows=%.0f loops=%.0f)",
 								 startup_sec, total_sec, rows, nloops);
@@ -1197,7 +1204,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		}
 		else
 		{
-			if (planstate->instrument->need_timer)
+			if (es->timing)
 			{
 				ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
 				ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
@@ -1208,20 +1215,18 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	}
 	else if (es->analyze)
 	{
-
 		if (es->format == EXPLAIN_FORMAT_TEXT)
 			appendStringInfo(es->str, " (never executed)");
-		else if (planstate->instrument->need_timer)
-		{
-			ExplainPropertyFloat("Actual Startup Time", 0.0, 3, es);
-			ExplainPropertyFloat("Actual Total Time", 0.0, 3, es);
-		}
 		else
 		{
+			if (es->timing)
+			{
+				ExplainPropertyFloat("Actual Startup Time", 0.0, 3, es);
+				ExplainPropertyFloat("Actual Total Time", 0.0, 3, es);
+			}
 			ExplainPropertyFloat("Actual Rows", 0.0, 0, es);
 			ExplainPropertyFloat("Actual Loops", 0.0, 0, es);
 		}
-
 	}
 
 	/* in text format, first line ends here */
@@ -1407,7 +1412,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	}
 
 	/* Show buffer usage */
-	if (es->buffers)
+	if (es->buffers && planstate->instrument)
 	{
 		const BufferUsage *usage = &planstate->instrument->bufusage;
 
@@ -2111,7 +2116,7 @@ show_modifytable_info(ModifyTableState *mtstate, ExplainState *es)
 
 	/*
 	 * If the first target relation is a foreign table, call its FDW to
-	 * display whatever additional fields it wants to.	For now, we ignore the
+	 * display whatever additional fields it wants to.  For now, we ignore the
 	 * possibility of other targets being foreign tables, although the API for
 	 * ExplainForeignModify is designed to allow them to be processed.
 	 */
@@ -2686,7 +2691,7 @@ ExplainXMLTag(const char *tagname, int flags, ExplainState *es)
 /*
  * Emit a JSON line ending.
  *
- * JSON requires a comma after each property but the last.	To facilitate this,
+ * JSON requires a comma after each property but the last.  To facilitate this,
  * in JSON format, the text emitted for each property begins just prior to the
  * preceding line-break (and comma, if applicable).
  */
@@ -2707,7 +2712,7 @@ ExplainJSONLineEnding(ExplainState *es)
  * YAML lines are ordinarily indented by two spaces per indentation level.
  * The text emitted for each property begins just prior to the preceding
  * line-break, except for the first property in an unlabelled group, for which
- * it begins immediately after the "- " that introduces the group.	The first
+ * it begins immediately after the "- " that introduces the group.  The first
  * property of the group appears on the same line as the opening "- ".
  */
 static void

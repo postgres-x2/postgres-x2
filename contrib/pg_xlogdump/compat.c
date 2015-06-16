@@ -47,7 +47,7 @@ char *PGXCNodeName = NULL;
 #endif
 /*
  * Stopgap implementation of timestamptz_to_str that doesn't depend on backend
- * infrastructure.	This will work for timestamps that are within the range
+ * infrastructure.  This will work for timestamps that are within the range
  * of the platform time_t type.  (pg_time_t is compatible except for possibly
  * being wider.)
  *

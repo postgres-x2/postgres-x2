@@ -2141,7 +2141,11 @@ SELECT viewname, definition FROM pg_views WHERE schemaname <> 'information_schem
                                  |    FROM tv;
  tvvmv                           |  SELECT tvvm.grandtot                                                                                                                                                                                         +
                                  |    FROM tvvm;
-(65 rows)
+ ucview                          |  SELECT uctest.f1,                                                                                                                                                                                            +
+                                 |     uctest.f2                                                                                                                                                                                                 +
+                                 |    FROM uctest                                                                                                                                                                                                +
+                                 |   ORDER BY uctest.f1;
+(66 rows)
 
 SELECT tablename, rulename, definition FROM pg_rules
 	ORDER BY tablename, rulename;
@@ -2246,7 +2250,10 @@ SELECT tablename, rulename, definition FROM pg_rules
  shoelace_ok   | shoelace_ok_ins | CREATE RULE shoelace_ok_ins AS                                                                                                                                                    +
                |                 |     ON INSERT TO shoelace_ok DO INSTEAD  UPDATE shoelace SET sl_avail = (shoelace.sl_avail + new.ok_quant)                                                                        +
                |                 |   WHERE (shoelace.sl_name = new.ok_name);
-(29 rows)
+ ucview        | ucrule          | CREATE RULE ucrule AS                                                                                                                                                             +
+               |                 |     ON DELETE TO ucview DO INSTEAD  DELETE FROM uctest                                                                                                                            +
+               |                 |   WHERE (uctest.f1 = old.f1);
+(30 rows)
 
 --
 -- CREATE OR REPLACE RULE

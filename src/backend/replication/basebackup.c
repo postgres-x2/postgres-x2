@@ -109,7 +109,6 @@ perform_base_backup(basebackup_options *opt, DIR *tblspcdir)
 
 	startptr = do_pg_start_backup(opt->label, opt->fastcheckpoint, &starttli,
 								  &labelfile);
-	SendXlogRecPtrResult(startptr, starttli);
 
 	PG_ENSURE_ERROR_CLEANUP(base_backup_cleanup, (Datum) 0);
 	{
@@ -117,6 +116,8 @@ perform_base_backup(basebackup_options *opt, DIR *tblspcdir)
 		ListCell   *lc;
 		struct dirent *de;
 		tablespaceinfo *ti;
+
+		SendXlogRecPtrResult(startptr, starttli);
 
 		/* Collect information about all tablespaces */
 		while ((de = ReadDir(tblspcdir, "pg_tblspc")) != NULL)
@@ -758,7 +759,7 @@ sendFileWithContent(const char *filename, const char *content)
 
 /*
  * Include the tablespace directory pointed to by 'path' in the output tar
- * stream.	If 'sizeonly' is true, we just calculate a total length and return
+ * stream.  If 'sizeonly' is true, we just calculate a total length and return
  * it, without actually sending anything.
  *
  * Only used to send auxiliary tablespaces, not PGDATA.
