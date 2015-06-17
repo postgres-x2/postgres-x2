@@ -2614,20 +2614,23 @@ create temp table nt1 (
   id int primary key,
   a1 boolean,
   a2 boolean
-);
+)
+distribute by replication;
 create temp table nt2 (
   id int primary key,
   nt1_id int,
   b1 boolean,
   b2 boolean,
   foreign key (nt1_id) references nt1(id)
-);
+)
+distribute by replication;
 create temp table nt3 (
   id int primary key,
   nt2_id int,
   c1 boolean,
   foreign key (nt2_id) references nt2(id)
-);
+)
+distribute by replication;
 insert into nt1 values (1,true,true);
 insert into nt1 values (2,true,false);
 insert into nt1 values (3,false,false);
@@ -2649,18 +2652,11 @@ from nt3 as nt3
     ) as ss2
     on ss2.id = nt3.nt2_id
 where nt3.id = 1 and ss2.b3;
-                  QUERY PLAN                   
------------------------------------------------
- Nested Loop
-   ->  Nested Loop
-         ->  Index Scan using nt3_pkey on nt3
-               Index Cond: (id = 1)
-         ->  Index Scan using nt2_pkey on nt2
-               Index Cond: (id = nt3.nt2_id)
-   ->  Index Only Scan using nt1_pkey on nt1
-         Index Cond: (id = nt2.nt1_id)
-         Filter: (nt2.b1 AND (id IS NOT NULL))
-(9 rows)
+                QUERY PLAN                
+------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Node/s: dn1
+(2 rows)
 
 select nt3.id
 from nt3 as nt3
