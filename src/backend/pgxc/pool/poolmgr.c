@@ -560,9 +560,11 @@ PoolManagerReconnect(void)
 {
 	PoolHandle *handle;
 
-	Assert(poolHandle);
-
-	PoolManagerDisconnect();
+	if (poolHandle)
+	{
+		PoolManagerDisconnect();
+	}
+	
 	handle = GetPoolManagerHandle();
 	PoolManagerConnect(handle,
 					   get_database_name(MyDatabaseId),
@@ -573,54 +575,56 @@ PoolManagerReconnect(void)
 int
 PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 {
-	int n32, res;
+	int n32, res = 0;
 	char msgtype = 's';
 
-	Assert(poolHandle);
+	if (poolHandle)
+	{	
+		Assert(poolHandle);
 
-	/*
-	 * If SET LOCAL is in use, flag current transaction as using
-	 * transaction-block related parameters with pooler agent.
-	 */
-	if (command_type == POOL_CMD_LOCAL_SET)
-		SetCurrentLocalParamStatus(true);
+		/*
+		 * If SET LOCAL is in use, flag current transaction as using
+		 * transaction-block related parameters with pooler agent.
+		 */
+		if (command_type == POOL_CMD_LOCAL_SET)
+			SetCurrentLocalParamStatus(true);
 
-	/* Message type */
-	pool_putbytes(&poolHandle->port, &msgtype, 1);
+		/* Message type */
+		pool_putbytes(&poolHandle->port, &msgtype, 1);
 
-	/* Message length */
-	if (set_command)
-		n32 = htonl(strlen(set_command) + 13);
-	else
-		n32 = htonl(12);
+		/* Message length */
+		if (set_command)
+			n32 = htonl(strlen(set_command) + 13);
+		else
+			n32 = htonl(12);
 
-	pool_putbytes(&poolHandle->port, (char *) &n32, 4);
-
-	/* LOCAL or SESSION parameter ? */
-	n32 = htonl(command_type);
-	pool_putbytes(&poolHandle->port, (char *) &n32, 4);
-
-	if (set_command)
-	{
-		/* Length of SET command string */
-		n32 = htonl(strlen(set_command) + 1);
 		pool_putbytes(&poolHandle->port, (char *) &n32, 4);
 
-		/* Send command string followed by \0 terminator */
-		pool_putbytes(&poolHandle->port, set_command, strlen(set_command) + 1);
-	}
-	else
-	{
-		/* Send empty command */
-		n32 = htonl(0);
+		/* LOCAL or SESSION parameter ? */
+		n32 = htonl(command_type);
 		pool_putbytes(&poolHandle->port, (char *) &n32, 4);
+
+		if (set_command)
+		{
+			/* Length of SET command string */
+			n32 = htonl(strlen(set_command) + 1);
+			pool_putbytes(&poolHandle->port, (char *) &n32, 4);
+
+			/* Send command string followed by \0 terminator */
+			pool_putbytes(&poolHandle->port, set_command, strlen(set_command) + 1);
+		}
+		else
+		{
+			/* Send empty command */
+			n32 = htonl(0);
+			pool_putbytes(&poolHandle->port, (char *) &n32, 4);
+		}
+
+		pool_flush(&poolHandle->port);
+
+		/* Get result */
+		res = pool_recvres(&poolHandle->port);
 	}
-
-	pool_flush(&poolHandle->port);
-
-	/* Get result */
-	res = pool_recvres(&poolHandle->port);
-
 	return res;
 }
 
@@ -799,13 +803,16 @@ agent_destroy(PoolAgent *agent)
 void
 PoolManagerDisconnect(void)
 {
-	Assert(poolHandle);
+	if (poolHandle)
+	{
+		Assert(poolHandle);
 
-	pool_putmessage(&poolHandle->port, 'd', NULL, 0);
-	pool_flush(&poolHandle->port);
+		pool_putmessage(&poolHandle->port, 'd', NULL, 0);
+		pool_flush(&poolHandle->port);
 
-	PoolManagerCloseHandle(poolHandle);
-	poolHandle = NULL;
+		PoolManagerCloseHandle(poolHandle);
+		poolHandle = NULL;
+	}
 }
 
 
@@ -2106,28 +2113,31 @@ acquire_connection(DatabasePool *dbPool, Oid node)
 		int			poll_result;
 
 		slot = nodePool->slot[--(nodePool->freeSize)];
-
-	retry:
-		/*
-		 * Make sure connection is ok, destroy connection slot if there is a
-		 * problem.
-		 */
-		poll_result = pqReadReady((PGconn *) slot->conn);
-
-		if (poll_result == 0)
-			break; 		/* ok, no data */
-		else if (poll_result < 0)
+retry:
+		if (PQsocket((PGconn *) slot->conn) > 0)
 		{
-			if (errno == EAGAIN || errno == EINTR)
-			{
-				errno = 0;
-				goto retry;
-			}
+			/*
+			 * Make sure connection is ok, destroy connection slot if there is a
+			 * problem.
+			 */
+			poll_result = pqReadReady((PGconn *) slot->conn);
 
-			elog(WARNING, "Error in checking connection, errno = %d", errno);
+			if (poll_result == 0)
+				break; 		/* ok, no data */
+			else if (poll_result < 0)
+			{
+				if (errno == EAGAIN || errno == EINTR)
+            	{
+				    errno = 0;
+				    goto retry;
+			     }
+
+
+				elog(WARNING, "Error in checking connection, errno = %d", errno);
+			}
+			else
+				elog(WARNING, "Unexpected data on connection, cleaning.");
 		}
-		else
-			elog(WARNING, "Unexpected data on connection, cleaning.");
 
 		destroy_slot(slot);
 		slot = NULL;
@@ -2558,9 +2568,7 @@ pooler_quickdie(SIGNAL_ARGS)
 bool
 IsPoolHandle(void)
 {
-	if (poolHandle == NULL)
-		return false;
-	return true;
+	return poolHandle != NULL;
 }
 
 

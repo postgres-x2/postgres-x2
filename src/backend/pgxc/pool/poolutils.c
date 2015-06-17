@@ -237,6 +237,11 @@ CleanConnection(CleanConnStmt *stmt)
 		return;
 	}
 
+	if (!IsPoolHandle())
+	{
+		PoolManagerReconnect();
+	}
+	
 	/*
 	 * FORCE is activated,
 	 * Send a SIGTERM signal to all the processes and take a lock on Pooler
@@ -349,7 +354,11 @@ DropDBCleanConnection(char *dbname)
 	if (!pg_database_ownercheck(get_database_oid(dbname, true), GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
 					   dbname);
-
+	if (!IsPoolHandle())
+	{
+		PoolManagerReconnect();
+	}
+	
 	PoolManagerCleanConnection(dn_list, co_list, dbname, NULL);
 
 	/* Clean up memory */
