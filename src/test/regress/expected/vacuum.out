@@ -61,8 +61,24 @@ VACUUM (FULL, FREEZE) vactst;
 VACUUM (ANALYZE, FULL) vactst;
 CREATE TABLE vaccluster (i INT PRIMARY KEY);
 ALTER TABLE vaccluster CLUSTER ON vaccluster_pkey;
-INSERT INTO vaccluster SELECT * FROM vactst;
 CLUSTER vaccluster;
+CREATE FUNCTION do_analyze() RETURNS VOID VOLATILE LANGUAGE SQL
+	AS 'ANALYZE pg_am';
+ERROR:  In XC, SQL functions cannot contain utility statements
+CONTEXT:  SQL function "do_analyze"
+CREATE FUNCTION wrap_do_analyze(c INT) RETURNS INT IMMUTABLE LANGUAGE SQL
+	AS 'SELECT $1 FROM do_analyze()';
+ERROR:  function do_analyze() does not exist
+LINE 2:  AS 'SELECT $1 FROM do_analyze()';
+                            ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+CREATE INDEX ON vaccluster(wrap_do_analyze(i));
+ERROR:  function wrap_do_analyze(integer) does not exist
+LINE 1: CREATE INDEX ON vaccluster(wrap_do_analyze(i));
+                                   ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+INSERT INTO vaccluster VALUES (1), (2);
+ANALYZE vaccluster;
 VACUUM FULL pg_am;
 VACUUM FULL pg_class;
 VACUUM FULL pg_database;

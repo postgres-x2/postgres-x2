@@ -3191,12 +3191,8 @@ RestoreBackupBlockContents(XLogRecPtr lsn, BkpBlock bkpb, char *blk,
 	Page		page;
 
 	buffer = XLogReadBufferExtended(bkpb.node, bkpb.fork, bkpb.block,
-									RBM_ZERO);
+			get_cleanup_lock ? RBM_ZERO_AND_CLEANUP_LOCK : RBM_ZERO_AND_LOCK);
 	Assert(BufferIsValid(buffer));
-	if (get_cleanup_lock)
-		LockBufferForCleanup(buffer);
-	else
-		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
 	page = (Page) BufferGetPage(buffer);
 
@@ -4412,7 +4408,7 @@ static void
 exitArchiveRecovery(TimeLineID endTLI, XLogSegNo endLogSegNo)
 {
 	char		recoveryPath[MAXPGPATH];
-	char		xlogpath[MAXPGPATH];
+	char		xlogfname[MAXFNAMELEN];
 
 	/*
 	 * We are no longer in archive recovery state.
@@ -4440,17 +4436,19 @@ exitArchiveRecovery(TimeLineID endTLI, XLogSegNo endLogSegNo)
 	 * for the new timeline.
 	 *
 	 * Notify the archiver that the last WAL segment of the old timeline is
-	 * ready to copy to archival storage. Otherwise, it is not archived for a
-	 * while.
+	 * ready to copy to archival storage if its .done file doesn't exist
+	 * (e.g., if it's the restored WAL file, it's expected to have .done file).
+	 * Otherwise, it is not archived for a while.
 	 */
 	if (endTLI != ThisTimeLineID)
 	{
 		XLogFileCopy(endLogSegNo, endTLI, endLogSegNo);
 
+		/* Create .ready file only when neither .ready nor .done files exist */
 		if (XLogArchivingActive())
 		{
-			XLogFileName(xlogpath, endTLI, endLogSegNo);
-			XLogArchiveNotify(xlogpath);
+			XLogFileName(xlogfname, endTLI, endLogSegNo);
+			XLogArchiveCheckDone(xlogfname);
 		}
 	}
 
@@ -4458,8 +4456,8 @@ exitArchiveRecovery(TimeLineID endTLI, XLogSegNo endLogSegNo)
 	 * Let's just make real sure there are not .ready or .done flags posted
 	 * for the new segment.
 	 */
-	XLogFileName(xlogpath, ThisTimeLineID, endLogSegNo);
-	XLogArchiveCleanup(xlogpath);
+	XLogFileName(xlogfname, ThisTimeLineID, endLogSegNo);
+	XLogArchiveCleanup(xlogfname);
 
 	/*
 	 * Since there might be a partial WAL segment named RECOVERYXLOG, get rid
@@ -4513,6 +4511,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 #else
 	TimestampTz recordXtime;
 #endif
+	TransactionId recordXid;
 	char		recordRPName[MAXFNAMELEN];
 
 #ifdef PGXC
@@ -4537,6 +4536,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 		recordXactCommitData = (xl_xact_commit_compact *) XLogRecGetData(record);
 		recordXtime = recordXactCommitData->xact_time;
+		recordXid = record->xl_xid;
 	}
 	else if (record->xl_rmid == RM_XACT_ID && record_info == XLOG_XACT_COMMIT)
 	{
@@ -4544,6 +4544,15 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 		recordXactCommitData = (xl_xact_commit *) XLogRecGetData(record);
 		recordXtime = recordXactCommitData->xact_time;
+		recordXid = record->xl_xid;
+	}
+	else if (record->xl_rmid == RM_XACT_ID && record_info == XLOG_XACT_COMMIT_PREPARED)
+	{
+		xl_xact_commit_prepared *recordXactCommitData;
+
+		recordXactCommitData = (xl_xact_commit_prepared *) XLogRecGetData(record);
+		recordXtime = recordXactCommitData->crec.xact_time;
+		recordXid = recordXactCommitData->xid;
 	}
 	else if (record->xl_rmid == RM_XACT_ID && record_info == XLOG_XACT_ABORT)
 	{
@@ -4551,6 +4560,15 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 		recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
 		recordXtime = recordXactAbortData->xact_time;
+		recordXid = record->xl_xid;
+	}
+	else if (record->xl_rmid == RM_XACT_ID && record_info == XLOG_XACT_ABORT_PREPARED)
+	{
+		xl_xact_abort_prepared *recordXactAbortData;
+
+		recordXactAbortData = (xl_xact_abort_prepared *) XLogRecGetData(record);
+		recordXtime = recordXactAbortData->arec.xact_time;
+		recordXid = recordXactAbortData->xid;
 	}
 #ifdef PGXC
 	} /* end if (record->xl_rmid == RM_XACT_ID) */
@@ -4570,6 +4588,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 		recordRestorePointData = (xl_restore_point *) XLogRecGetData(record);
 		recordXtime = recordRestorePointData->rp_time;
+		recordXid = InvalidTransactionId;
 		strlcpy(recordRPName, recordRestorePointData->rp_name, MAXFNAMELEN);
 	}
 	else
@@ -4598,7 +4617,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		 * they complete. A higher numbered xid will complete before you about
 		 * 50% of the time...
 		 */
-		stopsHere = (record->xl_xid == recoveryTargetXid);
+		stopsHere = (recordXid == recoveryTargetXid);
 		if (stopsHere)
 			*includeThis = recoveryTargetInclusive;
 	}
@@ -4648,11 +4667,13 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 
 	if (stopsHere)
 	{
-		recoveryStopXid = record->xl_xid;
+		recoveryStopXid = recordXid;
 		recoveryStopTime = recordXtime;
 		recoveryStopAfter = *includeThis;
 
-		if (record_info == XLOG_XACT_COMMIT_COMPACT || record_info == XLOG_XACT_COMMIT)
+		if (record_info == XLOG_XACT_COMMIT_COMPACT ||
+			record_info == XLOG_XACT_COMMIT ||
+			record_info == XLOG_XACT_COMMIT_PREPARED)
 		{
 			if (recoveryStopAfter)
 				ereport(LOG,
@@ -4665,7 +4686,8 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 								recoveryStopXid,
 								timestamptz_to_str(recoveryStopTime))));
 		}
-		else if (record_info == XLOG_XACT_ABORT)
+		else if (record_info == XLOG_XACT_ABORT ||
+				 record_info == XLOG_XACT_ABORT_PREPARED)
 		{
 			if (recoveryStopAfter)
 				ereport(LOG,
@@ -5382,11 +5404,17 @@ StartupXLOG(void)
 		/*
 		 * Set backupStartPoint if we're starting recovery from a base backup.
 		 *
-		 * Set backupEndPoint and use minRecoveryPoint as the backup end
+		 * Also set backupEndPoint and use minRecoveryPoint as the backup end
 		 * location if we're starting recovery from a base backup which was
-		 * taken from the standby. In this case, the database system status in
-		 * pg_control must indicate DB_IN_ARCHIVE_RECOVERY. If not, which
-		 * means that backup is corrupted, so we cancel recovery.
+		 * taken from a standby. In this case, the database system status in
+		 * pg_control must indicate that the database was already in
+		 * recovery. Usually that will be DB_IN_ARCHIVE_RECOVERY but also can
+		 * be DB_SHUTDOWNED_IN_RECOVERY if recovery previously was interrupted
+		 * before reaching this point; e.g. because restore_command or
+		 * primary_conninfo were faulty.
+		 *
+		 * Any other state indicates that the backup somehow became corrupted
+		 * and we can't sensibly continue with recovery.
 		 */
 		if (haveBackupLabel)
 		{
@@ -5395,7 +5423,8 @@ StartupXLOG(void)
 
 			if (backupFromStandby)
 			{
-				if (dbstate_at_startup != DB_IN_ARCHIVE_RECOVERY)
+				if (dbstate_at_startup != DB_IN_ARCHIVE_RECOVERY &&
+					dbstate_at_startup != DB_SHUTDOWNED_IN_RECOVERY)
 					ereport(FATAL,
 							(errmsg("backup_label contains data inconsistent with control file"),
 							 errhint("This means that the backup is corrupted and you will "
@@ -5814,6 +5843,16 @@ StartupXLOG(void)
 	ShutdownWalRcv();
 
 	/*
+	 * Reset unlogged relations to the contents of their INIT fork. This is
+	 * done AFTER recovery is complete so as to include any unlogged relations
+	 * created during recovery, but BEFORE recovery is marked as having
+	 * completed successfully. Otherwise we'd not retry if any of the post
+	 * end-of-recovery steps fail.
+	 */
+	if (InRecovery)
+		ResetUnloggedRelations(UNLOGGED_RELATION_INIT);
+
+	/*
 	 * We don't need the latch anymore. It's not strictly necessary to disown
 	 * it, but let's do it for the sake of tidiness.
 	 */
@@ -6099,14 +6138,6 @@ StartupXLOG(void)
 	 * Preallocate additional log files, if wanted.
 	 */
 	PreallocXlogFiles(EndOfLog);
-
-	/*
-	 * Reset initial contents of unlogged relations.  This has to be done
-	 * AFTER recovery is complete so that any unlogged relations created
-	 * during recovery also get picked up.
-	 */
-	if (InRecovery)
-		ResetUnloggedRelations(UNLOGGED_RELATION_INIT);
 
 	/*
 	 * Okay, we're officially UP.
@@ -6737,9 +6768,9 @@ LogCheckpointStart(int flags, bool restartpoint)
 	 * the main message, but what about all the flags?
 	 */
 	if (restartpoint)
-		msg = "restartpoint starting:%s%s%s%s%s%s%s";
+		msg = "restartpoint starting:%s%s%s%s%s%s%s%s";
 	else
-		msg = "checkpoint starting:%s%s%s%s%s%s%s";
+		msg = "checkpoint starting:%s%s%s%s%s%s%s%s";
 
 	elog(LOG, msg,
 		 (flags & CHECKPOINT_IS_SHUTDOWN) ? " shutdown" : "",
@@ -6748,7 +6779,8 @@ LogCheckpointStart(int flags, bool restartpoint)
 		 (flags & CHECKPOINT_FORCE) ? " force" : "",
 		 (flags & CHECKPOINT_WAIT) ? " wait" : "",
 		 (flags & CHECKPOINT_CAUSE_XLOG) ? " xlog" : "",
-		 (flags & CHECKPOINT_CAUSE_TIME) ? " time" : "");
+		 (flags & CHECKPOINT_CAUSE_TIME) ? " time" : "",
+		 (flags & CHECKPOINT_FLUSH_ALL) ? " flush-all" :"");
 }
 
 /*
@@ -7313,7 +7345,7 @@ CreateEndOfRecoveryRecord(void)
 	if (!RecoveryInProgress())
 		elog(ERROR, "can only be used to end recovery");
 
-	xlrec.end_time = time(NULL);
+	xlrec.end_time = GetCurrentTimestamp();
 
 	LWLockAcquire(WALInsertLock, LW_SHARED);
 	xlrec.ThisTimeLineID = ThisTimeLineID;
@@ -7338,7 +7370,7 @@ CreateEndOfRecoveryRecord(void)
 	 * changes to this point.
 	 */
 	LWLockAcquire(ControlFileLock, LW_EXCLUSIVE);
-	ControlFile->time = (pg_time_t) xlrec.end_time;
+	ControlFile->time = (pg_time_t) time(NULL);
 	ControlFile->minRecoveryPoint = recptr;
 	ControlFile->minRecoveryPointTLI = ThisTimeLineID;
 	UpdateControlFile();

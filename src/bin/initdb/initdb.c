@@ -57,6 +57,7 @@
 #include <signal.h>
 #include <time.h>
 
+#include "common/relpath.h"
 #include "mb/pg_wchar.h"
 #include "getaddrinfo.h"
 #include "getopt_long.h"
@@ -218,6 +219,7 @@ static char **filter_lines_with_token(char **lines, const char *token);
 static char **readfile(const char *path);
 static void writefile(char *path, char **lines);
 static void walkdir(char *path, void (*action) (char *fname, bool isdir));
+static void walktblspc_links(char *path, void (*action) (char *fname, bool isdir));
 static void pre_sync_fname(char *fname, bool isdir);
 static void fsync_fname(char *fname, bool isdir);
 static FILE *popen_check(const char *command, const char *mode);
@@ -594,6 +596,55 @@ walkdir(char *path, void (*action) (char *fname, bool isdir))
 	 * it's been an issue for ext3 and other filesystems in the past.
 	 */
 	(*action) (path, true);
+}
+
+/*
+ * walktblspc_links: call walkdir on each entry under the given
+ * pg_tblspc directory, or do nothing if pg_tblspc doesn't exist.
+ */
+static void
+walktblspc_links(char *path, void (*action) (char *fname, bool isdir))
+{
+	DIR		   *dir;
+	struct dirent *direntry;
+	char		subpath[MAXPGPATH];
+
+	dir = opendir(path);
+	if (dir == NULL)
+	{
+		if (errno == ENOENT)
+			return;
+		fprintf(stderr, _("%s: could not open directory \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
+
+	while (errno = 0, (direntry = readdir(dir)) != NULL)
+	{
+		if (strcmp(direntry->d_name, ".") == 0 ||
+			strcmp(direntry->d_name, "..") == 0)
+			continue;
+
+		/* fsync the version specific tablespace subdirectory */
+		snprintf(subpath, sizeof(subpath), "%s/%s/%s",
+				 path, direntry->d_name, TABLESPACE_VERSION_DIRECTORY);
+
+		walkdir(subpath, action);
+	}
+
+	if (errno)
+	{
+		fprintf(stderr, _("%s: could not read directory \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
+
+	if (closedir(dir))
+	{
+		fprintf(stderr, _("%s: could not close directory \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 }
 
 /*
@@ -1565,8 +1616,12 @@ get_set_pwd(void)
 		}
 		if (!fgets(pwdbuf, sizeof(pwdbuf), pwf))
 		{
-			fprintf(stderr, _("%s: could not read password from file \"%s\": %s\n"),
-					progname, pwfilename, strerror(errno));
+			if (ferror(pwf))
+				fprintf(stderr, _("%s: could not read password from file \"%s\": %s\n"),
+						progname, pwfilename, strerror(errno));
+			else
+				fprintf(stderr, _("%s: password file \"%s\" is empty\n"),
+						progname, pwfilename);
 			exit_nicely();
 		}
 		fclose(pwf);
@@ -2388,6 +2443,7 @@ static void
 perform_fsync(void)
 {
 	char		pdir[MAXPGPATH];
+	char		pg_tblspc[MAXPGPATH];
 
 	fputs(_("syncing data to disk ... "), stdout);
 	fflush(stdout);
@@ -2406,8 +2462,12 @@ perform_fsync(void)
 	/* first the parent of the PGDATA directory */
 	pre_sync_fname(pdir, true);
 
-	/* then recursively through the directory */
+	/* then recursively through the data directory */
 	walkdir(pg_data, pre_sync_fname);
+
+	/* now do the same thing for everything under pg_tblspc */
+	snprintf(pg_tblspc, MAXPGPATH, "%s/pg_tblspc", pg_data);
+	walktblspc_links(pg_tblspc, pre_sync_fname);
 
 	/*
 	 * Now, do the fsync()s in the same order.
@@ -2416,8 +2476,11 @@ perform_fsync(void)
 	/* first the parent of the PGDATA directory */
 	fsync_fname(pdir, true);
 
-	/* then recursively through the directory */
+	/* then recursively through the data directory */
 	walkdir(pg_data, fsync_fname);
+
+	/* and now the same for all tablespaces */
+	walktblspc_links(pg_tblspc, fsync_fname);
 
 	check_ok();
 }
@@ -2754,7 +2817,8 @@ CreateRestrictedProcess(char *cmd, PROCESS_INFORMATION *processInfo)
 	SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_POWER_USERS, 0, 0, 0, 0, 0,
 								  0, &dropSids[1].Sid))
 	{
-		fprintf(stderr, _("%s: could not to allocate SIDs: error code %lu\n"), progname, GetLastError());
+		fprintf(stderr, _("%s: could not allocate SIDs: error code %lu\n"),
+				progname, GetLastError());
 		return 0;
 	}
 

@@ -2569,6 +2569,28 @@ ORDER BY thousand;
         1 |     1001
 (2 rows)
 
+SET enable_indexonlyscan = OFF;
+explain (costs off, NODES OFF, NUM_NODES OFF)
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Sort
+   Sort Key: tenk1.thousand
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+(3 rows)
+
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+ thousand | tenthous 
+----------+----------
+        0 |     3000
+        1 |     1001
+(2 rows)
+
+RESET enable_indexscan;
 --
 -- Check elimination of constant-NULL subexpressions
 --

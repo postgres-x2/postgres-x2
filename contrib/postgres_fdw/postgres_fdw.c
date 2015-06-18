@@ -836,11 +836,11 @@ postgresGetForeignPlan(PlannerInfo *root,
 			{
 				case LCS_FORKEYSHARE:
 				case LCS_FORSHARE:
-					appendStringInfo(&sql, " FOR SHARE");
+					appendStringInfoString(&sql, " FOR SHARE");
 					break;
 				case LCS_FORNOKEYUPDATE:
 				case LCS_FORUPDATE:
-					appendStringInfo(&sql, " FOR UPDATE");
+					appendStringInfoString(&sql, " FOR UPDATE");
 					break;
 			}
 		}

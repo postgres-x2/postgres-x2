@@ -949,3 +949,57 @@ FROM
   3 | FROM 10000000876 | from 10000000876
 (3 rows)
 
+-- check whole-row-Var handling in nested lateral functions (bug #11703)
+create function extractq2(t int8_tbl) returns int8 as $$
+  select t.q2
+$$ language sql immutable;
+explain (verbose, costs off, NODES OFF, NUM_NODES OFF)
+select x from int8_tbl, extractq2(int8_tbl) f(x);
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Nested Loop
+   Output: f.x
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
+         Output: q2
+         Remote query: SELECT q2 FROM ONLY public.int8_tbl WHERE true
+   ->  Function Scan on f
+         Output: f.x
+         Function Call: q2
+(8 rows)
+
+select x from int8_tbl, extractq2(int8_tbl) f(x) ORDER BY X;
+         x         
+-------------------
+ -4567890123456789
+               123
+               456
+  4567890123456789
+  4567890123456789
+(5 rows)
+
+create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$
+  select extractq2(t)
+$$ language sql immutable;
+explain (verbose, costs off, NODES OFF, NUM_NODES OFF)
+select x from int8_tbl, extractq2_2(int8_tbl) f(x);
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Nested Loop
+   Output: ((int8_tbl.*).q2)
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
+         Output: int8_tbl.*
+         Remote query: SELECT int8_tbl.*::public.int8_tbl FROM ONLY public.int8_tbl WHERE true
+   ->  Result
+         Output: (int8_tbl.*).q2
+(7 rows)
+
+select x from int8_tbl, extractq2_2(int8_tbl) f(x) ORDER BY X;
+         x         
+-------------------
+ -4567890123456789
+               123
+               456
+  4567890123456789
+  4567890123456789
+(5 rows)
+

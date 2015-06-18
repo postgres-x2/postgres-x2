@@ -92,6 +92,10 @@
 #include <dns_sd.h>
 #endif
 
+#ifdef HAVE_PTHREAD_IS_THREADED_NP
+#include <pthread.h>
+#endif
+
 #include "access/transam.h"
 #include "access/xlog.h"
 #include "bootstrap/bootstrap.h"
@@ -1264,6 +1268,12 @@ PostmasterMain(int argc, char *argv[])
 	}
 
 	/*
+	 * Remove old temporary files.  At this point there can be no other
+	 * Postgres processes running in this directory, so this should be safe.
+	 */
+	RemovePgTempFiles();
+
+	/*
 	 * If enabled, start up syslogger collection subprocess
 	 */
 	SysLoggerPID = SysLogger_Start();
@@ -1320,12 +1330,23 @@ PostmasterMain(int argc, char *argv[])
 		 */
 	}
 
+#ifdef HAVE_PTHREAD_IS_THREADED_NP
 
 	/*
-	 * Remove old temporary files.  At this point there can be no other
-	 * Postgres processes running in this directory, so this should be safe.
+	 * On Darwin, libintl replaces setlocale() with a version that calls
+	 * CFLocaleCopyCurrent() when its second argument is "" and every relevant
+	 * environment variable is unset or empty.  CFLocaleCopyCurrent() makes
+	 * the process multithreaded.  The postmaster calls sigprocmask() and
+	 * calls fork() without an immediate exec(), both of which have undefined
+	 * behavior in a multithreaded program.  A multithreaded postmaster is the
+	 * normal case on Windows, which offers neither fork() nor sigprocmask().
 	 */
-	RemovePgTempFiles();
+	if (pthread_is_threaded_np() != 0)
+		ereport(LOG,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("postmaster became multithreaded during startup"),
+		 errhint("Set the LC_ALL environment variable to a valid locale.")));
+#endif
 
 	/*
 	 * Remember postmaster startup time
@@ -1618,6 +1639,8 @@ DetermineSleepTime(struct timeval * timeout)
 
 /*
  * Main idle loop of postmaster
+ *
+ * NB: Needs to be called with signals blocked
  */
 static int
 ServerLoop(void)
@@ -1639,34 +1662,38 @@ ServerLoop(void)
 		/*
 		 * Wait for a connection request to arrive.
 		 *
+		 * We block all signals except while sleeping. That makes it safe for
+		 * signal handlers, which again block all signals while executing, to
+		 * do nontrivial work.
+		 *
 		 * If we are in PM_WAIT_DEAD_END state, then we don't want to accept
-		 * any new connections, so we don't call select() at all; just sleep
-		 * for a little bit with signals unblocked.
+		 * any new connections, so we don't call select(), and just sleep.
 		 */
 		memcpy((char *) &rmask, (char *) &readmask, sizeof(fd_set));
 
-		PG_SETMASK(&UnBlockSig);
-
 		if (pmState == PM_WAIT_DEAD_END)
 		{
+			PG_SETMASK(&UnBlockSig);
+
 			pg_usleep(100000L); /* 100 msec seems reasonable */
 			selres = 0;
+
+			PG_SETMASK(&BlockSig);
 		}
 		else
 		{
 			/* must set timeout each time; some OSes change it! */
 			struct timeval timeout;
 
+			/* Needs to run with blocked signals! */
 			DetermineSleepTime(&timeout);
 
-			selres = select(nSockets, &rmask, NULL, NULL, &timeout);
-		}
+			PG_SETMASK(&UnBlockSig);
 
-		/*
-		 * Block all signals until we wait again.  (This makes it safe for our
-		 * signal handlers to do nontrivial work.)
-		 */
-		PG_SETMASK(&BlockSig);
+			selres = select(nSockets, &rmask, NULL, NULL, &timeout);
+
+			PG_SETMASK(&BlockSig);
+		}
 
 		/* Now check the select() result */
 		if (selres < 0)
@@ -1790,6 +1817,15 @@ ServerLoop(void)
 			TouchSocketLockFiles();
 			last_touch_time = now;
 		}
+
+#ifdef HAVE_PTHREAD_IS_THREADED_NP
+
+		/*
+		 * With assertions enabled, check regularly for appearance of
+		 * additional threads.  All builds check at start and exit.
+		 */
+		Assert(pthread_is_threaded_np() == 0);
+#endif
 	}
 }
 
@@ -1840,6 +1876,7 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 	ProtocolVersion proto;
 	MemoryContext oldcontext;
 
+	pq_startmsgread();
 	if (pq_getbytes((char *) &len, 4) == EOF)
 	{
 		/*
@@ -1884,6 +1921,7 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 				 errmsg("incomplete startup packet")));
 		return STATUS_ERROR;
 	}
+	pq_endmsgread();
 
 	/*
 	 * The first field is either a protocol version number or a special
@@ -4772,6 +4810,9 @@ SubPostmasterMain(int argc, char *argv[])
 	{
 		int			cookie;
 
+		/* do this as early as possible; in particular, before InitProcess() */
+		IsBackgroundWorker = true;
+
 		/* Close the postmaster's sockets */
 		ClosePostmasterPorts(false);
 
@@ -4829,6 +4870,18 @@ SubPostmasterMain(int argc, char *argv[])
 static void
 ExitPostmaster(int status)
 {
+#ifdef HAVE_PTHREAD_IS_THREADED_NP
+
+	/*
+	 * There is no known cause for a postmaster to become multithreaded after
+	 * startup.  Recheck to account for the possibility of unknown causes.
+	 */
+	if (pthread_is_threaded_np() != 0)
+		ereport(LOG,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("postmaster became multithreaded")));
+#endif
+
 	/* should cleanup shared memory and kill all backends */
 
 	/*
@@ -6277,7 +6330,7 @@ read_backend_variables(char *id, Port *port)
 	fp = AllocateFile(id, PG_BINARY_R);
 	if (!fp)
 	{
-		write_stderr("could not read from backend variables file \"%s\": %s\n",
+		write_stderr("could not open backend variables file \"%s\": %s\n",
 					 id, strerror(errno));
 		exit(1);
 	}

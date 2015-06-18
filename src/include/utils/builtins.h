@@ -678,8 +678,9 @@ extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 extern void deparse_targetlist(Query *query, List *targetList, StringInfo buf);
 #endif
 extern List *deparse_context_for(const char *aliasname, Oid relid);
-extern List *deparse_context_for_planstate(Node *planstate, List *ancestors,
-							  List *rtable, List *rtable_names);
+extern List *deparse_context_for_plan_rtable(List *rtable, List *rtable_names);
+extern List *set_deparse_context_planstate(List *dpcontext,
+							  Node *planstate, List *ancestors);
 #ifdef PGXC
 extern List *deparse_context_for_plan(Node *plan, List *ancestors,
 							  List *rtable);

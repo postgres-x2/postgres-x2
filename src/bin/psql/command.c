@@ -1074,20 +1074,8 @@ exec_command(const char *cmd,
 		char	   *fname = psql_scan_slash_option(scan_state,
 												   OT_NORMAL, NULL, true);
 
-#if defined(WIN32) && !defined(__CYGWIN__)
-
-		/*
-		 * XXX This does not work for all terminal environments or for output
-		 * containing non-ASCII characters; see comments in simple_prompt().
-		 */
-#define DEVTTY	"con"
-#else
-#define DEVTTY	"/dev/tty"
-#endif
-
 		expand_tilde(&fname);
-		/* This scrolls off the screen when using /dev/tty */
-		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
+		success = printHistory(fname, pset.popt.topt.pager);
 		if (success && !pset.quiet && fname)
 			printf(gettext("Wrote history to file \"%s/%s\".\n"),
 				   pset.dirname ? pset.dirname : ".", fname);
@@ -1124,12 +1112,7 @@ exec_command(const char *cmd,
 			while ((opt = psql_scan_slash_option(scan_state,
 												 OT_NORMAL, NULL, false)))
 			{
-				newval = realloc(newval, strlen(newval) + strlen(opt) + 1);
-				if (!newval)
-				{
-					psql_error("out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				newval = pg_realloc(newval, strlen(newval) + strlen(opt) + 1);
 				strcat(newval, opt);
 				free(opt);
 			}
@@ -1338,7 +1321,7 @@ exec_command(const char *cmd,
 												 OT_NORMAL, NULL, false);
 
 		if (opt)
-			pset.timing = ParseVariableBool(opt);
+			pset.timing = ParseVariableBool(opt, "\\timing");
 		else
 			pset.timing = !pset.timing;
 		if (!pset.quiet)
@@ -2316,12 +2299,14 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	}
 
 	/* set expanded/vertical mode */
-	else if (strcmp(param, "x") == 0 || strcmp(param, "expanded") == 0 || strcmp(param, "vertical") == 0)
+	else if (strcmp(param, "x") == 0 ||
+			 strcmp(param, "expanded") == 0 ||
+			 strcmp(param, "vertical") == 0)
 	{
 		if (value && pg_strcasecmp(value, "auto") == 0)
 			popt->topt.expanded = 2;
 		else if (value)
-			popt->topt.expanded = ParseVariableBool(value);
+			popt->topt.expanded = ParseVariableBool(value, param);
 		else
 			popt->topt.expanded = !popt->topt.expanded;
 		if (!quiet)
@@ -2339,7 +2324,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	else if (strcmp(param, "numericlocale") == 0)
 	{
 		if (value)
-			popt->topt.numericLocale = ParseVariableBool(value);
+			popt->topt.numericLocale = ParseVariableBool(value, param);
 		else
 			popt->topt.numericLocale = !popt->topt.numericLocale;
 		if (!quiet)
@@ -2423,7 +2408,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	else if (strcmp(param, "t") == 0 || strcmp(param, "tuples_only") == 0)
 	{
 		if (value)
-			popt->topt.tuples_only = ParseVariableBool(value);
+			popt->topt.tuples_only = ParseVariableBool(value, param);
 		else
 			popt->topt.tuples_only = !popt->topt.tuples_only;
 		if (!quiet)
@@ -2477,10 +2462,12 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 		if (value && pg_strcasecmp(value, "always") == 0)
 			popt->topt.pager = 2;
 		else if (value)
-			if (ParseVariableBool(value))
+		{
+			if (ParseVariableBool(value, param))
 				popt->topt.pager = 1;
 			else
 				popt->topt.pager = 0;
+		}
 		else if (popt->topt.pager == 1)
 			popt->topt.pager = 0;
 		else
@@ -2500,7 +2487,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	else if (strcmp(param, "footer") == 0)
 	{
 		if (value)
-			popt->topt.default_footer = ParseVariableBool(value);
+			popt->topt.default_footer = ParseVariableBool(value, param);
 		else
 			popt->topt.default_footer = !popt->topt.default_footer;
 		if (!quiet)
@@ -2606,7 +2593,6 @@ do_watch(PQExpBuffer query_buf, long sleep)
 	 * Set up rendering options, in particular, disable the pager, because
 	 * nobody wants to be prompted while watching the output of 'watch'.
 	 */
-	myopt.nullPrint = NULL;
 	myopt.topt.pager = 0;
 
 	for (;;)

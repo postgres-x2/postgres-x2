@@ -3307,7 +3307,7 @@ PgstatCollectorMain(int argc, char *argv[])
 		 * first water, but until somebody wants to debug exactly what's
 		 * happening there, this is the best we can do.  The two-second
 		 * timeout matches our pre-9.2 behavior, and needs to be short enough
-		 * to not provoke "pgstat wait timeout" complaints from
+		 * to not provoke "using stale statistics" complaints from
 		 * backend_read_statsfile.
 		 */
 		wr = WaitLatchOrSocket(&pgStatLatch,
@@ -3514,7 +3514,7 @@ pgstat_write_statsfiles(bool permanent, bool allDbs)
 	const char *statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : pgstat_stat_filename;
 	int			rc;
 
-	elog(DEBUG2, "writing statsfile '%s'", statfile);
+	elog(DEBUG2, "writing stats file \"%s\"", statfile);
 
 	/*
 	 * Open the statistics temp file to write out the current values.
@@ -3685,7 +3685,7 @@ pgstat_write_db_statsfile(PgStat_StatDBEntry *dbentry, bool permanent)
 	get_dbstat_filename(permanent, true, dbid, tmpfile, MAXPGPATH);
 	get_dbstat_filename(permanent, false, dbid, statfile, MAXPGPATH);
 
-	elog(DEBUG2, "writing statsfile '%s'", statfile);
+	elog(DEBUG2, "writing stats file \"%s\"", statfile);
 
 	/*
 	 * Open the statistics temp file to write out the current values.
@@ -3766,7 +3766,7 @@ pgstat_write_db_statsfile(PgStat_StatDBEntry *dbentry, bool permanent)
 	{
 		get_dbstat_filename(false, false, dbid, statfile, MAXPGPATH);
 
-		elog(DEBUG2, "removing temporary stat file '%s'", statfile);
+		elog(DEBUG2, "removing temporary stats file \"%s\"", statfile);
 		unlink(statfile);
 	}
 }
@@ -3966,7 +3966,7 @@ done:
 	/* If requested to read the permanent file, also get rid of it. */
 	if (permanent)
 	{
-		elog(DEBUG2, "removing permanent stats file '%s'", statfile);
+		elog(DEBUG2, "removing permanent stats file \"%s\"", statfile);
 		unlink(statfile);
 	}
 
@@ -4124,7 +4124,7 @@ done:
 
 	if (permanent)
 	{
-		elog(DEBUG2, "removing permanent stats file '%s'", statfile);
+		elog(DEBUG2, "removing permanent stats file \"%s\"", statfile);
 		unlink(statfile);
 	}
 
@@ -4354,7 +4354,9 @@ backend_read_statsfile(void)
 	}
 
 	if (count >= PGSTAT_POLL_LOOP_COUNT)
-		elog(WARNING, "pgstat wait timeout");
+		ereport(LOG,
+				(errmsg("using stale statistics instead of current ones "
+						"because stats collector is not responding")));
 
 	/*
 	 * Autovacuum launcher wants stats about all databases, but a shallow read
@@ -4423,7 +4425,7 @@ pgstat_recv_inquiry(PgStat_MsgInquiry *msg, int len)
 	DBWriteRequest *newreq;
 	PgStat_StatDBEntry *dbentry;
 
-	elog(DEBUG2, "received inquiry for %d", msg->databaseid);
+	elog(DEBUG2, "received inquiry for database %u", msg->databaseid);
 
 	/*
 	 * Find the last write request for this DB.  If it's older than the
@@ -4481,7 +4483,7 @@ pgstat_recv_inquiry(PgStat_MsgInquiry *msg, int len)
 			writetime = pstrdup(timestamptz_to_str(dbentry->stats_timestamp));
 			mytime = pstrdup(timestamptz_to_str(cur_ts));
 			elog(LOG,
-			"stats_timestamp %s is later than collector's time %s for db %d",
+				 "stats_timestamp %s is later than collector's time %s for database %u",
 				 writetime, mytime, dbentry->databaseid);
 			pfree(writetime);
 			pfree(mytime);
@@ -4653,7 +4655,7 @@ pgstat_recv_dropdb(PgStat_MsgDropdb *msg, int len)
 
 		get_dbstat_filename(false, false, dbid, statfile, MAXPGPATH);
 
-		elog(DEBUG2, "removing %s", statfile);
+		elog(DEBUG2, "removing stats file \"%s\"", statfile);
 		unlink(statfile);
 
 		if (dbentry->tables != NULL)

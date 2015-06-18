@@ -168,9 +168,10 @@ struct NumericData
  * otherwise, we want the long one.  Instead of testing against each value, we
  * can just look at the high bit, for a slight efficiency gain.
  */
+#define NUMERIC_HEADER_IS_SHORT(n)	(((n)->choice.n_header & 0x8000) != 0)
 #define NUMERIC_HEADER_SIZE(n) \
 	(VARHDRSZ + sizeof(uint16) + \
-		(((NUMERIC_FLAGBITS(n) & 0x8000) == 0) ? sizeof(int16) : 0))
+	 (NUMERIC_HEADER_IS_SHORT(n) ? 0 : sizeof(int16)))
 
 /*
  * Short format definitions.
@@ -196,11 +197,11 @@ struct NumericData
 	(NUMERIC_IS_SHORT(n) ? \
 		(((n)->choice.n_short.n_header & NUMERIC_SHORT_SIGN_MASK) ? \
 		NUMERIC_NEG : NUMERIC_POS) : NUMERIC_FLAGBITS(n))
-#define NUMERIC_DSCALE(n)	(NUMERIC_IS_SHORT((n)) ? \
+#define NUMERIC_DSCALE(n)	(NUMERIC_HEADER_IS_SHORT((n)) ? \
 	((n)->choice.n_short.n_header & NUMERIC_SHORT_DSCALE_MASK) \
 		>> NUMERIC_SHORT_DSCALE_SHIFT \
 	: ((n)->choice.n_long.n_sign_dscale & NUMERIC_DSCALE_MASK))
-#define NUMERIC_WEIGHT(n)	(NUMERIC_IS_SHORT((n)) ? \
+#define NUMERIC_WEIGHT(n)	(NUMERIC_HEADER_IS_SHORT((n)) ? \
 	(((n)->choice.n_short.n_header & NUMERIC_SHORT_WEIGHT_SIGN_MASK ? \
 		~NUMERIC_SHORT_WEIGHT_MASK : 0) \
 	 | ((n)->choice.n_short.n_header & NUMERIC_SHORT_WEIGHT_MASK)) \
@@ -361,7 +362,7 @@ static void dump_var(const char *str, NumericVar *var);
 
 #define init_var(v)		MemSetAligned(v, 0, sizeof(NumericVar))
 
-#define NUMERIC_DIGITS(num) (NUMERIC_IS_SHORT(num) ? \
+#define NUMERIC_DIGITS(num) (NUMERIC_HEADER_IS_SHORT(num) ? \
 	(num)->choice.n_short.n_data : (num)->choice.n_long.n_data)
 #define NUMERIC_NDIGITS(num) \
 	((VARSIZE(num) - NUMERIC_HEADER_SIZE(num)) / sizeof(NumericDigit))
@@ -657,6 +658,8 @@ numeric_recv(PG_FUNCTION_ARGS)
 	alloc_var(&value, len);
 
 	value.weight = (int16) pq_getmsgint(buf, sizeof(int16));
+	/* we allow any int16 for weight --- OK? */
+
 	value.sign = (uint16) pq_getmsgint(buf, sizeof(uint16));
 	if (!(value.sign == NUMERIC_POS ||
 		  value.sign == NUMERIC_NEG ||
@@ -666,6 +669,11 @@ numeric_recv(PG_FUNCTION_ARGS)
 				 errmsg("invalid sign in external \"numeric\" value")));
 
 	value.dscale = (uint16) pq_getmsgint(buf, sizeof(uint16));
+	if ((value.dscale & NUMERIC_DSCALE_MASK) != value.dscale)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+				 errmsg("invalid scale in external \"numeric\" value")));
+
 	for (i = 0; i < len; i++)
 	{
 		NumericDigit d = pq_getmsgint(buf, sizeof(NumericDigit));
@@ -676,6 +684,14 @@ numeric_recv(PG_FUNCTION_ARGS)
 					 errmsg("invalid digit in external \"numeric\" value")));
 		value.digits[i] = d;
 	}
+
+	/*
+	 * If the given dscale would hide any digits, truncate those digits away.
+	 * We could alternatively throw an error, but that would take a bunch of
+	 * extra code (about as much as trunc_var involves), and it might cause
+	 * client compatibility issues.
+	 */
+	trunc_var(&value, value.dscale);
 
 	apply_typmod(&value, typmod);
 
@@ -5676,10 +5692,12 @@ power_var(NumericVar *base, NumericVar *exp, NumericVar *result)
 static void
 power_var_int(NumericVar *base, int exp, NumericVar *result, int rscale)
 {
+	unsigned int mask;
 	bool		neg;
 	NumericVar	base_prod;
 	int			local_rscale;
 
+	/* Handle some common special cases, as well as corner cases */
 	switch (exp)
 	{
 		case 0:
@@ -5713,23 +5731,43 @@ power_var_int(NumericVar *base, int exp, NumericVar *result, int rscale)
 	 * pattern of exp.  We do the multiplications with some extra precision.
 	 */
 	neg = (exp < 0);
-	exp = Abs(exp);
+	mask = Abs(exp);
 
 	local_rscale = rscale + MUL_GUARD_DIGITS * 2;
 
 	init_var(&base_prod);
 	set_var_from_var(base, &base_prod);
 
-	if (exp & 1)
+	if (mask & 1)
 		set_var_from_var(base, result);
 	else
 		set_var_from_var(&const_one, result);
 
-	while ((exp >>= 1) > 0)
+	while ((mask >>= 1) > 0)
 	{
 		mul_var(&base_prod, &base_prod, &base_prod, local_rscale);
-		if (exp & 1)
+		if (mask & 1)
 			mul_var(&base_prod, result, result, local_rscale);
+
+		/*
+		 * When abs(base) > 1, the number of digits to the left of the decimal
+		 * point in base_prod doubles at each iteration, so if exp is large we
+		 * could easily spend large amounts of time and memory space doing the
+		 * multiplications.  But once the weight exceeds what will fit in
+		 * int16, the final result is guaranteed to overflow (or underflow, if
+		 * exp < 0), so we can give up before wasting too many cycles.
+		 */
+		if (base_prod.weight > SHRT_MAX || result->weight > SHRT_MAX)
+		{
+			/* overflow, unless neg, in which case result should be 0 */
+			if (!neg)
+				ereport(ERROR,
+						(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+						 errmsg("value overflows numeric format")));
+			zero_var(result);
+			neg = false;
+			break;
+		}
 	}
 
 	free_var(&base_prod);

@@ -2856,6 +2856,8 @@ GetLockConflicts(const LOCKTAG *locktag, LOCKMODE lockmode)
 		 * on this lockable object.
 		 */
 		LWLockRelease(partitionLock);
+		vxids[count].backendId = InvalidBackendId;
+		vxids[count].localTransactionId = InvalidLocalTransactionId;
 		return vxids;
 	}
 
@@ -2909,6 +2911,8 @@ GetLockConflicts(const LOCKTAG *locktag, LOCKMODE lockmode)
 	if (count > MaxBackends)	/* should never happen */
 		elog(PANIC, "too many conflicting locks found");
 
+	vxids[count].backendId = InvalidBackendId;
+	vxids[count].localTransactionId = InvalidLocalTransactionId;
 	return vxids;
 }
 
@@ -2996,7 +3000,7 @@ LockRefindAndRelease(LockMethod lockMethodTable, PGPROC *proc,
 	 * Decrement strong lock count.  This logic is needed only for 2PC.
 	 */
 	if (decrement_strong_lock_count
-		&& ConflictsWithRelationFastPath(&lock->tag, lockmode))
+		&& ConflictsWithRelationFastPath(locktag, lockmode))
 	{
 		uint32		fasthashcode = FastPathStrongLockHashPartition(hashcode);
 

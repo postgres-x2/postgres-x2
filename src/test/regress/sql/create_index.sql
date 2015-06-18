@@ -922,6 +922,19 @@ SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;
 
+SET enable_indexonlyscan = OFF;
+
+explain (costs off, NODES OFF, NUM_NODES OFF)
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+RESET enable_indexscan;
+
 --
 -- Check elimination of constant-NULL subexpressions
 --
