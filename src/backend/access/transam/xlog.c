@@ -6517,7 +6517,7 @@ HotStandbyActive(void)
 bool
 HotStandbyActiveInReplay(void)
 {
-	Assert(AmStartupProcess());
+	Assert(AmStartupProcess() || !IsPostmasterEnvironment);
 	return LocalHotStandbyActive;
 }
 

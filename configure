@@ -597,8 +597,8 @@ SHELL=${CONFIG_SHELL-/bin/sh}
 PACKAGE_NAME='Postgres-XC'
 PACKAGE_TARNAME='postgres-xc'
 # Package is based on former PostgreSQL, so base package version on that
-PACKAGE_VERSION='9.3.8'
-# Postgres-XC 1.2devel is based on PostgreSQL 9.3.8
+PACKAGE_VERSION='9.3.9'
+# Postgres-XC 1.2devel is based on PostgreSQL 9.3.9
 PACKAGE_STRING='Postgres-XC 1.2devel'
 PACKAGE_BUGREPORT='postgres-xc-bugs@lists.sourceforge.net'
 PACKAGE_XC_VERSION='1.2devel'
