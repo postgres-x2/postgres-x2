@@ -712,7 +712,6 @@ ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 {
 	Var		   *variable = (Var *) wrvstate->xprstate.expr;
 	TupleTableSlot *slot;
-	TupleDesc	slot_tupdesc;
 	bool		needslow = false;
 
 	if (isDone)
@@ -804,25 +803,14 @@ ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 	if (wrvstate->wrv_junkFilter != NULL)
 		slot = ExecFilterJunk(wrvstate->wrv_junkFilter, slot);
 
-	slot_tupdesc = slot->tts_tupleDescriptor;
-
 	/*
-	 * If it's a RECORD Var, we'll use the slot's type ID info.  It's likely
-	 * that the slot's type is also RECORD; if so, make sure it's been
-	 * "blessed", so that the Datum can be interpreted later.
-	 *
 	 * If the Var identifies a named composite type, we must check that the
 	 * actual tuple type is compatible with it.
 	 */
-	if (variable->vartype == RECORDOID)
-	{
-		if (slot_tupdesc->tdtypeid == RECORDOID &&
-			slot_tupdesc->tdtypmod < 0)
-			assign_record_type_typmod(slot_tupdesc);
-	}
-	else
+	if (variable->vartype != RECORDOID)
 	{
 		TupleDesc	var_tupdesc;
+		TupleDesc	slot_tupdesc;
 		int			i;
 
 		/*
@@ -838,6 +826,8 @@ ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 		 * ExecEvalWholeRowSlow to check (2) for each row.
 		 */
 		var_tupdesc = lookup_rowtype_tupdesc(variable->vartype, -1);
+
+		slot_tupdesc = slot->tts_tupleDescriptor;
 
 		if (var_tupdesc->natts != slot_tupdesc->natts)
 			ereport(ERROR,
@@ -896,6 +886,7 @@ ExecEvalWholeRowFast(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 {
 	Var		   *variable = (Var *) wrvstate->xprstate.expr;
 	TupleTableSlot *slot;
+	TupleDesc	slot_tupdesc;
 	HeapTupleHeader dtuple;
 
 	if (isDone)
@@ -924,6 +915,20 @@ ExecEvalWholeRowFast(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 	/* Apply the junkfilter if any */
 	if (wrvstate->wrv_junkFilter != NULL)
 		slot = ExecFilterJunk(wrvstate->wrv_junkFilter, slot);
+
+	/*
+	 * If it's a RECORD Var, we'll use the slot's type ID info.  It's likely
+	 * that the slot's type is also RECORD; if so, make sure it's been
+	 * "blessed", so that the Datum can be interpreted later.  (Note: we must
+	 * do this here, not in ExecEvalWholeRowVar, because some plan trees may
+	 * return different slots at different times.  We have to be ready to
+	 * bless additional slots during the run.)
+	 */
+	slot_tupdesc = slot->tts_tupleDescriptor;
+	if (variable->vartype == RECORDOID &&
+		slot_tupdesc->tdtypeid == RECORDOID &&
+		slot_tupdesc->tdtypmod < 0)
+		assign_record_type_typmod(slot_tupdesc);
 
 	/*
 	 * Copy the slot tuple and make sure any toasted fields get detoasted.
@@ -2008,6 +2013,7 @@ ExecMakeFunctionResultNoSets(FuncExprState *fcache,
 Tuplestorestate *
 ExecMakeTableFunctionResult(ExprState *funcexpr,
 							ExprContext *econtext,
+							MemoryContext argContext,
 							TupleDesc expectedDesc,
 							bool randomAccess)
 {
@@ -2089,12 +2095,18 @@ ExecMakeTableFunctionResult(ExprState *funcexpr,
 		/*
 		 * Evaluate the function's argument list.
 		 *
-		 * Note: ideally, we'd do this in the per-tuple context, but then the
-		 * argument values would disappear when we reset the context in the
-		 * inner loop.  So do it in caller context.  Perhaps we should make a
-		 * separate context just to hold the evaluated arguments?
+		 * We can't do this in the per-tuple context: the argument values
+		 * would disappear when we reset that context in the inner loop.  And
+		 * the caller's CurrentMemoryContext is typically a query-lifespan
+		 * context, so we don't want to leak memory there.  We require the
+		 * caller to pass a separate memory context that can be used for this,
+		 * and can be reset each time through to avoid bloat.
 		 */
+		MemoryContextReset(argContext);
+		oldcontext = MemoryContextSwitchTo(argContext);
 		argDone = ExecEvalFuncArgs(&fcinfo, fcache->args, econtext);
+		MemoryContextSwitchTo(oldcontext);
+
 		/* We don't allow sets in the arguments of the table function */
 		if (argDone != ExprSingleResult)
 			ereport(ERROR,

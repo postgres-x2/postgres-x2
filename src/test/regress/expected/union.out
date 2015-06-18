@@ -501,9 +501,78 @@ explain (num_nodes off, nodes off, costs off)
          ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY__1"
 (4 rows)
 
+--
+-- Test that ORDER BY for UNION ALL can be pushed down to inheritance
+-- children.
+--
+CREATE TEMP TABLE t1c (b text, a text);
+ALTER TABLE t1c INHERIT t1;
+CREATE TEMP TABLE t2c (primary key (ab)) INHERITS (t2);
+INSERT INTO t1c VALUES ('v', 'w'), ('c', 'd'), ('m', 'n'), ('e', 'f');
+INSERT INTO t2c VALUES ('vw'), ('cd'), ('mn'), ('ef');
+CREATE INDEX t1c_ab_idx on t1c ((a || b));
+set enable_seqscan = on;
+set enable_indexonlyscan = off;
+explain (costs off, nodes off, num_nodes off)
+  SELECT * FROM
+  (SELECT a || b AS ab FROM t1
+   UNION ALL
+   SELECT ab FROM t2) t
+  ORDER BY 1 LIMIT 8;
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((t1_1.a || t1_1.b))
+         ->  Append
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on t1c "_REMOTE_TABLE_QUERY__1"
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY__2"
+               ->  Data Node Scan on t2c "_REMOTE_TABLE_QUERY__3"
+(8 rows)
+
+  SELECT * FROM
+  (SELECT a || b AS ab FROM t1
+   UNION ALL
+   SELECT ab FROM t2) t
+  ORDER BY 1 LIMIT 8;
+ ab 
+----
+ ab
+ ab
+ cd
+ dc
+ ef
+ fe
+ mn
+ nm
+(8 rows)
+
 reset enable_seqscan;
 reset enable_indexscan;
 reset enable_bitmapscan;
+-- This simpler variant of the above test has been observed to fail differently
+create table events (event_id int primary key);
+create table other_events (event_id int primary key);
+create table events_child () inherits (events);
+explain (costs off, nodes off, num_nodes off)
+select event_id
+ from (select event_id from events
+       union all
+       select event_id from other_events) ss
+ order by event_id;
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Sort
+   Sort Key: events_1.event_id
+   ->  Append
+         ->  Data Node Scan on events "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on events_child "_REMOTE_TABLE_QUERY__1"
+         ->  Data Node Scan on other_events "_REMOTE_TABLE_QUERY__2"
+(6 rows)
+
+drop table events_child, events, other_events;
+reset enable_indexonlyscan;
 -- Test constraint exclusion of UNION ALL subqueries
 explain (num_nodes off, nodes off, costs off)
  SELECT * FROM

@@ -757,3 +757,54 @@ select * from int4_tbl where
   0
 (1 row)
 
+--
+-- Check for incorrect optimization when IN subquery contains a SRF
+--
+explain (verbose, costs off, nodes off, num_nodes off)
+select * from int4_tbl o where (f1, f1) in
+  (select f1, generate_series(1,2) / 10 g from int4_tbl i group by f1);
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Hash Join
+   Output: f1
+   Hash Cond: (f1 = "ANY_subquery".f1)
+   ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+         Output: f1
+         Remote query: SELECT f1 FROM ONLY public.int4_tbl o WHERE true
+   ->  Hash
+         Output: "ANY_subquery".f1, "ANY_subquery".g
+         ->  HashAggregate
+               Output: "ANY_subquery".f1, "ANY_subquery".g
+               ->  Subquery Scan on "ANY_subquery"
+                     Output: "ANY_subquery".f1, "ANY_subquery".g
+                     Filter: ("ANY_subquery".f1 = "ANY_subquery".g)
+                     ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+                           Output: f1, (generate_series(1, 2) / 10)
+                           Remote query: SELECT f1 FROM ONLY public.int4_tbl i WHERE true GROUP BY 1
+(16 rows)
+
+select * from int4_tbl o where (f1, f1) in
+  (select f1, generate_series(1,2) / 10 g from int4_tbl i group by f1);
+ f1 
+----
+  0
+(1 row)
+
+--
+-- check for over-optimization of whole-row Var referencing an Append plan
+--
+select (select q from
+         (select 1,2,3 where f1 > 0
+          union all
+          select 4,5,6.0 where f1 <= 0
+         ) q )
+from int4_tbl ORDER BY 1;
+     q     
+-----------
+ (1,2,3)
+ (1,2,3)
+ (4,5,6.0)
+ (4,5,6.0)
+ (4,5,6.0)
+(5 rows)
+

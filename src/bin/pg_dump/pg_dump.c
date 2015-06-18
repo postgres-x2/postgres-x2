@@ -2127,6 +2127,7 @@ dumpDatabase(Archive *fout)
 				i_collate,
 				i_ctype,
 				i_frozenxid,
+				i_minmxid,
 				i_tablespace;
 	CatalogId	dbCatId;
 	DumpId		dbDumpId;
@@ -2136,7 +2137,7 @@ dumpDatabase(Archive *fout)
 			   *collate,
 			   *ctype,
 			   *tablespace;
-	uint32		frozenxid;
+	uint32		frozenxid, minmxid;
 
 	datname = PQdb(conn);
 
@@ -2147,12 +2148,26 @@ dumpDatabase(Archive *fout)
 	selectSourceSchema(fout, "pg_catalog");
 
 	/* Get the database owner and parameters from pg_database */
-	if (fout->remoteVersion >= 80400)
+	if (fout->remoteVersion >= 90300)
 	{
 		appendPQExpBuffer(dbQry, "SELECT tableoid, oid, "
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
-						  "datcollate, datctype, datfrozenxid, "
+						  "datcollate, datctype, datfrozenxid, datminmxid, "
+						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = dattablespace) AS tablespace, "
+					  "shobj_description(oid, 'pg_database') AS description "
+
+						  "FROM pg_database "
+						  "WHERE datname = ",
+						  username_subquery);
+		appendStringLiteralAH(dbQry, datname, fout);
+	}
+	else if (fout->remoteVersion >= 80400)
+	{
+		appendPQExpBuffer(dbQry, "SELECT tableoid, oid, "
+						  "(%s datdba) AS dba, "
+						  "pg_encoding_to_char(encoding) AS encoding, "
+						  "datcollate, datctype, datfrozenxid, 0 AS datminmxid, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = dattablespace) AS tablespace, "
 					  "shobj_description(oid, 'pg_database') AS description "
 
@@ -2166,7 +2181,7 @@ dumpDatabase(Archive *fout)
 		appendPQExpBuffer(dbQry, "SELECT tableoid, oid, "
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
-					   "NULL AS datcollate, NULL AS datctype, datfrozenxid, "
+					   "NULL AS datcollate, NULL AS datctype, datfrozenxid, 0 AS datminmxid, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = dattablespace) AS tablespace, "
 					  "shobj_description(oid, 'pg_database') AS description "
 
@@ -2180,7 +2195,7 @@ dumpDatabase(Archive *fout)
 		appendPQExpBuffer(dbQry, "SELECT tableoid, oid, "
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
-					   "NULL AS datcollate, NULL AS datctype, datfrozenxid, "
+					   "NULL AS datcollate, NULL AS datctype, datfrozenxid, 0 AS datminmxid, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = dattablespace) AS tablespace "
 						  "FROM pg_database "
 						  "WHERE datname = ",
@@ -2193,7 +2208,7 @@ dumpDatabase(Archive *fout)
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
 						  "NULL AS datcollate, NULL AS datctype, "
-						  "0 AS datfrozenxid, "
+						  "0 AS datfrozenxid, 0 AS datminmxid, "
 						  "NULL AS tablespace "
 						  "FROM pg_database "
 						  "WHERE datname = ",
@@ -2208,7 +2223,7 @@ dumpDatabase(Archive *fout)
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
 						  "NULL AS datcollate, NULL AS datctype, "
-						  "0 AS datfrozenxid, "
+						  "0 AS datfrozenxid, 0 AS datminmxid, "
 						  "NULL AS tablespace "
 						  "FROM pg_database "
 						  "WHERE datname = ",
@@ -2225,6 +2240,7 @@ dumpDatabase(Archive *fout)
 	i_collate = PQfnumber(res, "datcollate");
 	i_ctype = PQfnumber(res, "datctype");
 	i_frozenxid = PQfnumber(res, "datfrozenxid");
+	i_minmxid = PQfnumber(res, "datminmxid");
 	i_tablespace = PQfnumber(res, "tablespace");
 
 	dbCatId.tableoid = atooid(PQgetvalue(res, 0, i_tableoid));
@@ -2234,6 +2250,7 @@ dumpDatabase(Archive *fout)
 	collate = PQgetvalue(res, 0, i_collate);
 	ctype = PQgetvalue(res, 0, i_ctype);
 	frozenxid = atooid(PQgetvalue(res, 0, i_frozenxid));
+	minmxid = atooid(PQgetvalue(res, 0, i_minmxid));
 	tablespace = PQgetvalue(res, 0, i_tablespace);
 
 	appendPQExpBuffer(creaQry, "CREATE DATABASE %s WITH TEMPLATE = template0",
@@ -2260,11 +2277,11 @@ dumpDatabase(Archive *fout)
 
 	if (binary_upgrade)
 	{
-		appendPQExpBuffer(creaQry, "\n-- For binary upgrade, set datfrozenxid.\n");
+		appendPQExpBuffer(creaQry, "\n-- For binary upgrade, set datfrozenxid and datminmxid.\n");
 		appendPQExpBuffer(creaQry, "UPDATE pg_catalog.pg_database\n"
-						  "SET datfrozenxid = '%u'\n"
+						  "SET datfrozenxid = '%u', datminmxid = '%u'\n"
 						  "WHERE	datname = ",
-						  frozenxid);
+						  frozenxid, minmxid);
 		appendStringLiteralAH(creaQry, datname, fout);
 		appendPQExpBuffer(creaQry, ";\n");
 
@@ -2295,32 +2312,40 @@ dumpDatabase(Archive *fout)
 
 	/*
 	 * pg_largeobject and pg_largeobject_metadata come from the old system
-	 * intact, so set their relfrozenxids.
+	 * intact, so set their relfrozenxids and relminmxids.
 	 */
 	if (binary_upgrade)
 	{
 		PGresult   *lo_res;
 		PQExpBuffer loFrozenQry = createPQExpBuffer();
 		PQExpBuffer loOutQry = createPQExpBuffer();
-		int			i_relfrozenxid;
+		int			i_relfrozenxid, i_relminmxid;
 
 		/*
 		 * pg_largeobject
 		 */
-		appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid\n"
-						  "FROM pg_catalog.pg_class\n"
-						  "WHERE oid = %u;\n",
-						  LargeObjectRelationId);
+		if (fout->remoteVersion >= 90300)
+			appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid, relminmxid\n"
+							  "FROM pg_catalog.pg_class\n"
+							  "WHERE oid = %u;\n",
+							  LargeObjectRelationId);
+		else
+			appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid, 0 AS relminmxid\n"
+							  "FROM pg_catalog.pg_class\n"
+							  "WHERE oid = %u;\n",
+							  LargeObjectRelationId);
 
 		lo_res = ExecuteSqlQueryForSingleRow(fout, loFrozenQry->data);
 
 		i_relfrozenxid = PQfnumber(lo_res, "relfrozenxid");
+		i_relminmxid = PQfnumber(lo_res, "relminmxid");
 
-		appendPQExpBuffer(loOutQry, "\n-- For binary upgrade, set pg_largeobject.relfrozenxid\n");
+		appendPQExpBuffer(loOutQry, "\n-- For binary upgrade, set pg_largeobject relfrozenxid and relminmxid\n");
 		appendPQExpBuffer(loOutQry, "UPDATE pg_catalog.pg_class\n"
-						  "SET relfrozenxid = '%u'\n"
+						  "SET relfrozenxid = '%u', relminmxid = '%u'\n"
 						  "WHERE oid = %u;\n",
 						  atoi(PQgetvalue(lo_res, 0, i_relfrozenxid)),
+						  atoi(PQgetvalue(lo_res, 0, i_relminmxid)),
 						  LargeObjectRelationId);
 		ArchiveEntry(fout, nilCatalogId, createDumpId(),
 					 "pg_largeobject", NULL, NULL, "",
@@ -2339,7 +2364,13 @@ dumpDatabase(Archive *fout)
 			resetPQExpBuffer(loFrozenQry);
 			resetPQExpBuffer(loOutQry);
 
-			appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid\n"
+		if (fout->remoteVersion >= 90300)
+			appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid, relminmxid\n"
+							  "FROM pg_catalog.pg_class\n"
+							  "WHERE oid = %u;\n",
+							  LargeObjectMetadataRelationId);
+		else
+			appendPQExpBuffer(loFrozenQry, "SELECT relfrozenxid, 0 AS relminmxid\n"
 							  "FROM pg_catalog.pg_class\n"
 							  "WHERE oid = %u;\n",
 							  LargeObjectMetadataRelationId);
@@ -2347,12 +2378,14 @@ dumpDatabase(Archive *fout)
 			lo_res = ExecuteSqlQueryForSingleRow(fout, loFrozenQry->data);
 
 			i_relfrozenxid = PQfnumber(lo_res, "relfrozenxid");
+			i_relminmxid = PQfnumber(lo_res, "relminmxid");
 
-			appendPQExpBuffer(loOutQry, "\n-- For binary upgrade, set pg_largeobject_metadata.relfrozenxid\n");
+			appendPQExpBuffer(loOutQry, "\n-- For binary upgrade, set pg_largeobject_metadata relfrozenxid and relminmxid\n");
 			appendPQExpBuffer(loOutQry, "UPDATE pg_catalog.pg_class\n"
-							  "SET relfrozenxid = '%u'\n"
+							  "SET relfrozenxid = '%u', relminmxid = '%u'\n"
 							  "WHERE oid = %u;\n",
 							  atoi(PQgetvalue(lo_res, 0, i_relfrozenxid)),
+							  atoi(PQgetvalue(lo_res, 0, i_relminmxid)),
 							  LargeObjectMetadataRelationId);
 			ArchiveEntry(fout, nilCatalogId, createDumpId(),
 						 "pg_largeobject_metadata", NULL, NULL, "",
@@ -4224,8 +4257,10 @@ getTables(Archive *fout, int *numTables)
 	int			i_relhasrules;
 	int			i_relhasoids;
 	int			i_relfrozenxid;
+	int			i_relminmxid;
 	int			i_toastoid;
 	int			i_toastfrozenxid;
+	int			i_toastminmxid;
 	int			i_relpersistence;
 	int			i_relispopulated;
 	int			i_owning_tab;
@@ -4276,8 +4311,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s c.relowner) AS rolname, "
 						  "c.relchecks, c.relhastriggers, "
 						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
+						  "c.relfrozenxid, c.relminmxid, tc.oid AS toid, "
 						  "tc.relfrozenxid AS tfrozenxid, "
+						  "tc.relminmxid AS tminmxid, "
 						  "c.relpersistence, c.relispopulated, "
 						  "c.relpages, "
 						  "CASE WHEN c.reloftype <> 0 THEN c.reloftype::pg_catalog.regtype ELSE NULL END AS reloftype, "
@@ -4318,8 +4354,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s c.relowner) AS rolname, "
 						  "c.relchecks, c.relhastriggers, "
 						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
+						  "c.relfrozenxid, 0 AS relminmxid, tc.oid AS toid, "
 						  "tc.relfrozenxid AS tfrozenxid, "
+						  "0 AS tminmxid, "
 						  "c.relpersistence, 't' as relispopulated, "
 						  "c.relpages, "
 						  "CASE WHEN c.reloftype <> 0 THEN c.reloftype::pg_catalog.regtype ELSE NULL END AS reloftype, "
@@ -4357,8 +4394,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s c.relowner) AS rolname, "
 						  "c.relchecks, c.relhastriggers, "
 						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
+						  "c.relfrozenxid, 0 AS relminmxid, tc.oid AS toid, "
 						  "tc.relfrozenxid AS tfrozenxid, "
+						  "0 AS tminmxid, "
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "c.relpages, "
 						  "CASE WHEN c.reloftype <> 0 THEN c.reloftype::pg_catalog.regtype ELSE NULL END AS reloftype, "
@@ -4393,8 +4431,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s c.relowner) AS rolname, "
 						  "c.relchecks, c.relhastriggers, "
 						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
+						  "c.relfrozenxid, 0 AS relminmxid, tc.oid AS toid, "
 						  "tc.relfrozenxid AS tfrozenxid, "
+						  "0 AS tminmxid, "
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "c.relpages, "
 						  "NULL AS reloftype, "
@@ -4429,8 +4468,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s c.relowner) AS rolname, "
 					  "c.relchecks, (c.reltriggers <> 0) AS relhastriggers, "
 						  "c.relhasindex, c.relhasrules, c.relhasoids, "
-						  "c.relfrozenxid, tc.oid AS toid, "
+						  "c.relfrozenxid, 0 AS relminmxid, tc.oid AS toid, "
 						  "tc.relfrozenxid AS tfrozenxid, "
+						  "0 AS tminmxid, "
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "c.relpages, "
 						  "NULL AS reloftype, "
@@ -4465,9 +4505,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s relowner) AS rolname, "
 						  "relchecks, (reltriggers <> 0) AS relhastriggers, "
 						  "relhasindex, relhasrules, relhasoids, "
-						  "0 AS relfrozenxid, "
+						  "0 AS relfrozenxid, 0 AS relminmxid,"
 						  "0 AS toid, "
-						  "0 AS tfrozenxid, "
+						  "0 AS tfrozenxid, 0 AS tminmxid,"
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "relpages, "
 						  "NULL AS reloftype, "
@@ -4501,9 +4541,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s relowner) AS rolname, "
 						  "relchecks, (reltriggers <> 0) AS relhastriggers, "
 						  "relhasindex, relhasrules, relhasoids, "
-						  "0 AS relfrozenxid, "
+						  "0 AS relfrozenxid, 0 AS relminmxid,"
 						  "0 AS toid, "
-						  "0 AS tfrozenxid, "
+						  "0 AS tfrozenxid, 0 AS tminmxid,"
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "relpages, "
 						  "NULL AS reloftype, "
@@ -4533,9 +4573,9 @@ getTables(Archive *fout, int *numTables)
 						  "(%s relowner) AS rolname, "
 						  "relchecks, (reltriggers <> 0) AS relhastriggers, "
 						  "relhasindex, relhasrules, relhasoids, "
-						  "0 AS relfrozenxid, "
+						  "0 AS relfrozenxid, 0 AS relminmxid,"
 						  "0 AS toid, "
-						  "0 AS tfrozenxid, "
+						  "0 AS tfrozenxid, 0 AS tminmxid,"
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "relpages, "
 						  "NULL AS reloftype, "
@@ -4560,9 +4600,9 @@ getTables(Archive *fout, int *numTables)
 						  "relchecks, (reltriggers <> 0) AS relhastriggers, "
 						  "relhasindex, relhasrules, "
 						  "'t'::bool AS relhasoids, "
-						  "0 AS relfrozenxid, "
+						  "0 AS relfrozenxid, 0 AS relminmxid,"
 						  "0 AS toid, "
-						  "0 AS tfrozenxid, "
+						  "0 AS tfrozenxid, 0 AS tminmxid,"
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "relpages, "
 						  "NULL AS reloftype, "
@@ -4597,9 +4637,9 @@ getTables(Archive *fout, int *numTables)
 						  "relchecks, (reltriggers <> 0) AS relhastriggers, "
 						  "relhasindex, relhasrules, "
 						  "'t'::bool AS relhasoids, "
-						  "0 as relfrozenxid, "
+						  "0 AS relfrozenxid, 0 AS relminmxid,"
 						  "0 AS toid, "
-						  "0 AS tfrozenxid, "
+						  "0 AS tfrozenxid, 0 AS tminmxid,"
 						  "'p' AS relpersistence, 't' as relispopulated, "
 						  "0 AS relpages, "
 						  "NULL AS reloftype, "
@@ -4646,8 +4686,10 @@ getTables(Archive *fout, int *numTables)
 	i_relhasrules = PQfnumber(res, "relhasrules");
 	i_relhasoids = PQfnumber(res, "relhasoids");
 	i_relfrozenxid = PQfnumber(res, "relfrozenxid");
+	i_relminmxid = PQfnumber(res, "relminmxid");
 	i_toastoid = PQfnumber(res, "toid");
 	i_toastfrozenxid = PQfnumber(res, "tfrozenxid");
+	i_toastminmxid = PQfnumber(res, "tminmxid");
 	i_relpersistence = PQfnumber(res, "relpersistence");
 	i_relispopulated = PQfnumber(res, "relispopulated");
 	i_relpages = PQfnumber(res, "relpages");
@@ -4700,8 +4742,10 @@ getTables(Archive *fout, int *numTables)
 		tblinfo[i].relispopulated = (strcmp(PQgetvalue(res, i, i_relispopulated), "t") == 0);
 		tblinfo[i].relpages = atoi(PQgetvalue(res, i, i_relpages));
 		tblinfo[i].frozenxid = atooid(PQgetvalue(res, i, i_relfrozenxid));
+		tblinfo[i].minmxid = atooid(PQgetvalue(res, i, i_relminmxid));
 		tblinfo[i].toast_oid = atooid(PQgetvalue(res, i, i_toastoid));
 		tblinfo[i].toast_frozenxid = atooid(PQgetvalue(res, i, i_toastfrozenxid));
+		tblinfo[i].toast_minmxid = atooid(PQgetvalue(res, i, i_toastminmxid));
 		if (PQgetisnull(res, i, i_reloftype))
 			tblinfo[i].reloftype = NULL;
 		else
@@ -13294,22 +13338,23 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 								  tbinfo->reloftype);
 			}
 
-			appendPQExpBuffer(q, "\n-- For binary upgrade, set heap's relfrozenxid\n");
+			appendPQExpBuffer(q, "\n-- For binary upgrade, set heap's relfrozenxid and relminmxid\n");
 			appendPQExpBuffer(q, "UPDATE pg_catalog.pg_class\n"
-							  "SET relfrozenxid = '%u'\n"
+							  "SET relfrozenxid = '%u', relminmxid = '%u'\n"
 							  "WHERE oid = ",
-							  tbinfo->frozenxid);
+							  tbinfo->frozenxid, tbinfo->minmxid);
 			appendStringLiteralAH(q, fmtId(tbinfo->dobj.name), fout);
 			appendPQExpBuffer(q, "::pg_catalog.regclass;\n");
 
 			if (tbinfo->toast_oid)
 			{
 				/* We preserve the toast oids, so we can use it during restore */
-				appendPQExpBuffer(q, "\n-- For binary upgrade, set toast's relfrozenxid\n");
+				appendPQExpBuffer(q, "\n-- For binary upgrade, set toast's relfrozenxid and relminmxid\n");
 				appendPQExpBuffer(q, "UPDATE pg_catalog.pg_class\n"
-								  "SET relfrozenxid = '%u'\n"
+								  "SET relfrozenxid = '%u', relminmxid = '%u'\n"
 								  "WHERE oid = '%u';\n",
-								  tbinfo->toast_frozenxid, tbinfo->toast_oid);
+								  tbinfo->toast_frozenxid,
+								  tbinfo->toast_minmxid, tbinfo->toast_oid);
 			}
 		}
 
