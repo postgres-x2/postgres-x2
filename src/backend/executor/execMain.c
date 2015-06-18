@@ -816,6 +816,10 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		if (rc->isParent)
 			continue;
 
+		/*
+		 * If you change the conditions under which rel locks are acquired
+		 * here, be sure to adjust ExecOpenScanRelation to match.
+		 */
 		switch (rc->markType)
 		{
 			case ROW_MARK_EXCLUSIVE:
@@ -2344,7 +2348,9 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 			/* build a temporary HeapTuple control structure */
 			tuple.t_len = HeapTupleHeaderGetDatumLength(td);
 			ItemPointerSetInvalid(&(tuple.t_self));
-			tuple.t_tableOid = InvalidOid;
+			/* relation might be a foreign table, if so provide tableoid */
+			tuple.t_tableOid = getrelid(erm->rti,
+										epqstate->estate->es_range_table);
 #ifdef PGXC
 			tuple.t_xc_node_id = 0;
 #endif

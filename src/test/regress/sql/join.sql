@@ -482,6 +482,23 @@ LEFT JOIN (
 WHERE d.f1 IS NULL ORDER BY f1;
 
 --
+-- regression test for proper handling of outer joins within antijoins
+--
+
+create temp table tt4x(c1 int, c2 int, c3 int);
+
+explain (costs off, NODES OFF, NUM_NODES OFF)
+select * from tt4x t1
+where not exists (
+  select 1 from tt4x t2
+    left join tt4x t3 on t2.c3 = t3.c1
+    left join ( select t5.c1 as c1
+                from tt4x t4 left join tt4x t5 on t4.c2 = t5.c1
+              ) a1 on t3.c2 = a1.c1
+  where t1.c1 = t2.c2
+);
+
+--
 -- regression test for problems of the sort depicted in bug #3494
 --
 
@@ -738,7 +755,7 @@ insert into nt3 values (1,1,true);
 insert into nt3 values (2,2,false);
 insert into nt3 values (3,3,true);
 
-explain (costs off)
+explain (costs off, NODES OFF, NUM_NODES OFF)
 select nt3.id
 from nt3 as nt3
   left join
@@ -807,6 +824,15 @@ select * from
   int4(sin(1)) q1,
   int4(sin(0)) q2
 where thousand = (q1 + q2);
+
+--
+-- test ability to generate a suitable plan for a star-schema query
+--
+
+explain (costs off, NODES OFF, NUM_NODES OFF)
+select * from
+  tenk1, int8_tbl a, int8_tbl b
+where thousand = a.q1 and tenthous = b.q1 and a.q2 = 1 and b.q2 = 2;
 
 --
 -- test placement of movable quals in a parameterized join tree
@@ -944,6 +970,26 @@ explain (costs off, num_nodes off, nodes off)
   select * from tenk1 a full join tenk1 b using(unique2) where unique2 = 42;
 
 --
+-- test that quals attached to an outer join have correct semantics,
+-- specifically that they don't re-use expressions computed below the join;
+-- we force a mergejoin so that coalesce(b.q1, 1) appears as a join input
+--
+
+set enable_hashjoin to off;
+set enable_nestloop to off;
+
+explain (verbose, costs off)
+  select a.q2, b.q1
+    from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
+    where coalesce(b.q1, 1) > 0;
+select a.q2, b.q1
+  from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
+  where coalesce(b.q1, 1) > 0;
+
+reset enable_hashjoin;
+reset enable_nestloop;
+
+--
 -- test join removal
 --
 
@@ -957,14 +1003,14 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 
 -- all three cases should be optimizable into a simple seqscan
-explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
-explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
+explain (verbose true, costs false, nodes false, num_nodes false)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
 
 -- check optimization of outer join within another special join
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
@@ -978,14 +1024,14 @@ insert into child values (1, 100), (4, 400);
 
 -- this case is optimizable
 select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
   on (p.k = ss.k) order by p.k;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
@@ -994,7 +1040,7 @@ explain (verbose true, costs false, nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
@@ -1002,7 +1048,7 @@ select p.* from
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
@@ -1224,7 +1270,7 @@ select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
   lateral (select * from int4_tbl i where ss2.y > f1) ss3;
 
 -- check processing of postponed quals (bug #9041)
-explain (verbose, costs off)
+explain (verbose, costs off, num_nodes off, nodes off)
 select * from
   (select 1 as x) x cross join (select 2 as y) y
   left join lateral (

@@ -735,6 +735,13 @@ initialize_SSL(void)
 #endif
 		SSL_library_init();
 		SSL_load_error_strings();
+
+		/*
+		 * We use SSLv23_method() because it can negotiate use of the highest
+		 * mutually supported protocol version, while alternatives like
+		 * TLSv1_2_method() permit only one specific version.  Note that we
+		 * don't actually allow SSL v2, only v3 and TLS protocols (see below).
+		 */
 		SSL_context = SSL_CTX_new(SSLv23_method());
 		if (!SSL_context)
 			ereport(FATAL,
@@ -887,7 +894,6 @@ open_server_SSL(Port *port)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("could not initialize SSL connection: %s",
 						SSLerrmessage())));
-		close_SSL(port);
 		return -1;
 	}
 	if (!my_SSL_set_fd(port->ssl, port->sock))
@@ -896,7 +902,6 @@ open_server_SSL(Port *port)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("could not set SSL socket: %s",
 						SSLerrmessage())));
-		close_SSL(port);
 		return -1;
 	}
 
@@ -944,7 +949,6 @@ aloop:
 								err)));
 				break;
 		}
-		close_SSL(port);
 		return -1;
 	}
 
@@ -973,7 +977,6 @@ aloop:
 			{
 				/* shouldn't happen */
 				pfree(peer_cn);
-				close_SSL(port);
 				return -1;
 			}
 
@@ -987,7 +990,6 @@ aloop:
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("SSL certificate's common name contains embedded null")));
 				pfree(peer_cn);
-				close_SSL(port);
 				return -1;
 			}
 

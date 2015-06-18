@@ -597,8 +597,8 @@ SHELL=${CONFIG_SHELL-/bin/sh}
 PACKAGE_NAME='Postgres-XC'
 PACKAGE_TARNAME='postgres-xc'
 # Package is based on former PostgreSQL, so base package version on that
-PACKAGE_VERSION='9.3.6'
-# Postgres-XC 1.2devel is based on PostgreSQL 9.3.6
+PACKAGE_VERSION='9.3.8'
+# Postgres-XC 1.2devel is based on PostgreSQL 9.3.8
 PACKAGE_STRING='Postgres-XC 1.2devel'
 PACKAGE_BUGREPORT='postgres-xc-bugs@lists.sourceforge.net'
 PACKAGE_XC_VERSION='1.2devel'
@@ -4522,6 +4522,72 @@ if test x"$pgac_cv_prog_cc_cflags__ftree_vectorize" = x"yes"; then
   CFLAGS_VECTOR="${CFLAGS_VECTOR} -ftree-vectorize"
 fi
 
+  # We want to suppress clang's unhelpful unused-command-line-argument warnings
+  # but gcc won't complain about unrecognized -Wno-foo switches, so we have to
+  # test for the positive form and if that works, add the negative form
+  { $as_echo "$as_me:$LINENO: checking whether $CC supports -Wunused-command-line-argument" >&5
+$as_echo_n "checking whether $CC supports -Wunused-command-line-argument... " >&6; }
+if test "${pgac_cv_prog_cc_cflags__Wunused_command_line_argument+set}" = set; then
+  $as_echo_n "(cached) " >&6
+else
+  pgac_save_CFLAGS=$CFLAGS
+CFLAGS="$pgac_save_CFLAGS -Wunused-command-line-argument"
+ac_save_c_werror_flag=$ac_c_werror_flag
+ac_c_werror_flag=yes
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (ac_try="$ac_compile"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
+$as_echo "$ac_try_echo") >&5
+  (eval "$ac_compile") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest.$ac_objext; then
+  pgac_cv_prog_cc_cflags__Wunused_command_line_argument=yes
+else
+  $as_echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	pgac_cv_prog_cc_cflags__Wunused_command_line_argument=no
+fi
+
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+ac_c_werror_flag=$ac_save_c_werror_flag
+CFLAGS="$pgac_save_CFLAGS"
+fi
+{ $as_echo "$as_me:$LINENO: result: $pgac_cv_prog_cc_cflags__Wunused_command_line_argument" >&5
+$as_echo "$pgac_cv_prog_cc_cflags__Wunused_command_line_argument" >&6; }
+if test x"$pgac_cv_prog_cc_cflags__Wunused_command_line_argument" = x"yes"; then
+  NOT_THE_CFLAGS="${NOT_THE_CFLAGS} -Wunused-command-line-argument"
+fi
+
+  if test -n "$NOT_THE_CFLAGS"; then
+    CFLAGS="$CFLAGS -Wno-unused-command-line-argument"
+  fi
 elif test "$ICC" = yes; then
   # Intel's compiler has a bug/misoptimization in checking for
   # division by NAN (NaN == 0), -mp1 fixes it, so add it to the CFLAGS.
@@ -7626,25 +7692,6 @@ python_additional_libs=`${PYTHON} -c "import distutils.sysconfig; print(' '.join
 { $as_echo "$as_me:$LINENO: result: ${python_libspec} ${python_additional_libs}" >&5
 $as_echo "${python_libspec} ${python_additional_libs}" >&6; }
 
-
-# threaded python is not supported on OpenBSD
-{ $as_echo "$as_me:$LINENO: checking whether Python is compiled with thread support" >&5
-$as_echo_n "checking whether Python is compiled with thread support... " >&6; }
-pythreads=`${PYTHON} -c "import sys; print(int('thread' in sys.builtin_module_names))"`
-if test "$pythreads" = "1"; then
-  { $as_echo "$as_me:$LINENO: result: yes" >&5
-$as_echo "yes" >&6; }
-  case $host_os in
-  openbsd*)
-    { { $as_echo "$as_me:$LINENO: error: threaded Python not supported on this platform" >&5
-$as_echo "$as_me: error: threaded Python not supported on this platform" >&2;}
-   { (exit 1); exit 1; }; }
-    ;;
-  esac
-else
-  { $as_echo "$as_me:$LINENO: result: no" >&5
-$as_echo "no" >&6; }
-fi
 
 
 fi

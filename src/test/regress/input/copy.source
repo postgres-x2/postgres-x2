@@ -17,6 +17,8 @@ COPY onek FROM '@abs_builddir@/results/onek.data';
 
 COPY tenk1 FROM '@abs_srcdir@/data/tenk.data';
 
+COPY tenk1_r FROM '@abs_srcdir@/data/tenk.data';
+
 COPY slow_emp4000 FROM '@abs_srcdir@/data/rect.data';
 
 COPY person FROM '@abs_srcdir@/data/person.data';
@@ -66,6 +68,7 @@ COPY array_index_op_test FROM '@abs_srcdir@/data/array.data';
 ANALYZE aggtest;
 ANALYZE onek;
 ANALYZE tenk1;
+ANALYZE tenk1_r;
 ANALYZE slow_emp4000;
 ANALYZE person;
 ANALYZE emp;

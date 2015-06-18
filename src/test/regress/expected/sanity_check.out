@@ -61,6 +61,7 @@ SELECT relname, relhasindex
  int2_tbl                | f
  int4_tbl                | f
  int8_tbl                | f
+ int8_tbl_r              | f
  interval_tbl            | f
  iportaltest             | f
  kd_point_tbl            | t
@@ -157,6 +158,7 @@ SELECT relname, relhasindex
  stud_emp                | f
  student                 | f
  tenk1                   | t
+ tenk1_r                 | f
  tenk2                   | t
  test_range_excl         | t
  test_range_gist         | t
@@ -169,7 +171,7 @@ SELECT relname, relhasindex
  timetz_tbl              | f
  tinterval_tbl           | f
  varchar_tbl             | f
-(158 rows)
+(160 rows)
 
 --
 -- another sanity check: every system catalog that has OIDs should have

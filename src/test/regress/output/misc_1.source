@@ -638,6 +638,7 @@ SELECT user_relns() AS user_relns
  int2_tbl
  int4_tbl
  int8_tbl
+ int8_tbl_r
  interval_tbl
  iportaltest
  kd_point_tbl
@@ -677,6 +678,7 @@ SELECT user_relns() AS user_relns
  subselect_tbl
  t
  tenk1
+ tenk1_r
  tenk2
  test_range_excl
  test_range_gist
@@ -702,7 +704,7 @@ SELECT user_relns() AS user_relns
  ucview
  varchar_tbl
  xacttest
-(122 rows)
+(124 rows)
 
 SELECT name(equipment(hobby_construct(text 'skywalking', text 'mer')));
  name 

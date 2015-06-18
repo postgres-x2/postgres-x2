@@ -179,7 +179,8 @@ create table defaulttest
             , col6 ddef2 DEFAULT '88'
             , col7 ddef4 DEFAULT 8000
             , col8 ddef5
-            );
+            )
+	distribute by replication;
 insert into defaulttest(col4) values(0); -- fails, col5 defaults to null
 alter table defaulttest alter column col5 drop default;
 insert into defaulttest default values; -- succeeds, inserts domain default

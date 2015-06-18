@@ -61,7 +61,7 @@ select * from basictest order by 1, 2, 3, 4;
 
 -- check that domains inherit operations from base types
 select testtext || testvarchar as concat, testnumeric + 42 as sum
-from basictest;
+from basictest order by 1,2;
   concat   |  sum   
 -----------+--------
  hahashort | 165.12
@@ -127,13 +127,13 @@ select testint4arr[1], testchar4arr[2:2] from domarrtest order by 1, 2;
              | {{d,e,f}}
 (5 rows)
 
-select array_dims(testint4arr), array_dims(testchar4arr) from domarrtest;
+select array_dims(testint4arr), array_dims(testchar4arr) from domarrtest order by 1, 2;
  array_dims | array_dims 
 ------------+------------
- [1:2]      | [1:2][1:2]
- [1:2][1:2] | [1:1][1:2]
- [1:2]      | [1:3][1:2]
  [1:2]      | [1:2][1:1]
+ [1:2]      | [1:2][1:2]
+ [1:2]      | [1:3][1:2]
+ [1:2][1:2] | [1:1][1:2]
             | [1:2][1:3]
 (5 rows)
 
@@ -212,7 +212,6 @@ INSERT INTO nulltest values ('a', 'b', 'c', NULL, 'd'); -- Good
 COPY nulltest FROM stdin; --fail
 ERROR:  null value in column "col3" violates not-null constraint
 DETAIL:  Failing row contains (a, b, null, d, d).
-CONTEXT:  COPY nulltest, line 1: "a	b	\N	d	d"
 COPY nulltest FROM stdin; --fail
 ERROR:  domain dcheck does not allow null values
 CONTEXT:  COPY nulltest, line 1, column col5: null input
@@ -220,7 +219,6 @@ CONTEXT:  COPY nulltest, line 1, column col5: null input
 COPY nulltest FROM stdin;
 ERROR:  new row for relation "nulltest" violates check constraint "nulltest_col5_check"
 DETAIL:  Failing row contains (a, b, c, null, a).
-CONTEXT:  COPY nulltest, line 3: "a	b	c	\N	a"
 select * from nulltest order by 1, 2, 3, 4, 5;
  col1 | col2 | col3 | col4 | col5 
 ------+------+------+------+------
@@ -262,7 +260,8 @@ create table defaulttest
             , col6 ddef2 DEFAULT '88'
             , col7 ddef4 DEFAULT 8000
             , col8 ddef5
-            );
+            )
+	distribute by replication;
 insert into defaulttest(col4) values(0); -- fails, col5 defaults to null
 ERROR:  null value in column "col5" violates not-null constraint
 DETAIL:  Failing row contains (3, 12, 5, 0, null, 88, 8000, 12.12).
@@ -313,7 +312,7 @@ drop cascades to table domnotnull column col2
 -- Test ALTER DOMAIN .. DEFAULT ..
 create table domdeftest (col1 ddef1);
 insert into domdeftest default values;
-select * from domdeftest;
+select * from domdeftest order by 1;
  col1 
 ------
     3
@@ -330,7 +329,7 @@ select * from domdeftest order by 1;
 
 alter domain ddef1 drop default;
 insert into domdeftest default values;
-select * from domdeftest;
+select * from domdeftest order by 1;
  col1 
 ------
     3

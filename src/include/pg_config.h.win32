@@ -575,16 +575,16 @@
 #define PACKAGE_STRING "Postgres-XC 1.2devel"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "9.3.6"
+#define PACKAGE_VERSION "9.3.8"
 
 /* Define to the name of a signed 64-bit integer type. */
 #define PG_INT64_TYPE long long int
 
 /* PostgreSQL version as a string */
-#define PG_VERSION "9.3.6"
+#define PG_VERSION "9.3.8"
 
 /* PostgreSQL version as a number */
-#define PG_VERSION_NUM 90306
+#define PG_VERSION_NUM 90308
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "postgres-xc"
