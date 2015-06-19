@@ -1671,7 +1671,7 @@ SELECT E'\\xDEADBEEF';
        </row>
        <row>
         <entry><type>interval [ <replaceable>fields</replaceable> ] [ (<replaceable>p</replaceable>) ]</type></entry>
-        <entry>12 bytes</entry>
+        <entry>16 bytes</entry>
         <entry>time interval</entry>
         <entry>-178000000 years</entry>
         <entry>178000000 years</entry>
@@ -2591,9 +2591,25 @@ January 8 04:05:06 1999 PST
      </itemizedlist>
 
      In short, this is the difference between abbreviations
-     and full names: abbreviations always represent a fixed offset from
-     UTC, whereas most of the full names imply a local daylight-savings time
-     rule, and so have two possible UTC offsets.
+     and full names: abbreviations represent a specific offset from UTC,
+     whereas many of the full names imply a local daylight-savings time
+     rule, and so have two possible UTC offsets.  As an example,
+     <literal>2014-06-04 12:00 America/New_York</> represents noon local
+     time in New York, which for this particular date was Eastern Daylight
+     Time (UTC-4).  So <literal>2014-06-04 12:00 EDT</> specifies that
+     same time instant.  But <literal>2014-06-04 12:00 EST</> specifies
+     noon Eastern Standard Time (UTC-5), regardless of whether daylight
+     savings was nominally in effect on that date.
+    </para>
+
+    <para>
+     To complicate matters, some jurisdictions have used the same timezone
+     abbreviation to mean different UTC offsets at different times; for
+     example, in Moscow <literal>MSK</> has meant UTC+3 in some years and
+     UTC+4 in others.  <application>PostgreSQL</> interprets such
+     abbreviations according to whatever they meant (or had most recently
+     meant) on the specified date; but, as with the <literal>EST</> example
+     above, this is not necessarily the same as local civil time on that date.
     </para>
 
     <para>
