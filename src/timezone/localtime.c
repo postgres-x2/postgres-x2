@@ -25,15 +25,15 @@
 #ifndef WILDABBR
 /*----------
  * Someone might make incorrect use of a time zone abbreviation:
- *	1.	They might reference tzname[0] before calling tzset (explicitly
+ *	1.  They might reference tzname[0] before calling tzset (explicitly
  *		or implicitly).
- *	2.	They might reference tzname[1] before calling tzset (explicitly
+ *	2.  They might reference tzname[1] before calling tzset (explicitly
  *		or implicitly).
- *	3.	They might reference tzname[1] after setting to a time zone
+ *	3.  They might reference tzname[1] after setting to a time zone
  *		in which Daylight Saving Time is never observed.
- *	4.	They might reference tzname[0] after setting to a time zone
+ *	4.  They might reference tzname[0] after setting to a time zone
  *		in which Standard Time is never observed.
- *	5.	They might reference tm.TM_ZONE after calling offtime.
+ *	5.  They might reference tm.TM_ZONE after calling offtime.
  * What's best to do in the above cases is open to debate;
  * for now, we just set things up so that in any of the five cases
  * WILDABBR is used. Another possibility:	initialize tzname[0] to the
@@ -1292,9 +1292,9 @@ increment_overflow(int *number, int delta)
 }
 
 /*
- * Find the next DST transition time after the given time
+ * Find the next DST transition time in the given zone after the given time
  *
- * *timep is the input value, the other parameters are output values.
+ * *timep and *tz are input arguments, the other parameters are output values.
  *
  * When the function result is 1, *boundary is set to the time_t
  * representation of the next DST transition time after *timep,
@@ -1445,6 +1445,110 @@ pg_next_dst_boundary(const pg_time_t *timep,
 }
 
 /*
+ * Identify a timezone abbreviation's meaning in the given zone
+ *
+ * Determine the GMT offset and DST flag associated with the abbreviation.
+ * This is generally used only when the abbreviation has actually changed
+ * meaning over time; therefore, we also take a UTC cutoff time, and return
+ * the meaning in use at or most recently before that time, or the meaning
+ * in first use after that time if the abbrev was never used before that.
+ *
+ * On success, returns TRUE and sets *gmtoff and *isdst.  If the abbreviation
+ * was never used at all in this zone, returns FALSE.
+ *
+ * Note: abbrev is matched case-sensitively; it should be all-upper-case.
+ */
+bool
+pg_interpret_timezone_abbrev(const char *abbrev,
+							 const pg_time_t *timep,
+							 long int *gmtoff,
+							 int *isdst,
+							 const pg_tz *tz)
+{
+	const struct state *sp;
+	const char *abbrs;
+	const struct ttinfo *ttisp;
+	int			abbrind;
+	int			cutoff;
+	int			i;
+	const pg_time_t t = *timep;
+
+	sp = &tz->state;
+
+	/*
+	 * Locate the abbreviation in the zone's abbreviation list.  We assume
+	 * there are not duplicates in the list.
+	 */
+	abbrs = sp->chars;
+	abbrind = 0;
+	while (abbrind < sp->charcnt)
+	{
+		if (strcmp(abbrev, abbrs + abbrind) == 0)
+			break;
+		while (abbrs[abbrind] != '\0')
+			abbrind++;
+		abbrind++;
+	}
+	if (abbrind >= sp->charcnt)
+		return FALSE;			/* not there! */
+
+	/*
+	 * Unlike pg_next_dst_boundary, we needn't sweat about extrapolation
+	 * (goback/goahead zones).  Finding the newest or oldest meaning of the
+	 * abbreviation should get us what we want, since extrapolation would just
+	 * be repeating the newest or oldest meanings.
+	 *
+	 * Use binary search to locate the first transition > cutoff time.
+	 */
+	{
+		int			lo = 0;
+		int			hi = sp->timecnt;
+
+		while (lo < hi)
+		{
+			int			mid = (lo + hi) >> 1;
+
+			if (t < sp->ats[mid])
+				hi = mid;
+			else
+				lo = mid + 1;
+		}
+		cutoff = lo;
+	}
+
+	/*
+	 * Scan backwards to find the latest interval using the given abbrev
+	 * before the cutoff time.
+	 */
+	for (i = cutoff - 1; i >= 0; i--)
+	{
+		ttisp = &sp->ttis[sp->types[i]];
+		if (ttisp->tt_abbrind == abbrind)
+		{
+			*gmtoff = ttisp->tt_gmtoff;
+			*isdst = ttisp->tt_isdst;
+			return TRUE;
+		}
+	}
+
+	/*
+	 * Not there, so scan forwards to find the first one after.
+	 */
+	for (i = cutoff; i < sp->timecnt; i++)
+	{
+		ttisp = &sp->ttis[sp->types[i]];
+		if (ttisp->tt_abbrind == abbrind)
+		{
+			*gmtoff = ttisp->tt_gmtoff;
+			*isdst = ttisp->tt_isdst;
+			return TRUE;
+		}
+	}
+
+	return FALSE;				/* hm, not actually used in any interval? */
+}
+
+/*
  * If the given timezone uses only one GMT offset, store that offset
  * into *gmtoff and return TRUE, else return FALSE.
  */
@@ -1453,7 +1557,7 @@ pg_get_timezone_offset(const pg_tz *tz, long int *gmtoff)
 {
 	/*
 	 * The zone could have more than one ttinfo, if it's historically used
-	 * more than one abbreviation.	We return TRUE as long as they all have
+	 * more than one abbreviation.  We return TRUE as long as they all have
 	 * the same gmtoff.
 	 */
 	const struct state *sp;

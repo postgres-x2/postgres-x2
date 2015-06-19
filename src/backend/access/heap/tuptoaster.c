@@ -550,7 +550,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 			 * We took care of UPDATE above, so any external value we find
 			 * still in the tuple must be someone else's we cannot reuse.
 			 * Fetch it back (without decompression, unless we are forcing
-			 * PLAIN storage).	If necessary, we'll push it out as a new
+			 * PLAIN storage).  If necessary, we'll push it out as a new
 			 * external value below.
 			 */
 			if (VARATT_IS_EXTERNAL(new_value))
@@ -693,7 +693,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 
 	/*
 	 * Second we look for attributes of attstorage 'x' or 'e' that are still
-	 * inline.	But skip this if there's no toast table to push them to.
+	 * inline.  But skip this if there's no toast table to push them to.
 	 */
 	while (heap_compute_data_size(tupleDesc,
 								  toast_values, toast_isnull) > maxDataLen &&
@@ -803,7 +803,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 	}
 
 	/*
-	 * Finally we store attributes of type 'm' externally.	At this point we
+	 * Finally we store attributes of type 'm' externally.  At this point we
 	 * increase the target tuple size, so that 'm' attributes aren't stored
 	 * externally unless really necessary.
 	 */
@@ -948,6 +948,9 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
  *
  *	"Flatten" a tuple to contain no out-of-line toasted fields.
  *	(This does not eliminate compressed or short-header datums.)
+ *
+ *	Note: we expect the caller already checked HeapTupleHasExternal(tup),
+ *	so there is no need for a short-circuit path.
  * ----------
  */
 HeapTuple
@@ -1025,62 +1028,64 @@ toast_flatten_tuple(HeapTuple tup, TupleDesc tupleDesc)
 
 
 /* ----------
- * toast_flatten_tuple_attribute -
+ * toast_flatten_tuple_to_datum -
  *
- *	If a Datum is of composite type, "flatten" it to contain no toasted fields.
- *	This must be invoked on any potentially-composite field that is to be
- *	inserted into a tuple.	Doing this preserves the invariant that toasting
- *	goes only one level deep in a tuple.
+ *	"Flatten" a tuple containing out-of-line toasted fields into a Datum.
+ *	The result is always palloc'd in the current memory context.
  *
- *	Note that flattening does not mean expansion of short-header varlenas,
- *	so in one sense toasting is allowed within composite datums.
+ *	We have a general rule that Datums of container types (rows, arrays,
+ *	ranges, etc) must not contain any external TOAST pointers.  Without
+ *	this rule, we'd have to look inside each Datum when preparing a tuple
+ *	for storage, which would be expensive and would fail to extend cleanly
+ *	to new sorts of container types.
+ *
+ *	However, we don't want to say that tuples represented as HeapTuples
+ *	can't contain toasted fields, so instead this routine should be called
+ *	when such a HeapTuple is being converted into a Datum.
+ *
+ *	While we're at it, we decompress any compressed fields too.  This is not
+ *	necessary for correctness, but reflects an expectation that compression
+ *	will be more effective if applied to the whole tuple not individual
+ *	fields.  We are not so concerned about that that we want to deconstruct
+ *	and reconstruct tuples just to get rid of compressed fields, however.
+ *	So callers typically won't call this unless they see that the tuple has
+ *	at least one external field.
+ *
+ *	On the other hand, in-line short-header varlena fields are left alone.
+ *	If we "untoasted" them here, they'd just get changed back to short-header
+ *	format anyway within heap_fill_tuple.
  * ----------
  */
 Datum
-toast_flatten_tuple_attribute(Datum value,
-							  Oid typeId, int32 typeMod)
+toast_flatten_tuple_to_datum(HeapTupleHeader tup,
+							 uint32 tup_len,
+							 TupleDesc tupleDesc)
 {
-	TupleDesc	tupleDesc;
-	HeapTupleHeader olddata;
 	HeapTupleHeader new_data;
 	int32		new_header_len;
 	int32		new_data_len;
 	int32		new_tuple_len;
 	HeapTupleData tmptup;
-	Form_pg_attribute *att;
-	int			numAttrs;
+	Form_pg_attribute *att = tupleDesc->attrs;
+	int			numAttrs = tupleDesc->natts;
 	int			i;
-	bool		need_change = false;
 	bool		has_nulls = false;
 	Datum		toast_values[MaxTupleAttributeNumber];
 	bool		toast_isnull[MaxTupleAttributeNumber];
 	bool		toast_free[MaxTupleAttributeNumber];
 
-	/*
-	 * See if it's a composite type, and get the tupdesc if so.
-	 */
-	tupleDesc = lookup_rowtype_tupdesc_noerror(typeId, typeMod, true);
-	if (tupleDesc == NULL)
-		return value;			/* not a composite type */
-
-	att = tupleDesc->attrs;
-	numAttrs = tupleDesc->natts;
-
-	/*
-	 * Break down the tuple into fields.
-	 */
-	olddata = DatumGetHeapTupleHeader(value);
-	Assert(typeId == HeapTupleHeaderGetTypeId(olddata));
-	Assert(typeMod == HeapTupleHeaderGetTypMod(olddata));
 	/* Build a temporary HeapTuple control structure */
-	tmptup.t_len = HeapTupleHeaderGetDatumLength(olddata);
+	tmptup.t_len = tup_len;
 	ItemPointerSetInvalid(&(tmptup.t_self));
 	tmptup.t_tableOid = InvalidOid;
 #ifdef PGXC
 	tmptup.t_xc_node_id = 0;
 #endif
-	tmptup.t_data = olddata;
+	tmptup.t_data = tup;
 
+	/*
+	 * Break down the tuple into fields.
+	 */
 	Assert(numAttrs <= MaxTupleAttributeNumber);
 	heap_deform_tuple(&tmptup, tupleDesc, toast_values, toast_isnull);
 
@@ -1104,18 +1109,8 @@ toast_flatten_tuple_attribute(Datum value,
 				new_value = heap_tuple_untoast_attr(new_value);
 				toast_values[i] = PointerGetDatum(new_value);
 				toast_free[i] = true;
-				need_change = true;
 			}
 		}
-	}
-
-	/*
-	 * If nothing to untoast, just return the original tuple.
-	 */
-	if (!need_change)
-	{
-		ReleaseTupleDesc(tupleDesc);
-		return value;
 	}
 
 	/*
@@ -1126,7 +1121,7 @@ toast_flatten_tuple_attribute(Datum value,
 	new_header_len = offsetof(HeapTupleHeaderData, t_bits);
 	if (has_nulls)
 		new_header_len += BITMAPLEN(numAttrs);
-	if (olddata->t_infomask & HEAP_HASOID)
+	if (tup->t_infomask & HEAP_HASOID)
 		new_header_len += sizeof(Oid);
 	new_header_len = MAXALIGN(new_header_len);
 	new_data_len = heap_compute_data_size(tupleDesc,
@@ -1138,14 +1133,16 @@ toast_flatten_tuple_attribute(Datum value,
 	/*
 	 * Copy the existing tuple header, but adjust natts and t_hoff.
 	 */
-	memcpy(new_data, olddata, offsetof(HeapTupleHeaderData, t_bits));
+	memcpy(new_data, tup, offsetof(HeapTupleHeaderData, t_bits));
 	HeapTupleHeaderSetNatts(new_data, numAttrs);
 	new_data->t_hoff = new_header_len;
-	if (olddata->t_infomask & HEAP_HASOID)
-		HeapTupleHeaderSetOid(new_data, HeapTupleHeaderGetOid(olddata));
+	if (tup->t_infomask & HEAP_HASOID)
+		HeapTupleHeaderSetOid(new_data, HeapTupleHeaderGetOid(tup));
 
-	/* Reset the datum length field, too */
+	/* Set the composite-Datum header fields correctly */
 	HeapTupleHeaderSetDatumLength(new_data, new_tuple_len);
+	HeapTupleHeaderSetTypeId(new_data, tupleDesc->tdtypeid);
+	HeapTupleHeaderSetTypMod(new_data, tupleDesc->tdtypmod);
 
 	/* Copy over the data, and fill the null bitmap if needed */
 	heap_fill_tuple(tupleDesc,
@@ -1162,7 +1159,6 @@ toast_flatten_tuple_attribute(Datum value,
 	for (i = 0; i < numAttrs; i++)
 		if (toast_free[i])
 			pfree(DatumGetPointer(toast_values[i]));
-	ReleaseTupleDesc(tupleDesc);
 
 	return PointerGetDatum(new_data);
 }
@@ -1360,7 +1356,7 @@ toast_save_datum(Relation rel, Datum value,
 				 * those versions could easily reference the same toast value.
 				 * When we copy the second or later version of such a row,
 				 * reusing the OID will mean we select an OID that's already
-				 * in the new toast table.	Check for that, and if so, just
+				 * in the new toast table.  Check for that, and if so, just
 				 * fall through without writing the data again.
 				 *
 				 * While annoying and ugly-looking, this is a good thing
@@ -1426,7 +1422,7 @@ toast_save_datum(Relation rel, Datum value,
 		heap_insert(toastrel, toasttup, mycid, options, NULL);
 
 		/*
-		 * Create the index entry.	We cheat a little here by not using
+		 * Create the index entry.  We cheat a little here by not using
 		 * FormIndexDatum: this relies on the knowledge that the index columns
 		 * are the same as the initial columns of the table.
 		 *

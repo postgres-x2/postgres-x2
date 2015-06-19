@@ -51,6 +51,7 @@ const char *progname;
 
 
 static void startup_hacks(const char *progname);
+static void init_locale(const char *categoryname, int category, const char *locale);
 static void help(const char *progname);
 static void check_root(const char *progname);
 static char *get_current_username(const char *progname);
@@ -62,6 +63,8 @@ static char *get_current_username(const char *progname);
 int
 main(int argc, char *argv[])
 {
+	bool		do_check_root = true;
+
 	progname = get_progname(argv[0]);
 
 	/*
@@ -71,7 +74,7 @@ main(int argc, char *argv[])
 
 	/*
 	 * Remember the physical location of the initially given argv[] array for
-	 * possible use by ps display.	On some platforms, the argv[] storage must
+	 * possible use by ps display.  On some platforms, the argv[] storage must
 	 * be overwritten in order to set the process title for ps. In such cases
 	 * save_ps_display_args makes and returns a new copy of the argv[] array.
 	 *
@@ -100,10 +103,10 @@ main(int argc, char *argv[])
 	MemoryContextInit();
 
 	/*
-	 * Set up locale information from environment.	Note that LC_CTYPE and
+	 * Set up locale information from environment.  Note that LC_CTYPE and
 	 * LC_COLLATE will be overridden later from pg_control if we are in an
 	 * already-initialized database.  We set them here so that they will be
-	 * available to fill pg_control during initdb.	LC_MESSAGES will get set
+	 * available to fill pg_control during initdb.  LC_MESSAGES will get set
 	 * later during GUC option processing, but we set it here to allow startup
 	 * error messages to be localized.
 	 */
@@ -122,31 +125,31 @@ main(int argc, char *argv[])
 		char	   *env_locale;
 
 		if ((env_locale = getenv("LC_COLLATE")) != NULL)
-			pg_perm_setlocale(LC_COLLATE, env_locale);
+			init_locale("LC_COLLATE", LC_COLLATE, env_locale);
 		else
-			pg_perm_setlocale(LC_COLLATE, "");
+			init_locale("LC_COLLATE", LC_COLLATE, "");
 
 		if ((env_locale = getenv("LC_CTYPE")) != NULL)
-			pg_perm_setlocale(LC_CTYPE, env_locale);
+			init_locale("LC_CTYPE", LC_CTYPE, env_locale);
 		else
-			pg_perm_setlocale(LC_CTYPE, "");
+			init_locale("LC_CTYPE", LC_CTYPE, "");
 	}
 #else
-	pg_perm_setlocale(LC_COLLATE, "");
-	pg_perm_setlocale(LC_CTYPE, "");
+	init_locale("LC_COLLATE", LC_COLLATE, "");
+	init_locale("LC_CTYPE", LC_CTYPE, "");
 #endif
 
 #ifdef LC_MESSAGES
-	pg_perm_setlocale(LC_MESSAGES, "");
+	init_locale("LC_MESSAGES", LC_MESSAGES, "");
 #endif
 
 	/*
 	 * We keep these set to "C" always, except transiently in pg_locale.c; see
 	 * that file for explanations.
 	 */
-	pg_perm_setlocale(LC_MONETARY, "C");
-	pg_perm_setlocale(LC_NUMERIC, "C");
-	pg_perm_setlocale(LC_TIME, "C");
+	init_locale("LC_MONETARY", LC_MONETARY, "C");
+	init_locale("LC_NUMERIC", LC_NUMERIC, "C");
+	init_locale("LC_TIME", LC_TIME, "C");
 
 	/*
 	 * Now that we have absorbed as much as we wish to from the locale
@@ -156,7 +159,8 @@ main(int argc, char *argv[])
 	unsetenv("LC_ALL");
 
 	/*
-	 * Catch standard options before doing much else
+	 * Catch standard options before doing much else, in particular before we
+	 * insist on not being root.
 	 */
 	if (argc > 1)
 	{
@@ -170,12 +174,29 @@ main(int argc, char *argv[])
 			puts("postgres (PostgreSQL) " PG_VERSION);
 			exit(0);
 		}
+
+		/*
+		 * In addition to the above, we allow "--describe-config" and "-C var"
+		 * to be called by root.  This is reasonably safe since these are
+		 * read-only activities.  The -C case is important because pg_ctl may
+		 * try to invoke it while still holding administrator privileges on
+		 * Windows.  Note that while -C can normally be in any argv position,
+		 * if you wanna bypass the root check you gotta put it first.  This
+		 * reduces the risk that we might misinterpret some other mode's -C
+		 * switch as being the postmaster/postgres one.
+		 */
+		if (strcmp(argv[1], "--describe-config") == 0)
+			do_check_root = false;
+		else if (argc > 2 && strcmp(argv[1], "-C") == 0)
+			do_check_root = false;
 	}
 
 	/*
-	 * Make sure we are not running as root.
+	 * Make sure we are not running as root, unless it's safe for the selected
+	 * option.
 	 */
-	check_root(progname);
+	if (do_check_root)
+		check_root(progname);
 
 	/*
 	 * Dispatch to one of various subprograms depending on first argument.
@@ -212,9 +233,9 @@ main(int argc, char *argv[])
 
 
 /*
- * Place platform-specific startup hacks here.	This is the right
+ * Place platform-specific startup hacks here.  This is the right
  * place to put code that must be executed early in the launch of any new
- * server process.	Note that this code will NOT be executed when a backend
+ * server process.  Note that this code will NOT be executed when a backend
  * or sub-bootstrap process is forked, unless we are in a fork/exec
  * environment (ie EXEC_BACKEND is defined).
  *
@@ -272,6 +293,24 @@ startup_hacks(const char *progname)
 	}
 #endif   /* WIN32 */
 }
+
+
+/*
+ * Make the initial permanent setting for a locale category.  If that fails,
+ * perhaps due to LC_foo=invalid in the environment, use locale C.  If even
+ * that fails, perhaps due to out-of-memory, the entire startup fails with it.
+ * When this returns, we are guaranteed to have a setting for the given
+ * category's environment variable.
+ */
+static void
+init_locale(const char *categoryname, int category, const char *locale)
+{
+	if (pg_perm_setlocale(category, locale) == NULL &&
+		pg_perm_setlocale(category, "C") == NULL)
+		elog(FATAL, "could not adopt \"%s\" locale nor C locale for %s",
+			 locale, categoryname);
+}
+
 
 
 /*

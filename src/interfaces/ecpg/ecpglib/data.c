@@ -291,6 +291,7 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					date		ddres;
 					timestamp	tres;
 					interval   *ires;
+					char *endptr, endchar;
 
 				case ECPGt_short:
 				case ECPGt_int:
@@ -455,6 +456,14 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					{
 						char	   *str = (char *) (var + offset * act_tuple);
 
+						/*
+						 * If varcharsize is unknown and the offset is that of
+						 * char *, then this variable represents the array of
+						 * character pointers. So, use extra indirection.
+						 */
+						if (varcharsize == 0 && offset == sizeof(char *))
+							str = *(char **)str;
+
 						if (varcharsize == 0 || varcharsize > size)
 						{
 							strncpy(str, pval, size + 1);
@@ -556,10 +565,11 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 
 				case ECPGt_decimal:
 				case ECPGt_numeric:
-					if (isarray && *pval == '"')
-						nres = PGTYPESnumeric_from_asc(pval + 1, &scan_length);
-					else
-						nres = PGTYPESnumeric_from_asc(pval, &scan_length);
+					for (endptr = pval; *endptr && *endptr != ',' && *endptr != '}'; endptr++);
+					endchar = *endptr;
+					*endptr = '\0';
+					nres = PGTYPESnumeric_from_asc(pval, &scan_length);
+					*endptr = endchar;
 
 					/* did we get an error? */
 					if (nres == NULL)
@@ -592,10 +602,7 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					}
 					else
 					{
-						if (isarray && *scan_length == '"')
-							scan_length++;
-
-						if (garbage_left(isarray, scan_length, compat))
+						if (!isarray && garbage_left(isarray, scan_length, compat))
 						{
 							free(nres);
 							ecpg_raise(lineno, ECPG_NUMERIC_FORMAT,
@@ -614,10 +621,14 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					break;
 
 				case ECPGt_interval:
-					if (isarray && *pval == '"')
-						ires = PGTYPESinterval_from_asc(pval + 1, &scan_length);
-					else
-						ires = PGTYPESinterval_from_asc(pval, &scan_length);
+					if (*pval == '"')
+						pval++;
+
+					for (endptr = pval; *endptr && *endptr != ',' && *endptr != '"' && *endptr != '}'; endptr++);
+					endchar = *endptr;
+					*endptr = '\0';
+					ires = PGTYPESinterval_from_asc(pval, &scan_length);
+					*endptr = endchar;
 
 					/* did we get an error? */
 					if (ires == NULL)
@@ -646,10 +657,10 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					}
 					else
 					{
-						if (isarray && *scan_length == '"')
+						if (*scan_length == '"')
 							scan_length++;
 
-						if (garbage_left(isarray, scan_length, compat))
+						if (!isarray && garbage_left(isarray, scan_length, compat))
 						{
 							free(ires);
 							ecpg_raise(lineno, ECPG_INTERVAL_FORMAT,
@@ -664,10 +675,14 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					break;
 
 				case ECPGt_date:
-					if (isarray && *pval == '"')
-						ddres = PGTYPESdate_from_asc(pval + 1, &scan_length);
-					else
-						ddres = PGTYPESdate_from_asc(pval, &scan_length);
+					if (*pval == '"')
+						pval++;
+
+					for (endptr = pval; *endptr && *endptr != ',' && *endptr != '"' && *endptr != '}'; endptr++);
+					endchar = *endptr;
+					*endptr = '\0';
+					ddres = PGTYPESdate_from_asc(pval, &scan_length);
+					*endptr = endchar;
 
 					/* did we get an error? */
 					if (errno != 0)
@@ -692,10 +707,10 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					}
 					else
 					{
-						if (isarray && *scan_length == '"')
+						if (*scan_length == '"')
 							scan_length++;
 
-						if (garbage_left(isarray, scan_length, compat))
+						if (!isarray && garbage_left(isarray, scan_length, compat))
 						{
 							ecpg_raise(lineno, ECPG_DATE_FORMAT,
 									   ECPG_SQLSTATE_DATATYPE_MISMATCH, pval);
@@ -708,10 +723,14 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					break;
 
 				case ECPGt_timestamp:
-					if (isarray && *pval == '"')
-						tres = PGTYPEStimestamp_from_asc(pval + 1, &scan_length);
-					else
-						tres = PGTYPEStimestamp_from_asc(pval, &scan_length);
+					if (*pval == '"')
+						pval++;
+
+					for (endptr = pval; *endptr && *endptr != ',' && *endptr != '"' && *endptr != '}'; endptr++);
+					endchar = *endptr;
+					*endptr = '\0';
+					tres = PGTYPEStimestamp_from_asc(pval, &scan_length);
+					*endptr = endchar;
 
 					/* did we get an error? */
 					if (errno != 0)
@@ -736,10 +755,10 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 					}
 					else
 					{
-						if (isarray && *scan_length == '"')
+						if (*scan_length == '"')
 							scan_length++;
 
-						if (garbage_left(isarray, scan_length, compat))
+						if (!isarray && garbage_left(isarray, scan_length, compat))
 						{
 							ecpg_raise(lineno, ECPG_TIMESTAMP_FORMAT,
 									   ECPG_SQLSTATE_DATATYPE_MISMATCH, pval);

@@ -126,19 +126,11 @@ bool		criticalSharedRelcachesBuilt = false;
 
 /*
  * This counter counts relcache inval events received since backend startup
- * (but only for rels that are actually in cache).	Presently, we use it only
+ * (but only for rels that are actually in cache).  Presently, we use it only
  * to detect whether data about to be written by write_relcache_init_file()
  * might already be obsolete.
  */
 static long relcacheInvalsReceived = 0L;
-
-/*
- * This list remembers the OIDs of the non-shared relations cached in the
- * database's local relcache init file.  Note that there is no corresponding
- * list for the shared relcache init file, for reasons explained in the
- * comments for RelationCacheInitFileRemove.
- */
-static List *initFileRelationIds = NIL;
 
 /*
  * This flag lets us optimize away work in AtEO(Sub)Xact_RelationCache().
@@ -452,7 +444,7 @@ RelationBuildTupleDesc(Relation relation)
 				Int16GetDatum(0));
 
 	/*
-	 * Open pg_attribute and begin a scan.	Force heap scan if we haven't yet
+	 * Open pg_attribute and begin a scan.  Force heap scan if we haven't yet
 	 * built the critical relcache entries (this includes initdb and startup
 	 * without a pg_internal.init file).
 	 */
@@ -515,7 +507,7 @@ RelationBuildTupleDesc(Relation relation)
 
 	/*
 	 * The attcacheoff values we read from pg_attribute should all be -1
-	 * ("unknown").  Verify this if assert checking is on.	They will be
+	 * ("unknown").  Verify this if assert checking is on.  They will be
 	 * computed when and if needed during tuple access.
 	 */
 #ifdef USE_ASSERT_CHECKING
@@ -529,7 +521,7 @@ RelationBuildTupleDesc(Relation relation)
 
 	/*
 	 * However, we can easily set the attcacheoff value for the first
-	 * attribute: it must be zero.	This eliminates the need for special cases
+	 * attribute: it must be zero.  This eliminates the need for special cases
 	 * for attnum=1 that used to exist in fastgetattr() and index_getattr().
 	 */
 	if (relation->rd_rel->relnatts > 0)
@@ -585,7 +577,7 @@ RelationBuildTupleDesc(Relation relation)
  * each relcache entry that has associated rules.  The context is used
  * just for rule info, not for any other subsidiary data of the relcache
  * entry, because that keeps the update logic in RelationClearRelation()
- * manageable.	The other subsidiary data structures are simple enough
+ * manageable.  The other subsidiary data structures are simple enough
  * to be easy to free explicitly, anyway.
  */
 static void
@@ -694,9 +686,9 @@ RelationBuildRuleLock(Relation relation)
 
 		/*
 		 * We want the rule's table references to be checked as though by the
-		 * table owner, not the user referencing the rule.	Therefore, scan
+		 * table owner, not the user referencing the rule.  Therefore, scan
 		 * through the rule's actions and set the checkAsUser field on all
-		 * rtable entries.	We have to look at the qual as well, in case it
+		 * rtable entries.  We have to look at the qual as well, in case it
 		 * contains sublinks.
 		 *
 		 * The reason for doing this when the rule is loaded, rather than when
@@ -1045,7 +1037,7 @@ RelationInitIndexAccessInfo(Relation relation)
 	amsupport = aform->amsupport;
 
 	/*
-	 * Make the private context to hold index access info.	The reason we need
+	 * Make the private context to hold index access info.  The reason we need
 	 * a context, and not just a couple of pallocs, is so that we won't leak
 	 * any subsidiary info attached to fmgr lookup records.
 	 *
@@ -1093,7 +1085,7 @@ RelationInitIndexAccessInfo(Relation relation)
 
 	/*
 	 * indcollation cannot be referenced directly through the C struct,
-	 * because it comes after the variable-width indkey field.	Must extract
+	 * because it comes after the variable-width indkey field.  Must extract
 	 * the datum the hard way...
 	 */
 	indcollDatum = fastgetattr(relation->rd_indextuple,
@@ -1118,7 +1110,7 @@ RelationInitIndexAccessInfo(Relation relation)
 
 	/*
 	 * Fill the support procedure OID array, as well as the info about
-	 * opfamilies and opclass input types.	(aminfo and supportinfo are left
+	 * opfamilies and opclass input types.  (aminfo and supportinfo are left
 	 * as zeroes, and are filled on-the-fly when used)
 	 */
 	IndexSupportInitialize(indclass, relation->rd_support,
@@ -1206,7 +1198,7 @@ IndexSupportInitialize(oidvector *indclass,
  * Note there is no provision for flushing the cache.  This is OK at the
  * moment because there is no way to ALTER any interesting properties of an
  * existing opclass --- all you can do is drop it, which will result in
- * a useless but harmless dead entry in the cache.	To support altering
+ * a useless but harmless dead entry in the cache.  To support altering
  * opclass membership (not the same as opfamily membership!), we'd need to
  * be able to flush this cache as well as the contents of relcache entries
  * for indexes.
@@ -1315,7 +1307,7 @@ LookupOpclassInfo(Oid operatorClassOid,
 	heap_close(rel, AccessShareLock);
 
 	/*
-	 * Scan pg_amproc to obtain support procs for the opclass.	We only fetch
+	 * Scan pg_amproc to obtain support procs for the opclass.  We only fetch
 	 * the default ones (those with lefttype = righttype = opcintype).
 	 */
 	if (numSupport > 0)
@@ -1835,7 +1827,7 @@ RelationDestroyRelation(Relation relation)
  *
  *	 NB: when rebuilding, we'd better hold some lock on the relation,
  *	 else the catalog data we need to read could be changing under us.
- *	 Also, a rel to be rebuilt had better have refcnt > 0.	This is because
+ *	 Also, a rel to be rebuilt had better have refcnt > 0.  This is because
  *	 an sinval reset could happen while we're accessing the catalogs, and
  *	 the rel would get blown away underneath us by RelationCacheInvalidate
  *	 if it has zero refcnt.
@@ -1858,7 +1850,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 	/*
 	 * Make sure smgr and lower levels close the relation's files, if they
 	 * weren't closed already.  If the relation is not getting deleted, the
-	 * next smgr access should reopen the files automatically.	This ensures
+	 * next smgr access should reopen the files automatically.  This ensures
 	 * that the low-level file access state is updated after, say, a vacuum
 	 * truncation.
 	 */
@@ -1870,7 +1862,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 	 * in case it is a mapped relation whose mapping changed.
 	 *
 	 * If it's a nailed index, then we need to re-read the pg_class row to see
-	 * if its relfilenode changed.	We can't necessarily do that here, because
+	 * if its relfilenode changed.  We can't necessarily do that here, because
 	 * we might be in a failed transaction.  We assume it's okay to do it if
 	 * there are open references to the relcache entry (cf notes for
 	 * AtEOXact_RelationCache).  Otherwise just mark the entry as possibly
@@ -1931,7 +1923,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 		 * over from the old entry).  This is to avoid trouble in case an
 		 * error causes us to lose control partway through.  The old entry
 		 * will still be marked !rd_isvalid, so we'll try to rebuild it again
-		 * on next access.	Meanwhile it's not any less valid than it was
+		 * on next access.  Meanwhile it's not any less valid than it was
 		 * before, so any code that might expect to continue accessing it
 		 * isn't hurt by the rebuild failure.  (Consider for example a
 		 * subtransaction that ALTERs a table and then gets canceled partway
@@ -1962,9 +1954,13 @@ RelationClearRelation(Relation relation, bool rebuild)
 		newrel = RelationBuildDesc(save_relid, false);
 		if (newrel == NULL)
 		{
-			/* Should only get here if relation was deleted */
-			RelationCacheDelete(relation);
-			RelationDestroyRelation(relation);
+			/*
+			 * This shouldn't happen as dropping a relation is intended to be
+			 * impossible if still referenced (c.f. CheckTableNotInUse()). But
+			 * if we get here anyway, we can't just delete the relcache entry,
+			 * as it possibly could get accessed later (as e.g. the error
+			 * might get trapped and handled via a subtransaction rollback).
+			 */
 			elog(ERROR, "relation %u deleted while still in use", save_relid);
 		}
 
@@ -2120,7 +2116,7 @@ RelationCacheInvalidateEntry(Oid relationId)
 /*
  * RelationCacheInvalidate
  *	 Blow away cached relation descriptors that have zero reference counts,
- *	 and rebuild those with positive reference counts.	Also reset the smgr
+ *	 and rebuild those with positive reference counts.  Also reset the smgr
  *	 relation cache and re-read relation mapping data.
  *
  *	 This is currently used only to recover from SI message buffer overflow,
@@ -2133,7 +2129,7 @@ RelationCacheInvalidateEntry(Oid relationId)
  *	 We do this in two phases: the first pass deletes deletable items, and
  *	 the second one rebuilds the rebuildable items.  This is essential for
  *	 safety, because hash_seq_search only copes with concurrent deletion of
- *	 the element it is currently visiting.	If a second SI overflow were to
+ *	 the element it is currently visiting.  If a second SI overflow were to
  *	 occur while we are walking the table, resulting in recursive entry to
  *	 this routine, we could crash because the inner invocation blows away
  *	 the entry next to be visited by the outer scan.  But this way is OK,
@@ -2284,7 +2280,7 @@ AtEOXact_RelationCache(bool isCommit)
 	 * unless there is actually something for this routine to do.  Other than
 	 * the debug-only Assert checks, most transactions don't create any work
 	 * for us to do here, so we keep a static flag that gets set if there is
-	 * anything to do.	(Currently, this means either a relation is created in
+	 * anything to do.  (Currently, this means either a relation is created in
 	 * the current xact, or one is given a new relfilenode, or an index list
 	 * is forced.)	For simplicity, the flag remains set till end of top-level
 	 * transaction, even though we could clear it at subtransaction end in
@@ -2581,7 +2577,7 @@ RelationBuildLocalRelation(const char *relname,
 
 	/*
 	 * Insert relation physical and logical identifiers (OIDs) into the right
-	 * places.	For a mapped relation, we set relfilenode to zero and rely on
+	 * places.  For a mapped relation, we set relfilenode to zero and rely on
 	 * RelationInitPhysicalAddr to consult the map.
 	 */
 	rel->rd_rel->relisshared = shared_relation;
@@ -2814,7 +2810,7 @@ RelationCacheInitializePhase2(void)
 	oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
 
 	/*
-	 * Try to load the shared relcache cache file.	If unsuccessful, bootstrap
+	 * Try to load the shared relcache cache file.  If unsuccessful, bootstrap
 	 * the cache with pre-made descriptors for the critical shared catalogs.
 	 */
 	if (!load_relcache_init_file(true))
@@ -2894,9 +2890,9 @@ RelationCacheInitializePhase3(void)
 
 	/*
 	 * If we didn't get the critical system indexes loaded into relcache, do
-	 * so now.	These are critical because the catcache and/or opclass cache
+	 * so now.  These are critical because the catcache and/or opclass cache
 	 * depend on them for fetches done during relcache load.  Thus, we have an
-	 * infinite-recursion problem.	We can break the recursion by doing
+	 * infinite-recursion problem.  We can break the recursion by doing
 	 * heapscans instead of indexscans at certain key spots. To avoid hobbling
 	 * performance, we only want to do that until we have the critical indexes
 	 * loaded into relcache.  Thus, the flag criticalRelcachesBuilt is used to
@@ -2913,7 +2909,7 @@ RelationCacheInitializePhase3(void)
 	 * RewriteRelRulenameIndexId and TriggerRelidNameIndexId are not critical
 	 * in the same way as the others, because the critical catalogs don't
 	 * (currently) have any rules or triggers, and so these indexes can be
-	 * rebuilt without inducing recursion.	However they are used during
+	 * rebuilt without inducing recursion.  However they are used during
 	 * relcache load when a rel does have rules or triggers, so we choose to
 	 * nail them for performance reasons.
 	 */
@@ -2943,7 +2939,7 @@ RelationCacheInitializePhase3(void)
 	 *
 	 * DatabaseNameIndexId isn't critical for relcache loading, but rather for
 	 * initial lookup of MyDatabaseId, without which we'll never find any
-	 * non-shared catalogs at all.	Autovacuum calls InitPostgres with a
+	 * non-shared catalogs at all.  Autovacuum calls InitPostgres with a
 	 * database OID, so it instead depends on DatabaseOidIndexId.  We also
 	 * need to nail up some indexes on pg_authid and pg_auth_members for use
 	 * during client authentication.
@@ -3087,9 +3083,6 @@ RelationCacheInitializePhase3(void)
 		 * that the init files will be most useful for future backends.
 		 */
 		InitCatalogCachePhase2();
-
-		/* reset initFileRelationIds list; we'll fill it during write */
-		initFileRelationIds = NIL;
 
 		/* now write the files */
 		write_relcache_init_file(true);
@@ -3375,7 +3368,7 @@ RelationGetIndexList(Relation relation)
 
 	/*
 	 * We build the list we intend to return (in the caller's context) while
-	 * doing the scan.	After successfully completing the scan, we copy that
+	 * doing the scan.  After successfully completing the scan, we copy that
 	 * list into the relcache entry.  This avoids cache-context memory leakage
 	 * if we get some sort of error partway through.
 	 */
@@ -3413,7 +3406,7 @@ RelationGetIndexList(Relation relation)
 
 		/*
 		 * indclass cannot be referenced directly through the C struct,
-		 * because it comes after the variable-width indkey field.	Must
+		 * because it comes after the variable-width indkey field.  Must
 		 * extract the datum the hard way...
 		 */
 		indclassDatum = heap_getattr(htup,
@@ -4273,10 +4266,6 @@ load_relcache_init_file(bool shared)
 	for (relno = 0; relno < num_rels; relno++)
 	{
 		RelationCacheInsert(rels[relno]);
-		/* also make a list of their OIDs, for RelationIdIsInInitFile */
-		if (!shared)
-			initFileRelationIds = lcons_oid(RelationGetRelid(rels[relno]),
-											initFileRelationIds);
 	}
 
 	pfree(rels);
@@ -4289,7 +4278,7 @@ load_relcache_init_file(bool shared)
 	return true;
 
 	/*
-	 * init file is broken, so do it the hard way.	We don't bother trying to
+	 * init file is broken, so do it the hard way.  We don't bother trying to
 	 * free the clutter we just allocated; it's not in the relcache so it
 	 * won't hurt.
 	 */
@@ -4313,8 +4302,14 @@ write_relcache_init_file(bool shared)
 	int			magic;
 	HASH_SEQ_STATUS status;
 	RelIdCacheEnt *idhentry;
-	MemoryContext oldcxt;
 	int			i;
+
+	/*
+	 * If we have already received any relcache inval events, there's no
+	 * chance of succeeding so we may as well skip the whole thing.
+	 */
+	if (relcacheInvalsReceived != 0L)
+		return;
 
 	/*
 	 * We must write a temporary file and rename it into place. Otherwise,
@@ -4354,7 +4349,7 @@ write_relcache_init_file(bool shared)
 	}
 
 	/*
-	 * Write a magic number to serve as a file version identifier.	We can
+	 * Write a magic number to serve as a file version identifier.  We can
 	 * change the magic number whenever the relcache layout changes.
 	 */
 	magic = RELCACHE_INIT_FILEMAGIC;
@@ -4373,6 +4368,16 @@ write_relcache_init_file(bool shared)
 
 		/* ignore if not correct group */
 		if (relform->relisshared != shared)
+			continue;
+
+		/*
+		 * Ignore if not supposed to be in init file.  We can allow any shared
+		 * relation that's been loaded so far to be in the shared init file,
+		 * but unshared relations must be used for catalog caches.  (Note: if
+		 * you want to change the criterion for rels to be kept in the init
+		 * file, see also inval.c.)
+		 */
+		if (!shared && !RelationSupportsSysCache(RelationGetRelid(rel)))
 			continue;
 
 		/* first write the relcache entry proper */
@@ -4431,15 +4436,6 @@ write_relcache_init_file(bool shared)
 					   relform->relnatts * sizeof(int16),
 					   fp);
 		}
-
-		/* also make a list of their OIDs, for RelationIdIsInInitFile */
-		if (!shared)
-		{
-			oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
-			initFileRelationIds = lcons_oid(RelationGetRelid(rel),
-											initFileRelationIds);
-			MemoryContextSwitchTo(oldcxt);
-		}
 	}
 
 	if (FreeFile(fp))
@@ -4496,21 +4492,6 @@ write_item(const void *data, Size len, FILE *fp)
 		elog(FATAL, "could not write init file");
 	if (fwrite(data, 1, len, fp) != len)
 		elog(FATAL, "could not write init file");
-}
-
-/*
- * Detect whether a given relation (identified by OID) is one of the ones
- * we store in the local relcache init file.
- *
- * Note that we effectively assume that all backends running in a database
- * would choose to store the same set of relations in the init file;
- * otherwise there are cases where we'd fail to detect the need for an init
- * file invalidation.  This does not seem likely to be a problem in practice.
- */
-bool
-RelationIdIsInInitFile(Oid relationId)
-{
-	return list_member_oid(initFileRelationIds, relationId);
 }
 
 /*
@@ -4579,7 +4560,7 @@ RelationCacheInitFilePostInvalidate(void)
  *
  * We used to keep the init files across restarts, but that is unsafe in PITR
  * scenarios, and even in simple crash-recovery cases there are windows for
- * the init files to become out-of-sync with the database.	So now we just
+ * the init files to become out-of-sync with the database.  So now we just
  * remove them during startup and expect the first backend launch to rebuild
  * them.  Of course, this has to happen in each database of the cluster.
  */

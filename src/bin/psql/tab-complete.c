@@ -86,7 +86,7 @@ typedef struct SchemaQuery
 
 	/*
 	 * Selection condition --- only rows meeting this condition are candidates
-	 * to display.	If catname mentions multiple tables, include the necessary
+	 * to display.  If catname mentions multiple tables, include the necessary
 	 * join condition here.  For example, "c.relkind = 'r'". Write NULL (not
 	 * an empty string) if not needed.
 	 */
@@ -445,7 +445,7 @@ static const SchemaQuery Query_for_list_of_views = {
  * restricted to names matching a partially entered name.  In these queries,
  * the first %s will be replaced by the text entered so far (suitably escaped
  * to become a SQL literal string).  %d will be replaced by the length of the
- * string (in unescaped form).	A second and third %s, if present, will be
+ * string (in unescaped form).  A second and third %s, if present, will be
  * replaced by a suitably-escaped version of the string provided in
  * completion_info_charp.  A fourth and fifth %s are similarly replaced by
  * completion_info_charp2.
@@ -1852,7 +1852,7 @@ psql_completion(char *text, int start, int end)
 	{
 		static const char *const list_DATABASE[] =
 		{"OWNER", "TEMPLATE", "ENCODING", "TABLESPACE", "CONNECTION LIMIT",
-		NULL};
+		"LC_COLLATE", "LC_CTYPE", NULL};
 
 		COMPLETE_WITH_LIST(list_DATABASE);
 	}
@@ -3131,8 +3131,10 @@ psql_completion(char *text, int start, int end)
 /* Backslash commands */
 /* TODO:  \dc \dd \dl */
 	else if (strcmp(prev_wd, "\\connect") == 0 || strcmp(prev_wd, "\\c") == 0)
-		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
-
+	{
+		if (!recognized_connection_string(text))
+			COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+	}
 	else if (strncmp(prev_wd, "\\da", strlen("\\da")) == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_aggregates, NULL);
 	else if (strncmp(prev_wd, "\\db", strlen("\\db")) == 0)
@@ -3464,7 +3466,7 @@ _complete_from_query(int is_schema_query, const char *text, int state)
 
 			/*
 			 * When fetching relation names, suppress system catalogs unless
-			 * the input-so-far begins with "pg_".	This is a compromise
+			 * the input-so-far begins with "pg_".  This is a compromise
 			 * between not offering system catalogs for completion at all, and
 			 * having them swamp the result when the input is just "p".
 			 */
@@ -3768,7 +3770,7 @@ complete_from_files(const char *text, int state)
 
 /*
  * Make a pg_strdup copy of s and convert the case according to
- * COMP_KEYWORD_CASE variable, using ref as the text that was already entered.
+ * COMP_KEYWORD_CASE setting, using ref as the text that was already entered.
  */
 static char *
 pg_strdup_keyword_case(const char *s, const char *ref)
@@ -3776,38 +3778,22 @@ pg_strdup_keyword_case(const char *s, const char *ref)
 	char	   *ret,
 			   *p;
 	unsigned char first = ref[0];
-	int			tocase;
-	const char *varval;
-
-	varval = GetVariable(pset.vars, "COMP_KEYWORD_CASE");
-	if (!varval)
-		tocase = 0;
-	else if (strcmp(varval, "lower") == 0)
-		tocase = -2;
-	else if (strcmp(varval, "preserve-lower") == 0)
-		tocase = -1;
-	else if (strcmp(varval, "preserve-upper") == 0)
-		tocase = +1;
-	else if (strcmp(varval, "upper") == 0)
-		tocase = +2;
-	else
-		tocase = 0;
-
-	/* default */
-	if (tocase == 0)
-		tocase = +1;
 
 	ret = pg_strdup(s);
 
-	if (tocase == -2
-		|| ((tocase == -1 || tocase == +1) && islower(first))
-		|| (tocase == -1 && !isalpha(first))
-		)
+	if (pset.comp_case == PSQL_COMP_CASE_LOWER ||
+		((pset.comp_case == PSQL_COMP_CASE_PRESERVE_LOWER ||
+		  pset.comp_case == PSQL_COMP_CASE_PRESERVE_UPPER) && islower(first)) ||
+		(pset.comp_case == PSQL_COMP_CASE_PRESERVE_LOWER && !isalpha(first)))
+	{
 		for (p = ret; *p; p++)
 			*p = pg_tolower((unsigned char) *p);
+	}
 	else
+	{
 		for (p = ret; *p; p++)
 			*p = pg_toupper((unsigned char) *p);
+	}
 
 	return ret;
 }
@@ -3842,7 +3828,7 @@ exec_query(const char *query)
 
 
 /*
- * Return the nwords word(s) before point.	Words are returned right to left,
+ * Return the nwords word(s) before point.  Words are returned right to left,
  * that is, previous_words[0] gets the last word before point.
  * If we run out of words, remaining array elements are set to empty strings.
  * Each array element is filled with a malloc'd string.

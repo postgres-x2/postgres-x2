@@ -16,6 +16,7 @@
 #include "postgres.h"
 
 #include "access/transam.h"
+#include "access/xact.h"
 #include "access/xlogutils.h"
 #include "catalog/dependency.h"
 #include "catalog/namespace.h"
@@ -66,7 +67,7 @@ typedef struct sequence_magic
  * rely on the relcache, since it's only, well, a cache, and may decide to
  * discard entries.)
  *
- * XXX We use linear search to find pre-existing SeqTable entries.	This is
+ * XXX We use linear search to find pre-existing SeqTable entries.  This is
  * good when only a small number of sequences are touched in a session, but
  * would suck with many different sequences.  Perhaps use a hashtable someday.
  */
@@ -369,7 +370,7 @@ ResetSequence(Oid seq_relid)
 	seq->log_cnt = 0;
 
 	/*
-	 * Create a new storage file for the sequence.	We want to keep the
+	 * Create a new storage file for the sequence.  We want to keep the
 	 * sequence's relfrozenxid at 0, since it won't contain any unfrozen XIDs.
 	 */
 	RelationSetNewRelfilenode(seq_rel, InvalidTransactionId);
@@ -419,8 +420,8 @@ fill_seq_with_data(Relation rel, HeapTuple tuple)
 	 * Two special hacks here:
 	 *
 	 * 1. Since VACUUM does not process sequences, we have to force the tuple
-	 * to have xmin = FrozenTransactionId now.	Otherwise it would become
-	 * invisible to SELECTs after 2G transactions.	It is okay to do this
+	 * to have xmin = FrozenTransactionId now.  Otherwise it would become
+	 * invisible to SELECTs after 2G transactions.  It is okay to do this
 	 * because if the current transaction aborts, no other xact will ever
 	 * examine the sequence tuple anyway.
 	 *
@@ -431,6 +432,10 @@ fill_seq_with_data(Relation rel, HeapTuple tuple)
 	 * records instead of one :-(
 	 */
 	LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
+
+	/* check the comment above nextval_internal()'s equivalent call. */
+	if (RelationNeedsWAL(rel))
+		GetTopTransactionId();
 
 	START_CRIT_SECTION();
 
@@ -553,6 +558,10 @@ AlterSequence(AlterSeqStmt *stmt)
 	/* Note that we do not change the currval() state */
 	elm->cached = elm->last;
 
+	/* check the comment above nextval_internal()'s equivalent call. */
+	if (RelationNeedsWAL(seqrel))
+		GetTopTransactionId();
+
 	/* Now okay to update the on-disk tuple */
 	START_CRIT_SECTION();
 
@@ -642,7 +651,7 @@ nextval(PG_FUNCTION_ARGS)
 	 * XXX: This is not safe in the presence of concurrent DDL, but acquiring
 	 * a lock here is more expensive than letting nextval_internal do it,
 	 * since the latter maintains a cache that keeps us from hitting the lock
-	 * manager more than once per transaction.	It's not clear whether the
+	 * manager more than once per transaction.  It's not clear whether the
 	 * performance penalty is material in practice, but for now, we do it this
 	 * way.
 	 */
@@ -758,7 +767,7 @@ nextval_internal(Oid relid)
 	}
 
 	/*
-	 * Decide whether we should emit a WAL log record.	If so, force up the
+	 * Decide whether we should emit a WAL log record.  If so, force up the
 	 * fetch count to grab SEQ_LOG_VALS more values than we actually need to
 	 * cache.  (These will then be usable without logging.)
 	 *
@@ -884,6 +893,16 @@ nextval_internal(Oid relid)
 	elm->last_valid = true;
 
 	last_used_seq = elm;
+
+	/*
+	 * If something needs to be WAL logged, acquire an xid, so this
+	 * transaction's commit will trigger a WAL flush and wait for
+	 * syncrep. It's sufficient to ensure the toplevel transaction has a xid,
+	 * no need to assign xids subxacts, that'll already trigger a appropriate
+	 * wait.  (Have to do that here, so we're outside the critical section)
+	 */
+	if (logit && RelationNeedsWAL(seqrel))
+		GetTopTransactionId();
 
 	/* ready to change the on-disk (or really, in-buffer) tuple */
 	START_CRIT_SECTION();
@@ -1119,6 +1138,10 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	/* In any case, forget any future cached numbers */
 	elm->cached = elm->last;
 
+	/* check the comment above nextval_internal()'s equivalent call. */
+	if (RelationNeedsWAL(seqrel))
+		GetTopTransactionId();
+
 	/* ready to change the on-disk (or really, in-buffer) tuple */
 	START_CRIT_SECTION();
 
@@ -1200,7 +1223,7 @@ setval3_oid(PG_FUNCTION_ARGS)
  * Open the sequence and acquire AccessShareLock if needed
  *
  * If we haven't touched the sequence already in this transaction,
- * we need to acquire AccessShareLock.	We arrange for the lock to
+ * we need to acquire AccessShareLock.  We arrange for the lock to
  * be owned by the top transaction, so that we don't need to do it
  * more than once per xact.
  */
@@ -1294,7 +1317,7 @@ init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel)
 
 	/*
 	 * If the sequence has been transactionally replaced since we last saw it,
-	 * discard any cached-but-unissued values.	We do not touch the currval()
+	 * discard any cached-but-unissued values.  We do not touch the currval()
 	 * state, however.
 	 */
 	if (seqrel->rd_rel->relfilenode != elm->filenode)

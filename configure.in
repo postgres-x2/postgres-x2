@@ -17,7 +17,7 @@ dnl Read the Autoconf manual for details.
 dnl
 m4_pattern_forbid(^PGAC_)dnl to catch undefined macros
 
-AC_INIT([Postgres-XC], [1.1.1], [postgres-xc-bugs@lists.sourceforge.net])
+AC_INIT([Postgres-XC], [1.1devel], [postgres-xc-bugs@lists.sourceforge.net])
 
 m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.63], [], [m4_fatal([Autoconf version 2.63 is required.
 Untested combinations of 'autoconf' and PostgreSQL versions are not
@@ -1067,10 +1067,39 @@ if test "$with_libxslt" = yes ; then
   AC_CHECK_HEADER(libxslt/xslt.h, [], [AC_MSG_ERROR([header file <libxslt/xslt.h> is required for XSLT support])])
 fi
 
+# PGAC_LDAP_SAFE
+# --------------
+# PostgreSQL sometimes loads libldap_r and plain libldap into the same
+# process.  Check for OpenLDAP versions known not to tolerate doing so; assume
+# non-OpenLDAP implementations are safe.  The dblink test suite exercises the
+# hazardous interaction directly.
+
+AC_DEFUN([PGAC_LDAP_SAFE],
+[AC_CACHE_CHECK([for compatible LDAP implementation], [pgac_cv_ldap_safe],
+[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+[#include <ldap.h>
+#if !defined(LDAP_VENDOR_VERSION) || \
+     (defined(LDAP_API_FEATURE_X_OPENLDAP) && \
+      LDAP_VENDOR_VERSION >= 20424 && LDAP_VENDOR_VERSION <= 20431)
+choke me
+#endif], [])],
+[pgac_cv_ldap_safe=yes],
+[pgac_cv_ldap_safe=no])])
+
+if test "$pgac_cv_ldap_safe" != yes; then
+  AC_MSG_WARN([
+*** With OpenLDAP versions 2.4.24 through 2.4.31, inclusive, each backend
+*** process that loads libpq (via WAL receiver, dblink, or postgres_fdw) and
+*** also uses LDAP will crash on exit.])
+fi])
+
+
+
 if test "$with_ldap" = yes ; then
   if test "$PORTNAME" != "win32"; then
      AC_CHECK_HEADERS(ldap.h, [],
                       [AC_MSG_ERROR([header file <ldap.h> is required for LDAP])])
+     PGAC_LDAP_SAFE
   else
      AC_CHECK_HEADERS(winldap.h, [],
                       [AC_MSG_ERROR([header file <winldap.h> is required for LDAP])],
@@ -1212,7 +1241,7 @@ PGAC_FUNC_GETTIMEOFDAY_1ARG
 LIBS_including_readline="$LIBS"
 LIBS=`echo "$LIBS" | sed -e 's/-ledit//g' -e 's/-lreadline//g'`
 
-AC_CHECK_FUNCS([cbrt dlopen fdatasync getifaddrs getpeerucred getrlimit mbstowcs_l memmove poll pstat readlink setproctitle setsid sigprocmask symlink towlower utime utimes waitpid wcstombs wcstombs_l])
+AC_CHECK_FUNCS([cbrt dlopen fdatasync getifaddrs getpeerucred getrlimit mbstowcs_l memmove poll pstat pthread_is_threaded_np readlink setproctitle setsid sigprocmask symlink towlower utime utimes waitpid wcstombs wcstombs_l])
 
 AC_REPLACE_FUNCS(fseeko)
 case $host_os in
@@ -1326,7 +1355,7 @@ else
   AC_CHECK_FUNCS([fpclass fp_class fp_class_d class], [break])
 fi
 
-AC_REPLACE_FUNCS([crypt fls getopt getrusage inet_aton random rint srandom strerror strlcat strlcpy])
+AC_REPLACE_FUNCS([crypt fls getopt getrusage inet_aton mkdtemp random rint srandom strerror strlcat strlcpy])
 
 case $host_os in
 

@@ -225,7 +225,7 @@ set_rel_size(PlannerInfo *root, RelOptInfo *rel,
 		 * We proved we don't need to scan the rel via constraint exclusion,
 		 * so set up a single dummy path for it.  Here we only check this for
 		 * regular baserels; if it's an otherrel, CE was already checked in
-		 * set_append_rel_pathlist().
+		 * set_append_rel_size().
 		 *
 		 * In this case, we go ahead and set up the relation's path right away
 		 * instead of leaving it for set_rel_pathlist to do.  This is because
@@ -437,7 +437,7 @@ set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
  * set_append_rel_size
  *	  Set size estimates for an "append relation"
  *
- * The passed-in rel and RTE represent the entire append relation.	The
+ * The passed-in rel and RTE represent the entire append relation.  The
  * relation's contents are computed by appending together the output of
  * the individual member relations.  Note that in the inheritance case,
  * the first member relation is actually the same table as is mentioned in
@@ -501,7 +501,7 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 
 		/*
 		 * We have to copy the parent's targetlist and quals to the child,
-		 * with appropriate substitution of variables.	However, only the
+		 * with appropriate substitution of variables.  However, only the
 		 * baserestrictinfo quals are needed before we can check for
 		 * constraint exclusion; so do that first and then check to see if we
 		 * can disregard this child.
@@ -565,7 +565,7 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 
 		/*
 		 * We have to make child entries in the EquivalenceClass data
-		 * structures as well.	This is needed either if the parent
+		 * structures as well.  This is needed either if the parent
 		 * participates in some eclass joins (because we will want to consider
 		 * inner-indexscan joins on the individual children) or if the parent
 		 * has useful pathkeys (because we should try to build MergeAppend
@@ -606,7 +606,7 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 
 			/*
 			 * Accumulate per-column estimates too.  We need not do anything
-			 * for PlaceHolderVars in the parent list.	If child expression
+			 * for PlaceHolderVars in the parent list.  If child expression
 			 * isn't a Var, or we didn't record a width estimate for it, we
 			 * have to fall back on a datatype-based estimate.
 			 *
@@ -680,7 +680,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 	/*
 	 * Generate access paths for each member relation, and remember the
-	 * cheapest path for each one.	Also, identify all pathkeys (orderings)
+	 * cheapest path for each one.  Also, identify all pathkeys (orderings)
 	 * and parameterizations (required_outer sets) available for the member
 	 * relations.
 	 */
@@ -724,7 +724,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 		/*
 		 * Collect lists of all the available path orderings and
-		 * parameterizations for all the children.	We use these as a
+		 * parameterizations for all the children.  We use these as a
 		 * heuristic to indicate which sort orderings and parameterizations we
 		 * should build Append and MergeAppend paths for.
 		 */
@@ -807,7 +807,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	 * so that not that many cases actually get considered here.)
 	 *
 	 * The Append node itself cannot enforce quals, so all qual checking must
-	 * be done in the child paths.	This means that to have a parameterized
+	 * be done in the child paths.  This means that to have a parameterized
 	 * Append path, we must have the exact same parameterization for each
 	 * child path; otherwise some children might be failing to check the
 	 * moved-down quals.  To make them match up, we can try to increase the
@@ -977,7 +977,7 @@ get_cheapest_parameterized_child_path(PlannerInfo *root, RelOptInfo *rel,
 	 * joinquals to be checked within the path's scan.  However, some existing
 	 * paths might check the available joinquals already while others don't;
 	 * therefore, it's not clear which existing path will be cheapest after
-	 * reparameterization.	We have to go through them all and find out.
+	 * reparameterization.  We have to go through them all and find out.
 	 */
 	cheapest = NULL;
 	foreach(lc, rel->pathlist)
@@ -1021,10 +1021,15 @@ get_cheapest_parameterized_child_path(PlannerInfo *root, RelOptInfo *rel,
  * accumulate_append_subpath
  *		Add a subpath to the list being built for an Append or MergeAppend
  *
- * It's possible that the child is itself an Append path, in which case
- * we can "cut out the middleman" and just add its child paths to our
- * own list.  (We don't try to do this earlier because we need to
- * apply both levels of transformation to the quals.)
+ * It's possible that the child is itself an Append or MergeAppend path, in
+ * which case we can "cut out the middleman" and just add its child paths to
+ * our own list.  (We don't try to do this earlier because we need to apply
+ * both levels of transformation to the quals.)
+ *
+ * Note that if we omit a child MergeAppend in this way, we are effectively
+ * omitting a sort step, which seems fine: if the parent is to be an Append,
+ * its result would be unsorted anyway, while if the parent is to be a
+ * MergeAppend, there's no point in a separate sort on a child.
  */
 static List *
 accumulate_append_subpath(List *subpaths, Path *path)
@@ -1035,6 +1040,13 @@ accumulate_append_subpath(List *subpaths, Path *path)
 
 		/* list_copy is important here to avoid sharing list substructure */
 		return list_concat(subpaths, list_copy(apath->subpaths));
+	}
+	else if (IsA(path, MergeAppendPath))
+	{
+		MergeAppendPath *mpath = (MergeAppendPath *) path;
+
+		/* list_copy is important here to avoid sharing list substructure */
+		return list_concat(subpaths, list_copy(mpath->subpaths));
 	}
 	else
 		return lappend(subpaths, path);
@@ -1456,7 +1468,7 @@ make_rel_from_joinlist(PlannerInfo *root, List *joinlist)
  *		independent jointree items in the query.  This is > 1.
  *
  * 'initial_rels' is a list of RelOptInfo nodes for each independent
- *		jointree item.	These are the components to be joined together.
+ *		jointree item.  These are the components to be joined together.
  *		Note that levels_needed == list_length(initial_rels).
  *
  * Returns the final level of join relations, i.e., the relation that is
@@ -1472,7 +1484,7 @@ make_rel_from_joinlist(PlannerInfo *root, List *joinlist)
  * needed for these paths need have been instantiated.
  *
  * Note to plugin authors: the functions invoked during standard_join_search()
- * modify root->join_rel_list and root->join_rel_hash.	If you want to do more
+ * modify root->join_rel_list and root->join_rel_hash.  If you want to do more
  * than one join-order search, you'll probably need to save and restore the
  * original states of those data structures.  See geqo_eval() for an example.
  */
@@ -1571,7 +1583,7 @@ standard_join_search(PlannerInfo *root, int levels_needed, List *initial_rels)
  * column k is found to be unsafe to reference, we set unsafeColumns[k] to
  * TRUE, but we don't reject the subquery overall since column k might
  * not be referenced by some/all quals.  The unsafeColumns[] array will be
- * consulted later by qual_is_pushdown_safe().	It's better to do it this
+ * consulted later by qual_is_pushdown_safe().  It's better to do it this
  * way than to make the checks directly in qual_is_pushdown_safe(), because
  * when the subquery involves set operations we have to check the output
  * expressions in each arm of the set op.
@@ -1664,7 +1676,7 @@ recurse_pushdown_safe(Node *setOp, Query *topquery,
  * check_output_expressions - check subquery's output expressions for safety
  *
  * There are several cases in which it's unsafe to push down an upper-level
- * qual if it references a particular output column of a subquery.	We check
+ * qual if it references a particular output column of a subquery.  We check
  * each output column of the subquery and set unsafeColumns[k] to TRUE if
  * that column is unsafe for a pushed-down qual to reference.  The conditions
  * checked here are:
@@ -1682,7 +1694,7 @@ recurse_pushdown_safe(Node *setOp, Query *topquery,
  * of rows returned.  (This condition is vacuous for DISTINCT, because then
  * there are no non-DISTINCT output columns, so we needn't check.  But note
  * we are assuming that the qual can't distinguish values that the DISTINCT
- * operator sees as equal.	This is a bit shaky but we have no way to test
+ * operator sees as equal.  This is a bit shaky but we have no way to test
  * for the case, and it's unlikely enough that we shouldn't refuse the
  * optimization just because it could theoretically happen.)
  */
@@ -1799,7 +1811,7 @@ qual_is_pushdown_safe(Query *subquery, Index rti, Node *qual,
 
 	/*
 	 * It would be unsafe to push down window function calls, but at least for
-	 * the moment we could never see any in a qual anyhow.	(The same applies
+	 * the moment we could never see any in a qual anyhow.  (The same applies
 	 * to aggregates, which we check for in pull_var_clause below.)
 	 */
 	Assert(!contain_window_function(qual));

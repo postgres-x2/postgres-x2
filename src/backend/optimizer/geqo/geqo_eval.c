@@ -49,6 +49,9 @@ static bool desirable_join(PlannerInfo *root,
  * geqo_eval
  *
  * Returns cost of a query tree as an individual of the population.
+ *
+ * If no legal join order can be extracted from the proposed tour,
+ * returns DBL_MAX.
  */
 Cost
 geqo_eval(PlannerInfo *root, Gene *tour, int num_gene)
@@ -81,11 +84,11 @@ geqo_eval(PlannerInfo *root, Gene *tour, int num_gene)
 	 * not already contain some entries.  The newly added entries will be
 	 * recycled by the MemoryContextDelete below, so we must ensure that the
 	 * list is restored to its former state before exiting.  We can do this by
-	 * truncating the list to its original length.	NOTE this assumes that any
+	 * truncating the list to its original length.  NOTE this assumes that any
 	 * added entries are appended at the end!
 	 *
 	 * We also must take care not to mess up the outer join_rel_hash, if there
-	 * is one.	We can do this by just temporarily setting the link to NULL.
+	 * is one.  We can do this by just temporarily setting the link to NULL.
 	 * (If we are dealing with enough join rels, which we very likely are, a
 	 * new hash table will get built and used locally.)
 	 *
@@ -101,12 +104,19 @@ geqo_eval(PlannerInfo *root, Gene *tour, int num_gene)
 	joinrel = gimme_tree(root, tour, num_gene);
 
 	/*
-	 * compute fitness
+	 * compute fitness, if we found a valid join
 	 *
 	 * XXX geqo does not currently support optimization for partial result
 	 * retrieval --- how to fix?
 	 */
-	fitness = joinrel->cheapest_total_path->total_cost;
+	if (joinrel)
+	{
+		Path	   *best_path = joinrel->cheapest_total_path;
+
+		fitness = best_path->total_cost;
+	}
+	else
+		fitness = DBL_MAX;
 
 	/*
 	 * Restore join_rel_list to its former state, and put back original
@@ -131,7 +141,8 @@ geqo_eval(PlannerInfo *root, Gene *tour, int num_gene)
  *	 'tour' is the proposed join order, of length 'num_gene'
  *
  * Returns a new join relation whose cheapest path is the best plan for
- * this join order.
+ * this join order.  NB: will return NULL if join order is invalid and
+ * we can't modify it into a valid order.
  *
  * The original implementation of this routine always joined in the specified
  * order, and so could only build left-sided plans (and right-sided and
@@ -144,7 +155,10 @@ geqo_eval(PlannerInfo *root, Gene *tour, int num_gene)
  * postpones joins that are illegal or seem unsuitable according to some
  * heuristic rules.  This allows correct bushy plans to be generated at need,
  * and as a nice side-effect it seems to materially improve the quality of the
- * generated plans.
+ * generated plans.  Note however that since it's just a heuristic, it can
+ * still fail in some cases.  (In particular, we might clump together
+ * relations that actually mustn't be joined yet due to LATERAL restrictions;
+ * since there's no provision for un-clumping, this must lead to failure.)
  */
 RelOptInfo *
 gimme_tree(PlannerInfo *root, Gene *tour, int num_gene)
@@ -161,9 +175,8 @@ gimme_tree(PlannerInfo *root, Gene *tour, int num_gene)
 	 * to; if there is none then it becomes a new clump of its own. When we
 	 * enlarge an existing clump we check to see if it can now be merged with
 	 * any other clumps.  After the tour is all scanned, we forget about the
-	 * heuristics and try to forcibly join any remaining clumps.  Some forced
-	 * joins might still fail due to semantics, but we should always be able
-	 * to find some join order that works.
+	 * heuristics and try to forcibly join any remaining clumps.  If we are
+	 * unable to merge all the clumps into one, fail.
 	 */
 	clumps = NIL;
 
@@ -205,7 +218,7 @@ gimme_tree(PlannerInfo *root, Gene *tour, int num_gene)
 
 	/* Did we succeed in forming a single join relation? */
 	if (list_length(clumps) != 1)
-		elog(ERROR, "failed to join all relations together");
+		return NULL;
 
 	return ((Clump *) linitial(clumps))->joinrel;
 }
@@ -214,7 +227,7 @@ gimme_tree(PlannerInfo *root, Gene *tour, int num_gene)
  * Merge a "clump" into the list of existing clumps for gimme_tree.
  *
  * We try to merge the clump into some existing clump, and repeat if
- * successful.	When no more merging is possible, insert the clump
+ * successful.  When no more merging is possible, insert the clump
  * into the list, preserving the list ordering rule (namely, that
  * clumps of larger size appear earlier).
  *
@@ -265,7 +278,7 @@ merge_clump(PlannerInfo *root, List *clumps, Clump *new_clump, bool force)
 
 				/*
 				 * Recursively try to merge the enlarged old_clump with
-				 * others.	When no further merge is possible, we'll reinsert
+				 * others.  When no further merge is possible, we'll reinsert
 				 * it into the list.
 				 */
 				return merge_clump(root, clumps, old_clump, force);
@@ -276,7 +289,7 @@ merge_clump(PlannerInfo *root, List *clumps, Clump *new_clump, bool force)
 
 	/*
 	 * No merging is possible, so add new_clump as an independent clump, in
-	 * proper order according to size.	We can be fast for the common case
+	 * proper order according to size.  We can be fast for the common case
 	 * where it has size 1 --- it should always go at the end.
 	 */
 	if (clumps == NIL || new_clump->size == 1)

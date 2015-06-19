@@ -83,7 +83,7 @@ int			numattr;			/* number of attributes for cur. rel */
  * in the core "bootstrapped" catalogs.
  *
  *		XXX several of these input/output functions do catalog scans
- *			(e.g., F_REGPROCIN scans pg_proc).	this obviously creates some
+ *			(e.g., F_REGPROCIN scans pg_proc).  this obviously creates some
  *			order dependencies in the catalog creation process.
  */
 struct typinfo
@@ -385,7 +385,7 @@ AuxiliaryProcessMain(int argc, char *argv[])
 #endif
 
 		/*
-		 * Assign the ProcSignalSlot for an auxiliary process.	Since it
+		 * Assign the ProcSignalSlot for an auxiliary process.  Since it
 		 * doesn't have a BackendId, the slot is statically allocated based on
 		 * the auxiliary process type (MyAuxProcType).  Backends use slots
 		 * indexed in the range from 1 to MaxBackends (inclusive), so we use
@@ -579,7 +579,7 @@ bootstrap_signals(void)
 }
 
 /*
- * Begin shutdown of an auxiliary process.	This is approximately the equivalent
+ * Begin shutdown of an auxiliary process.  This is approximately the equivalent
  * of ShutdownPostgres() in postinit.c.  We can't run transactions in an
  * auxiliary process, so most of the work of AbortTransaction() is not needed,
  * but we do need to make sure we've released any LWLocks we are holding.
@@ -894,7 +894,7 @@ cleanup(void)
  * and not an OID at all, until the first reference to a type not known in
  * TypInfo[].  At that point it will read and cache pg_type in the Typ array,
  * and subsequently return a real OID (and set the global pointer Ap to
- * point at the found row in Typ).	So caller must check whether Typ is
+ * point at the found row in Typ).  So caller must check whether Typ is
  * still NULL to determine what the return value is!
  * ----------------
  */
@@ -1050,38 +1050,33 @@ AllocateAttribute(void)
 	return attribute;
 }
 
-/* ----------------
+/*
  *		MapArrayTypeName
- * XXX arrays of "basetype" are always "_basetype".
- *	   this is an evil hack inherited from rel. 3.1.
- * XXX array dimension is thrown away because we
- *	   don't support fixed-dimension arrays.  again,
- *	   sickness from 3.1.
  *
- * the string passed in must have a '[' character in it
+ * Given a type name, produce the corresponding array type name by prepending
+ * '_' and truncating as needed to fit in NAMEDATALEN-1 bytes.  This is only
+ * used in bootstrap mode, so we can get away with assuming that the input is
+ * ASCII and we don't need multibyte-aware truncation.
  *
- * the string returned is a pointer to static storage and should NOT
- * be freed by the CALLER.
- * ----------------
+ * The given string normally ends with '[]' or '[digits]'; we discard that.
+ *
+ * The result is a palloc'd string.
  */
 char *
-MapArrayTypeName(char *s)
+MapArrayTypeName(const char *s)
 {
 	int			i,
 				j;
-	static char newStr[NAMEDATALEN];	/* array type names < NAMEDATALEN long */
+	char		newStr[NAMEDATALEN];
 
-	if (s == NULL || s[0] == '\0')
-		return s;
-
-	j = 1;
 	newStr[0] = '_';
-	for (i = 0; i < NAMEDATALEN - 1 && s[i] != '['; i++, j++)
+	j = 1;
+	for (i = 0; i < NAMEDATALEN - 2 && s[i] != '['; i++, j++)
 		newStr[j] = s[i];
 
 	newStr[j] = '\0';
 
-	return newStr;
+	return pstrdup(newStr);
 }
 
 
@@ -1091,9 +1086,9 @@ MapArrayTypeName(char *s)
  *
  *		At bootstrap time, we define a bunch of indexes on system catalogs.
  *		We postpone actually building the indexes until just before we're
- *		finished with initialization, however.	This is because the indexes
+ *		finished with initialization, however.  This is because the indexes
  *		themselves have catalog entries, and those have to be included in the
- *		indexes on those catalogs.	Doing it in two phases is the simplest
+ *		indexes on those catalogs.  Doing it in two phases is the simplest
  *		way of making sure the indexes have the right contents at the end.
  */
 void
@@ -1106,7 +1101,7 @@ index_register(Oid heap,
 
 	/*
 	 * XXX mao 10/31/92 -- don't gc index reldescs, associated info at
-	 * bootstrap time.	we'll declare the indexes now, but want to create them
+	 * bootstrap time.  we'll declare the indexes now, but want to create them
 	 * later.
 	 */
 

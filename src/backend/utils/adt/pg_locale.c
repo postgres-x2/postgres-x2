@@ -20,12 +20,12 @@
  *
  * The other categories, LC_MONETARY, LC_NUMERIC, and LC_TIME are also
  * settable at run-time.  However, we don't actually set those locale
- * categories permanently.	This would have bizarre effects like no
+ * categories permanently.  This would have bizarre effects like no
  * longer accepting standard floating-point literals in some locales.
  * Instead, we only set the locales briefly when needed, cache the
  * required information obtained from localeconv(), and set them back.
  * The cached information is only used by the formatting functions
- * (to_char, etc.) and the money type.	For the user, this should all be
+ * (to_char, etc.) and the money type.  For the user, this should all be
  * transparent.
  *
  * !!! NOW HEAR THIS !!!
@@ -39,7 +39,7 @@
  *				fail = true;
  *			setlocale(category, save);
  * DOES NOT WORK RELIABLY: on some platforms the second setlocale() call
- * will change the memory save is pointing at.	To do this sort of thing
+ * will change the memory save is pointing at.  To do this sort of thing
  * safely, you *must* pstrdup what setlocale returns the first time.
  *
  * FYI, The Open Group locale standard is defined here:
@@ -224,7 +224,7 @@ pg_perm_setlocale(int category, const char *locale)
  * Is the locale name valid for the locale category?
  *
  * If successful, and canonname isn't NULL, a palloc'd copy of the locale's
- * canonical name is stored there.	This is especially useful for figuring out
+ * canonical name is stored there.  This is especially useful for figuring out
  * what locale name "" means (ie, the server environment value).  (Actually,
  * it seems that on most implementations that's the only thing it's good for;
  * we could wish that setlocale gave back a canonically spelled version of
@@ -267,7 +267,7 @@ check_locale(int category, const char *locale, char **canonname)
  *
  * For most locale categories, the assign hook doesn't actually set the locale
  * permanently, just reset flags so that the next use will cache the
- * appropriate values.	(See explanation at the top of this file.)
+ * appropriate values.  (See explanation at the top of this file.)
  *
  * Note: we accept value = "" as selecting the postmaster's environment
  * value, whatever it was (so long as the environment setting is legal).
@@ -558,24 +558,34 @@ PGLC_localeconv(void)
  * pg_strftime(), which isn't locale-aware and does not need to be replaced.
  */
 static size_t
-strftime_win32(char *dst, size_t dstlen, const wchar_t *format, const struct tm * tm)
+strftime_win32(char *dst, size_t dstlen,
+			   const char *format, const struct tm * tm)
 {
 	size_t		len;
+	wchar_t		wformat[8];		/* formats used below need 3 bytes */
 	wchar_t		wbuf[MAX_L10N_DATA];
 	int			encoding;
 
 	encoding = GetDatabaseEncoding();
 
-	len = wcsftime(wbuf, MAX_L10N_DATA, format, tm);
+	/* get a wchar_t version of the format string */
+	len = MultiByteToWideChar(CP_UTF8, 0, format, -1,
+							  wformat, lengthof(wformat));
+	if (len == 0)
+		elog(ERROR, "could not convert format string from UTF-8: error code %lu",
+			 GetLastError());
+
+	len = wcsftime(wbuf, MAX_L10N_DATA, wformat, tm);
 	if (len == 0)
 
 		/*
-		 * strftime call failed - return 0 with the contents of dst
-		 * unspecified
+		 * strftime failed, possibly because the result would not fit in
+		 * MAX_L10N_DATA.  Return 0 with the contents of dst unspecified.
 		 */
 		return 0;
 
-	len = WideCharToMultiByte(CP_UTF8, 0, wbuf, len, dst, dstlen, NULL, NULL);
+	len = WideCharToMultiByte(CP_UTF8, 0, wbuf, len, dst, dstlen - 1,
+							  NULL, NULL);
 	if (len == 0)
 		elog(ERROR,
 		"could not convert string to UTF-8: error code %lu", GetLastError());
@@ -598,9 +608,33 @@ strftime_win32(char *dst, size_t dstlen, const wchar_t *format, const struct tm 
 }
 
 /* redefine strftime() */
-#define strftime(a,b,c,d) strftime_win32(a,b,L##c,d)
+#define strftime(a,b,c,d) strftime_win32(a,b,c,d)
 #endif   /* WIN32 */
 
+/* Subroutine for cache_locale_time(). */
+static void
+cache_single_time(char **dst, const char *format, const struct tm * tm)
+{
+	char		buf[MAX_L10N_DATA];
+	char	   *ptr;
+
+	/*
+	 * MAX_L10N_DATA is sufficient buffer space for every known locale, and
+	 * POSIX defines no strftime() errors.  (Buffer space exhaustion is not an
+	 * error.)  An implementation might report errors (e.g. ENOMEM) by
+	 * returning 0 (or, less plausibly, a negative value) and setting errno.
+	 * Report errno just in case the implementation did that, but clear it in
+	 * advance of the call so we don't emit a stale, unrelated errno.
+	 */
+	errno = 0;
+	if (strftime(buf, MAX_L10N_DATA, format, tm) <= 0)
+		elog(ERROR, "strftime(%s) failed: %m", format);
+
+	ptr = MemoryContextStrdup(TopMemoryContext, buf);
+	if (*dst)
+		pfree(*dst);
+	*dst = ptr;
+}
 
 /*
  * Update the lc_time localization cache variables if needed.
@@ -611,8 +645,6 @@ cache_locale_time(void)
 	char	   *save_lc_time;
 	time_t		timenow;
 	struct tm  *timeinfo;
-	char		buf[MAX_L10N_DATA];
-	char	   *ptr;
 	int			i;
 
 #ifdef WIN32
@@ -659,17 +691,8 @@ cache_locale_time(void)
 	for (i = 0; i < 7; i++)
 	{
 		timeinfo->tm_wday = i;
-		strftime(buf, MAX_L10N_DATA, "%a", timeinfo);
-		ptr = MemoryContextStrdup(TopMemoryContext, buf);
-		if (localized_abbrev_days[i])
-			pfree(localized_abbrev_days[i]);
-		localized_abbrev_days[i] = ptr;
-
-		strftime(buf, MAX_L10N_DATA, "%A", timeinfo);
-		ptr = MemoryContextStrdup(TopMemoryContext, buf);
-		if (localized_full_days[i])
-			pfree(localized_full_days[i]);
-		localized_full_days[i] = ptr;
+		cache_single_time(&localized_abbrev_days[i], "%a", timeinfo);
+		cache_single_time(&localized_full_days[i], "%A", timeinfo);
 	}
 
 	/* localized months */
@@ -677,17 +700,8 @@ cache_locale_time(void)
 	{
 		timeinfo->tm_mon = i;
 		timeinfo->tm_mday = 1;	/* make sure we don't have invalid date */
-		strftime(buf, MAX_L10N_DATA, "%b", timeinfo);
-		ptr = MemoryContextStrdup(TopMemoryContext, buf);
-		if (localized_abbrev_months[i])
-			pfree(localized_abbrev_months[i]);
-		localized_abbrev_months[i] = ptr;
-
-		strftime(buf, MAX_L10N_DATA, "%B", timeinfo);
-		ptr = MemoryContextStrdup(TopMemoryContext, buf);
-		if (localized_full_months[i])
-			pfree(localized_full_months[i]);
-		localized_full_months[i] = ptr;
+		cache_single_time(&localized_abbrev_months[i], "%b", timeinfo);
+		cache_single_time(&localized_full_months[i], "%B", timeinfo);
 	}
 
 	/* try to restore internal settings */
@@ -838,7 +852,7 @@ IsoLocaleName(const char *winlocname)
  * could fail if the locale is C, so str_tolower() shouldn't call it
  * in that case.
  *
- * Note that we currently lack any way to flush the cache.	Since we don't
+ * Note that we currently lack any way to flush the cache.  Since we don't
  * support ALTER COLLATION, this is OK.  The worst case is that someone
  * drops a collation, and a useless cache entry hangs around in existing
  * backends.
@@ -1032,7 +1046,7 @@ report_newlocale_failure(const char *localename)
 
 
 /*
- * Create a locale_t from a collation OID.	Results are cached for the
+ * Create a locale_t from a collation OID.  Results are cached for the
  * lifetime of the backend.  Thus, do not free the result with freelocale().
  *
  * As a special optimization, the default/database collation returns 0.
@@ -1215,7 +1229,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
  * This has almost the API of mbstowcs_l(), except that *from need not be
  * null-terminated; instead, the number of input bytes is specified as
  * fromlen.  Also, we ereport() rather than returning -1 for invalid
- * input encoding.	tolen is the maximum number of wchar_t's to store at *to.
+ * input encoding.  tolen is the maximum number of wchar_t's to store at *to.
  * The output will be zero-terminated iff there is room.
  */
 size_t

@@ -258,7 +258,7 @@ AtEOSubXact_SPI(bool isCommit, SubTransactionId mySubid)
 		}
 
 		/*
-		 * Pop the stack entry and reset global variables.	Unlike
+		 * Pop the stack entry and reset global variables.  Unlike
 		 * SPI_finish(), we don't risk switching to memory contexts that might
 		 * be already gone.
 		 */
@@ -767,12 +767,7 @@ SPI_returntuple(HeapTuple tuple, TupleDesc tupdesc)
 		oldcxt = MemoryContextSwitchTo(_SPI_current->savedcxt);
 	}
 
-	dtup = (HeapTupleHeader) palloc(tuple->t_len);
-	memcpy((char *) dtup, (char *) tuple->t_data, tuple->t_len);
-
-	HeapTupleHeaderSetDatumLength(dtup, tuple->t_len);
-	HeapTupleHeaderSetTypeId(dtup, tupdesc->tdtypeid);
-	HeapTupleHeaderSetTypMod(dtup, tupdesc->tdtypmod);
+	dtup = DatumGetHeapTupleHeader(heap_copy_tuple_as_datum(tuple, tupdesc));
 
 	if (oldcxt)
 		MemoryContextSwitchTo(oldcxt);
@@ -1283,7 +1278,7 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	}
 
 	/*
-	 * Disallow SCROLL with SELECT FOR UPDATE.	This is not redundant with the
+	 * Disallow SCROLL with SELECT FOR UPDATE.  This is not redundant with the
 	 * check in transformDeclareCursorStmt because the cursor options might
 	 * not have come through there.
 	 */
@@ -1537,7 +1532,7 @@ SPI_plan_is_valid(SPIPlanPtr plan)
 /*
  * SPI_result_code_string --- convert any SPI return code to a string
  *
- * This is often useful in error messages.	Most callers will probably
+ * This is often useful in error messages.  Most callers will probably
  * only pass negative (error-case) codes, but for generality we recognize
  * the success codes too.
  */
@@ -2024,7 +2019,9 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 			 * Parameter datatypes are driven by parserSetup hook if provided,
 			 * otherwise we use the fixed parameter list.
 			 */
-			if (plan->parserSetup != NULL)
+			if (parsetree == NULL)
+				stmt_list = NIL;
+			else if (plan->parserSetup != NULL)
 			{
 				Assert(plan->nargs == 0);
 				stmt_list = pg_analyze_and_rewrite_params(parsetree,
@@ -2188,7 +2185,7 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 
 			/*
 			 * The last canSetTag query sets the status values returned to the
-			 * caller.	Be careful to free any tuptables not returned, to
+			 * caller.  Be careful to free any tuptables not returned, to
 			 * avoid intratransaction memory leak.
 			 */
 			if (canSetTag)

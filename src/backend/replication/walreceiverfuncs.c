@@ -221,7 +221,7 @@ RequestXLogStreaming(XLogRecPtr recptr, const char *conninfo)
  * Returns the last+1 byte position that walreceiver has written.
  *
  * Optionally, returns the previous chunk start, that is the first byte
- * written in the most recent walreceiver flush cycle.	Callers not
+ * written in the most recent walreceiver flush cycle.  Callers not
  * interested in that value may pass NULL for latestChunkStart.
  */
 XLogRecPtr
@@ -241,7 +241,8 @@ GetWalRcvWriteRecPtr(XLogRecPtr *latestChunkStart)
 }
 
 /*
- * Returns the replication apply delay in ms
+ * Returns the replication apply delay in ms or -1
+ * if the apply delay info is not available
  */
 int
 GetReplicationApplyDelay(void)
@@ -255,6 +256,8 @@ GetReplicationApplyDelay(void)
 	long		secs;
 	int			usecs;
 
+	TimestampTz	chunckReplayStartTime;
+
 	SpinLockAcquire(&walrcv->mutex);
 	receivePtr = walrcv->receivedUpto;
 	SpinLockRelease(&walrcv->mutex);
@@ -264,7 +267,12 @@ GetReplicationApplyDelay(void)
 	if (XLByteEQ(receivePtr, replayPtr))
 		return 0;
 
-	TimestampDifference(GetCurrentChunkReplayStartTime(),
+	chunckReplayStartTime = GetCurrentChunkReplayStartTime();
+
+	if (chunckReplayStartTime == 0)
+		return -1;
+
+	TimestampDifference(chunckReplayStartTime,
 						GetCurrentTimestamp(),
 						&secs, &usecs);
 

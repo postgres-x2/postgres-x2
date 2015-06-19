@@ -620,7 +620,11 @@ ginRedoInsertListPage(XLogRecPtr lsn, XLogRecord *record)
 				tupsize;
 	IndexTuple	tuples = (IndexTuple) (XLogRecGetData(record) + sizeof(ginxlogInsertListPage));
 
-	/* If we have a full-page image, restore it and we're done */
+	/*
+	 * If we have a full-page image, restore it and we're done.  (As the code
+	 * stands, we never create full-page images, but we used to.  Cope if
+	 * we're reading WAL generated with an older minor version.)
+	 */
 	if (record->xl_info & XLR_BKP_BLOCK(0))
 	{
 		(void) RestoreBackupBlock(lsn, record, 0, false, false);
@@ -654,6 +658,7 @@ ginRedoInsertListPage(XLogRecPtr lsn, XLogRecord *record)
 			elog(ERROR, "failed to add item to index page");
 
 		tuples = (IndexTuple) (((char *) tuples) + tupsize);
+		off++;
 	}
 
 	PageSetLSN(page, lsn);
@@ -686,33 +691,33 @@ ginRedoDeleteListPages(XLogRecPtr lsn, XLogRecord *record)
 
 	/*
 	 * In normal operation, shiftList() takes exclusive lock on all the
-	 * pages-to-be-deleted simultaneously.	During replay, however, it should
+	 * pages-to-be-deleted simultaneously.  During replay, however, it should
 	 * be all right to lock them one at a time.  This is dependent on the fact
 	 * that we are deleting pages from the head of the list, and that readers
 	 * share-lock the next page before releasing the one they are on. So we
 	 * cannot get past a reader that is on, or due to visit, any page we are
 	 * going to delete.  New incoming readers will block behind our metapage
 	 * lock and then see a fully updated page list.
+	 *
+	 * No full-page images are taken of the deleted pages. Instead, they are
+	 * re-initialized as empty, deleted pages. Their right-links don't need to
+	 * be preserved, because no new readers can see the pages, as explained
+	 * above.
 	 */
 	for (i = 0; i < data->ndeleted; i++)
 	{
-		Buffer		buffer = XLogReadBuffer(data->node, data->toDelete[i], false);
+		Buffer		buffer;
+		Page		page;
 
-		if (BufferIsValid(buffer))
-		{
-			Page		page = BufferGetPage(buffer);
+		buffer = XLogReadBuffer(data->node, data->toDelete[i], true);
+		page = BufferGetPage(buffer);
+		GinInitBuffer(buffer, GIN_DELETED);
 
-			if (!XLByteLE(lsn, PageGetLSN(page)))
-			{
-				GinPageGetOpaque(page)->flags = GIN_DELETED;
+		PageSetLSN(page, lsn);
+		PageSetTLI(page, ThisTimeLineID);
+		MarkBufferDirty(buffer);
 
-				PageSetLSN(page, lsn);
-				PageSetTLI(page, ThisTimeLineID);
-				MarkBufferDirty(buffer);
-			}
-
-			UnlockReleaseBuffer(buffer);
-		}
+		UnlockReleaseBuffer(buffer);
 	}
 	UnlockReleaseBuffer(metabuffer);
 }

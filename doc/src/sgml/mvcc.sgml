@@ -1224,7 +1224,7 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
      correctly.  Advisory locks can be useful for locking strategies
      that are an awkward fit for the MVCC model.
      For example, a common use of advisory locks is to emulate pessimistic
-     locking strategies typical of so called <quote>flat file</> data
+     locking strategies typical of so-called <quote>flat file</> data
      management systems.
      While a flag stored in a table could be used for the same purpose,
      advisory locks are faster, avoid table bloat, and are automatically
@@ -1378,7 +1378,7 @@ SELECT pg_advisory_lock(q.id) FROM
       This level of integrity protection using Serializable transactions
       does not yet extend to hot standby mode (<xref linkend="hot-standby">).
       Because of that, those using hot standby may want to use Repeatable
-      Read and explicit locking.on the master.
+      Read and explicit locking on the master.
      </para>
     </warning>
    </sect2>

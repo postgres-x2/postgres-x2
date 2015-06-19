@@ -247,11 +247,6 @@ getnameinfo_unix(const struct sockaddr_un * sa, int salen,
 		(node == NULL && service == NULL))
 		return EAI_FAIL;
 
-	/* We don't support those. */
-	if ((node && !(flags & NI_NUMERICHOST))
-		|| (service && !(flags & NI_NUMERICSERV)))
-		return EAI_FAIL;
-
 	if (node)
 	{
 		ret = snprintf(node, nodelen, "%s", "[local]");
@@ -412,79 +407,6 @@ pg_sockaddr_cidr_mask(struct sockaddr_storage * mask, char *numbits, int family)
 }
 
 
-#ifdef HAVE_IPV6
-
-/*
- * pg_promote_v4_to_v6_addr --- convert an AF_INET addr to AF_INET6, using
- *		the standard convention for IPv4 addresses mapped into IPv6 world
- *
- * The passed addr is modified in place; be sure it is large enough to
- * hold the result!  Note that we only worry about setting the fields
- * that pg_range_sockaddr will look at.
- */
-void
-pg_promote_v4_to_v6_addr(struct sockaddr_storage * addr)
-{
-	struct sockaddr_in addr4;
-	struct sockaddr_in6 addr6;
-	uint32		ip4addr;
-
-	memcpy(&addr4, addr, sizeof(addr4));
-	ip4addr = ntohl(addr4.sin_addr.s_addr);
-
-	memset(&addr6, 0, sizeof(addr6));
-
-	addr6.sin6_family = AF_INET6;
-
-	addr6.sin6_addr.s6_addr[10] = 0xff;
-	addr6.sin6_addr.s6_addr[11] = 0xff;
-	addr6.sin6_addr.s6_addr[12] = (ip4addr >> 24) & 0xFF;
-	addr6.sin6_addr.s6_addr[13] = (ip4addr >> 16) & 0xFF;
-	addr6.sin6_addr.s6_addr[14] = (ip4addr >> 8) & 0xFF;
-	addr6.sin6_addr.s6_addr[15] = (ip4addr) & 0xFF;
-
-	memcpy(addr, &addr6, sizeof(addr6));
-}
-
-/*
- * pg_promote_v4_to_v6_mask --- convert an AF_INET netmask to AF_INET6, using
- *		the standard convention for IPv4 addresses mapped into IPv6 world
- *
- * This must be different from pg_promote_v4_to_v6_addr because we want to
- * set the high-order bits to 1's not 0's.
- *
- * The passed addr is modified in place; be sure it is large enough to
- * hold the result!  Note that we only worry about setting the fields
- * that pg_range_sockaddr will look at.
- */
-void
-pg_promote_v4_to_v6_mask(struct sockaddr_storage * addr)
-{
-	struct sockaddr_in addr4;
-	struct sockaddr_in6 addr6;
-	uint32		ip4addr;
-	int			i;
-
-	memcpy(&addr4, addr, sizeof(addr4));
-	ip4addr = ntohl(addr4.sin_addr.s_addr);
-
-	memset(&addr6, 0, sizeof(addr6));
-
-	addr6.sin6_family = AF_INET6;
-
-	for (i = 0; i < 12; i++)
-		addr6.sin6_addr.s6_addr[i] = 0xff;
-
-	addr6.sin6_addr.s6_addr[12] = (ip4addr >> 24) & 0xFF;
-	addr6.sin6_addr.s6_addr[13] = (ip4addr >> 16) & 0xFF;
-	addr6.sin6_addr.s6_addr[14] = (ip4addr >> 8) & 0xFF;
-	addr6.sin6_addr.s6_addr[15] = (ip4addr) & 0xFF;
-
-	memcpy(addr, &addr6, sizeof(addr6));
-}
-#endif   /* HAVE_IPV6 */
-
-
 /*
  * Run the callback function for the addr/mask, after making sure the
  * mask is sane for the addr.
@@ -552,7 +474,7 @@ pg_foreach_ifaddr(PgIfAddrCallback callback, void *cb_data)
 	int			error;
 
 	sock = WSASocket(AF_INET, SOCK_DGRAM, 0, 0, 0, 0);
-	if (sock == SOCKET_ERROR)
+	if (sock == INVALID_SOCKET)
 		return -1;
 
 	while (n_ii < 1024)
@@ -675,7 +597,7 @@ pg_foreach_ifaddr(PgIfAddrCallback callback, void *cb_data)
 				total;
 
 	sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock == -1)
+	if (sock == PGINVALID_SOCKET)
 		return -1;
 
 	while (n_buffer < 1024 * 100)
@@ -716,7 +638,7 @@ pg_foreach_ifaddr(PgIfAddrCallback callback, void *cb_data)
 #ifdef HAVE_IPV6
 	/* We'll need an IPv6 socket too for the SIOCGLIFNETMASK ioctls */
 	sock6 = socket(AF_INET6, SOCK_DGRAM, 0);
-	if (sock6 == -1)
+	if (sock6 == PGINVALID_SOCKET)
 	{
 		free(buffer);
 		close(sock);
@@ -793,10 +715,10 @@ pg_foreach_ifaddr(PgIfAddrCallback callback, void *cb_data)
 	char	   *ptr,
 			   *buffer = NULL;
 	size_t		n_buffer = 1024;
-	int			sock;
+	pgsocket	sock;
 
 	sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock == -1)
+	if (sock == PGINVALID_SOCKET)
 		return -1;
 
 	while (n_buffer < 1024 * 100)

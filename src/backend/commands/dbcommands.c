@@ -272,7 +272,7 @@ createdb(const CreatedbStmt *stmt)
 	 * To create a database, must have createdb privilege and must be able to
 	 * become the target role (this does not imply that the target role itself
 	 * must have createdb privilege).  The latter provision guards against
-	 * "giveaway" attacks.	Note that a superuser will always have both of
+	 * "giveaway" attacks.  Note that a superuser will always have both of
 	 * these privileges a fortiori.
 	 */
 	if (!have_createdb_privilege())
@@ -404,7 +404,7 @@ createdb(const CreatedbStmt *stmt)
 		/*
 		 * If we are trying to change the default tablespace of the template,
 		 * we require that the template not have any files in the new default
-		 * tablespace.	This is necessary because otherwise the copied
+		 * tablespace.  This is necessary because otherwise the copied
 		 * database would contain pg_class rows that refer to its default
 		 * tablespace both explicitly (by OID) and implicitly (as zero), which
 		 * would cause problems.  For example another CREATE DATABASE using
@@ -440,7 +440,7 @@ createdb(const CreatedbStmt *stmt)
 	}
 
 	/*
-	 * Check for db name conflict.	This is just to give a more friendly error
+	 * Check for db name conflict.  This is just to give a more friendly error
 	 * message than "unique index violation".  There's a race condition but
 	 * we're willing to accept the less friendly message in that case.
 	 */
@@ -504,7 +504,7 @@ createdb(const CreatedbStmt *stmt)
 
 	/*
 	 * We deliberately set datacl to default (NULL), rather than copying it
-	 * from the template database.	Copying it would be a bad idea when the
+	 * from the template database.  Copying it would be a bad idea when the
 	 * owner is not the same as the template's owner.
 	 */
 	new_record_nulls[Anum_pg_database_datacl - 1] = true;
@@ -534,15 +534,17 @@ createdb(const CreatedbStmt *stmt)
 						   DatabaseRelationId, dboid, 0, NULL);
 
 	/*
-	 * Force a checkpoint before starting the copy. This will force dirty
-	 * buffers out to disk, to ensure source database is up-to-date on disk
-	 * for the copy. FlushDatabaseBuffers() would suffice for that, but we
-	 * also want to process any pending unlink requests. Otherwise, if a
-	 * checkpoint happened while we're copying files, a file might be deleted
-	 * just when we're about to copy it, causing the lstat() call in copydir()
-	 * to fail with ENOENT.
+	 * Force a checkpoint before starting the copy. This will force all dirty
+	 * buffers, including those of unlogged tables, out to disk, to ensure
+	 * source database is up-to-date on disk for the copy.
+	 * FlushDatabaseBuffers() would suffice for that, but we also want
+	 * to process any pending unlink requests. Otherwise, if a checkpoint
+	 * happened while we're copying files, a file might be deleted just when
+	 * we're about to copy it, causing the lstat() call in copydir() to fail
+	 * with ENOENT.
 	 */
-	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
+	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT
+					  | CHECKPOINT_FLUSH_ALL);
 
 	/*
 	 * Take an MVCC snapshot to use while scanning through pg_tablespace.  For
@@ -557,7 +559,7 @@ createdb(const CreatedbStmt *stmt)
 	 *
 	 * Inconsistency of this sort is inherent to all SnapshotNow scans, unless
 	 * some lock is held to prevent concurrent updates of the rows being
-	 * sought.	There should be a generic fix for that, but in the meantime
+	 * sought.  There should be a generic fix for that, but in the meantime
 	 * it's worth fixing this case in particular because we are doing very
 	 * heavyweight operations within the scan, so that the elapsed time for
 	 * the scan is vastly longer than for most other catalog scans.  That
@@ -1201,8 +1203,9 @@ movedb(const char *dbname, const char *tblspcname)
 	dst_dbpath = GetDatabasePath(db_id, dst_tblspcoid);
 
 	/*
-	 * Force a checkpoint before proceeding. This will force dirty buffers out
-	 * to disk, to ensure source database is up-to-date on disk for the copy.
+	 * Force a checkpoint before proceeding. This will force all dirty
+	 * buffers, including those of unlogged tables, out to disk, to ensure
+	 * source database is up-to-date on disk for the copy.
 	 * FlushDatabaseBuffers() would suffice for that, but we also want to
 	 * process any pending unlink requests. Otherwise, the check for existing
 	 * files in the target directory might fail unnecessarily, not to mention
@@ -1210,7 +1213,25 @@ movedb(const char *dbname, const char *tblspcname)
 	 * On Windows, this also ensures that background procs don't hold any open
 	 * files, which would cause rmdir() to fail.
 	 */
-	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
+	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT
+					  | CHECKPOINT_FLUSH_ALL);
+
+	/*
+	 * Now drop all buffers holding data of the target database; they should
+	 * no longer be dirty so DropDatabaseBuffers is safe.
+	 *
+	 * It might seem that we could just let these buffers age out of shared
+	 * buffers naturally, since they should not get referenced anymore.  The
+	 * problem with that is that if the user later moves the database back to
+	 * its original tablespace, any still-surviving buffers would appear to
+	 * contain valid data again --- but they'd be missing any changes made in
+	 * the database while it was in the new tablespace.  In any case, freeing
+	 * buffers that should never be used again seems worth the cycles.
+	 *
+	 * Note: it'd be sufficient to get rid of buffers matching db_id and
+	 * src_tblspcoid, but bufmgr.c presently provides no API for that.
+	 */
+	DropDatabaseBuffers(db_id);
 
 	/*
 	 * Check for existence of files in the target directory, i.e., objects of
@@ -1248,7 +1269,7 @@ movedb(const char *dbname, const char *tblspcname)
 
 	/*
 	 * Use an ENSURE block to make sure we remove the debris if the copy fails
-	 * (eg, due to out-of-disk-space).	This is not a 100% solution, because
+	 * (eg, due to out-of-disk-space).  This is not a 100% solution, because
 	 * of the possibility of failure during transaction commit, but it should
 	 * handle most scenarios.
 	 */
@@ -1775,7 +1796,7 @@ get_db_info(const char *name, LOCKMODE lockmode,
 			LockSharedObject(DatabaseRelationId, dbOid, 0, lockmode);
 
 		/*
-		 * And now, re-fetch the tuple by OID.	If it's still there and still
+		 * And now, re-fetch the tuple by OID.  If it's still there and still
 		 * the same name, we win; else, drop the lock and loop back to try
 		 * again.
 		 */

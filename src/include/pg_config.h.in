@@ -345,6 +345,9 @@
 /* Define to 1 if the system has the type `MINIDUMP_TYPE'. */
 #undef HAVE_MINIDUMP_TYPE
 
+/* Define to 1 if you have the `mkdtemp' function. */
+#undef HAVE_MKDTEMP
+
 /* Define to 1 if you have the <netinet/in.h> header file. */
 #undef HAVE_NETINET_IN_H
 
@@ -383,6 +386,9 @@
 
 /* Define if you have POSIX threads libraries and header files. */
 #undef HAVE_PTHREAD
+
+/* Define to 1 if you have the `pthread_is_threaded_np' function. */
+#undef HAVE_PTHREAD_IS_THREADED_NP
 
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H

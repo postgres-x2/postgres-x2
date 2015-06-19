@@ -17,7 +17,7 @@
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.	IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -69,7 +69,7 @@ mbuf_free(MBuf *mbuf)
 {
 	if (mbuf->own_data)
 	{
-		memset(mbuf->data, 0, mbuf->buf_end - mbuf->data);
+		px_memset(mbuf->data, 0, mbuf->buf_end - mbuf->data);
 		px_free(mbuf->data);
 	}
 	px_free(mbuf);
@@ -249,11 +249,11 @@ pullf_free(PullFilter *pf)
 
 	if (pf->buf)
 	{
-		memset(pf->buf, 0, pf->buflen);
+		px_memset(pf->buf, 0, pf->buflen);
 		px_free(pf->buf);
 	}
 
-	memset(pf, 0, sizeof(*pf));
+	px_memset(pf, 0, sizeof(*pf));
 	px_free(pf);
 }
 
@@ -298,13 +298,14 @@ pullf_read_max(PullFilter *pf, int len, uint8 **data_p, uint8 *tmpbuf)
 		if (res < 0)
 		{
 			/* so the caller must clear only on success */
-			memset(tmpbuf, 0, total);
+			px_memset(tmpbuf, 0, total);
 			return res;
 		}
 		if (res == 0)
 			break;
 		memcpy(tmpbuf + total, tmp, res);
 		total += res;
+		len -= res;
 	}
 	return total;
 }
@@ -324,7 +325,7 @@ pullf_read_fixed(PullFilter *src, int len, uint8 *dst)
 	if (res != len)
 	{
 		px_debug("pullf_read_fixed: need=%d got=%d", len, res);
-		return PXE_MBUF_SHORT_READ;
+		return PXE_PGP_CORRUPT_DATA;
 	}
 	if (p != dst)
 		memcpy(dst, p, len);
@@ -415,11 +416,11 @@ pushf_free(PushFilter *mp)
 
 	if (mp->buf)
 	{
-		memset(mp->buf, 0, mp->block_size);
+		px_memset(mp->buf, 0, mp->block_size);
 		px_free(mp->buf);
 	}
 
-	memset(mp, 0, sizeof(*mp));
+	px_memset(mp, 0, sizeof(*mp));
 	px_free(mp);
 }
 

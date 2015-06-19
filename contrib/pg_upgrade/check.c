@@ -9,6 +9,7 @@
 
 #include "postgres.h"
 
+#include "mb/pg_wchar.h"
 #include "pg_upgrade.h"
 
 
@@ -16,7 +17,10 @@ static void set_locale_and_encoding(ClusterInfo *cluster);
 static void check_new_cluster_is_empty(void);
 static void check_locale_and_encoding(ControlData *oldctrl,
 						  ControlData *newctrl);
+static bool equivalent_locale(int category, const char *loca, const char *locb);
+static bool equivalent_encoding(const char *chara, const char *charb);
 static void check_is_super_user(ClusterInfo *cluster);
+static void check_proper_datallowconn(ClusterInfo *cluster);
 static void check_for_prepared_transactions(ClusterInfo *cluster);
 static void check_for_isn_and_int8_passing_mismatch(ClusterInfo *cluster);
 static void check_for_reg_data_type_usage(ClusterInfo *cluster);
@@ -95,6 +99,7 @@ check_old_cluster(bool live_check, char **sequence_script_file_name)
 	 * Check for various failure cases
 	 */
 	check_is_super_user(&old_cluster);
+	check_proper_datallowconn(&old_cluster);
 	check_for_prepared_transactions(&old_cluster);
 	check_for_reg_data_type_usage(&old_cluster);
 	check_for_isn_and_int8_passing_mismatch(&old_cluster);
@@ -360,23 +365,8 @@ set_locale_and_encoding(ClusterInfo *cluster)
 		i_datcollate = PQfnumber(res, "datcollate");
 		i_datctype = PQfnumber(res, "datctype");
 
-		if (GET_MAJOR_VERSION(cluster->major_version) < 902)
-		{
-			/*
-			 *	Pre-9.2 did not canonicalize the supplied locale names
-			 *	to match what the system returns, while 9.2+ does, so
-			 *	convert pre-9.2 to match.
-			 */
-			ctrl->lc_collate = get_canonical_locale_name(LC_COLLATE,
-							   pg_strdup(PQgetvalue(res, 0, i_datcollate)));
-			ctrl->lc_ctype = get_canonical_locale_name(LC_CTYPE,
-							   pg_strdup(PQgetvalue(res, 0, i_datctype)));
- 		}
-		else
-		{
-	 		ctrl->lc_collate = pg_strdup(PQgetvalue(res, 0, i_datcollate));
-			ctrl->lc_ctype = pg_strdup(PQgetvalue(res, 0, i_datctype));
-		}
+		ctrl->lc_collate = pg_strdup(PQgetvalue(res, 0, i_datcollate));
+		ctrl->lc_ctype = pg_strdup(PQgetvalue(res, 0, i_datctype));
 
 		PQclear(res);
 	}
@@ -406,23 +396,87 @@ static void
 check_locale_and_encoding(ControlData *oldctrl,
 						  ControlData *newctrl)
 {
-	/*
-	 *	These are often defined with inconsistent case, so use pg_strcasecmp().
-	 *	They also often use inconsistent hyphenation, which we cannot fix, e.g.
-	 *	UTF-8 vs. UTF8, so at least we display the mismatching values.
-	 */
-	if (pg_strcasecmp(oldctrl->lc_collate, newctrl->lc_collate) != 0)
+	if (!equivalent_locale(LC_COLLATE, oldctrl->lc_collate, newctrl->lc_collate))
 		pg_log(PG_FATAL,
 			   "lc_collate cluster values do not match:  old \"%s\", new \"%s\"\n",
 			   oldctrl->lc_collate, newctrl->lc_collate);
-	if (pg_strcasecmp(oldctrl->lc_ctype, newctrl->lc_ctype) != 0)
+	if (!equivalent_locale(LC_CTYPE, oldctrl->lc_ctype, newctrl->lc_ctype))
 		pg_log(PG_FATAL,
 			   "lc_ctype cluster values do not match:  old \"%s\", new \"%s\"\n",
 			   oldctrl->lc_ctype, newctrl->lc_ctype);
-	if (pg_strcasecmp(oldctrl->encoding, newctrl->encoding) != 0)
+	if (!equivalent_encoding(oldctrl->encoding, newctrl->encoding))
 		pg_log(PG_FATAL,
 			   "encoding cluster values do not match:  old \"%s\", new \"%s\"\n",
 			   oldctrl->encoding, newctrl->encoding);
+}
+
+/*
+ * equivalent_locale()
+ *
+ * Best effort locale-name comparison.  Return false if we are not 100% sure
+ * the locales are equivalent.
+ *
+ * Note: The encoding parts of the names are ignored. This function is
+ * currently used to compare locale names stored in pg_database, and
+ * pg_database contains a separate encoding field. That's compared directly
+ * in check_locale_and_encoding().
+ */
+static bool
+equivalent_locale(int category, const char *loca, const char *locb)
+{
+	const char *chara;
+	const char *charb;
+	char	   *canona;
+	char	   *canonb;
+	int			lena;
+	int			lenb;
+
+	/*
+	 * If the names are equal, the locales are equivalent. Checking this
+	 * first avoids calling setlocale() in the common case that the names
+	 * are equal. That's a good thing, if setlocale() is buggy, for example.
+	 */
+	if (pg_strcasecmp(loca, locb) == 0)
+		return true;
+
+	/*
+	 * Not identical. Canonicalize both names, remove the encoding parts,
+	 * and try again.
+	 */
+	canona = get_canonical_locale_name(category, loca);
+	chara = strrchr(canona, '.');
+	lena = chara ? (chara - canona) : strlen(canona);
+
+	canonb = get_canonical_locale_name(category, locb);
+	charb = strrchr(canonb, '.');
+	lenb = charb ? (charb - canonb) : strlen(canonb);
+
+	if (lena == lenb && pg_strncasecmp(canona, canonb, lena) == 0)
+		return true;
+
+	return false;
+}
+
+/*
+ * equivalent_encoding()
+ *
+ * Best effort encoding-name comparison.  Return true only if the encodings
+ * are valid server-side encodings and known equivalent.
+ *
+ * Because the lookup in pg_valid_server_encoding() does case folding and
+ * ignores non-alphanumeric characters, this will recognize many popular
+ * variant spellings as equivalent, eg "utf8" and "UTF-8" will match.
+ */
+static bool
+equivalent_encoding(const char *chara, const char *charb)
+{
+	int			enca = pg_valid_server_encoding(chara);
+	int			encb = pg_valid_server_encoding(charb);
+
+	if (enca < 0 || encb < 0)
+		return false;
+
+	return (enca == encb);
 }
 
 
@@ -576,6 +630,58 @@ create_script_for_cluster_analyze(char **analyze_script_file_name)
 }
 
 
+static void
+check_proper_datallowconn(ClusterInfo *cluster)
+{
+	int			dbnum;
+	PGconn	   *conn_template1;
+	PGresult   *dbres;
+	int			ntups;
+	int			i_datname;
+	int			i_datallowconn;
+
+	prep_status("Checking database connection settings");
+
+	conn_template1 = connectToServer(cluster, "template1");
+
+	/* get database names */
+	dbres = executeQueryOrDie(conn_template1,
+							  "SELECT	datname, datallowconn "
+							  "FROM	pg_catalog.pg_database");
+
+	i_datname = PQfnumber(dbres, "datname");
+	i_datallowconn = PQfnumber(dbres, "datallowconn");
+
+	ntups = PQntuples(dbres);
+	for (dbnum = 0; dbnum < ntups; dbnum++)
+	{
+		char	   *datname = PQgetvalue(dbres, dbnum, i_datname);
+		char	   *datallowconn = PQgetvalue(dbres, dbnum, i_datallowconn);
+
+		if (strcmp(datname, "template0") == 0)
+		{
+			/* avoid restore failure when pg_dumpall tries to create template0 */
+			if (strcmp(datallowconn, "t") == 0)
+				pg_log(PG_FATAL, "template0 must not allow connections, "
+						 "i.e. its pg_database.datallowconn must be false\n");
+		}
+		else
+		{
+			/* avoid datallowconn == false databases from being skipped on restore */
+			if (strcmp(datallowconn, "f") == 0)
+				pg_log(PG_FATAL, "All non-template0 databases must allow connections, "
+						 "i.e. their pg_database.datallowconn must be true\n");
+		}
+	}
+
+	PQclear(dbres);
+
+	PQfinish(conn_template1);
+
+	check_ok();
+}
+
+
 /*
  * create_script_for_old_cluster_deletion()
  *
@@ -604,7 +710,7 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 #endif
 
 	/* delete old cluster's default tablespace */
-	fprintf(script, RMDIR_CMD " %s\n", fix_path_separator(old_cluster.pgdata));
+	fprintf(script, RMDIR_CMD " \"%s\"\n", fix_path_separator(old_cluster.pgdata));
 
 	/* delete old cluster's alternate tablespaces */
 	for (tblnum = 0; tblnum < os_info.num_tablespaces; tblnum++)
@@ -628,7 +734,7 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 
 			for (dbnum = 0; dbnum < old_cluster.dbarr.ndbs; dbnum++)
 			{
-				fprintf(script, RMDIR_CMD " %s%s%c%d\n",
+				fprintf(script, RMDIR_CMD " \"%s%s%c%d\"\n",
 						fix_path_separator(os_info.tablespaces[tblnum]),
 						fix_path_separator(old_cluster.tablespace_suffix),
 						PATH_SEPARATOR, old_cluster.dbarr.dbs[dbnum].db_oid);
@@ -640,7 +746,7 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 			 * Simply delete the tablespace directory, which might be ".old"
 			 * or a version-specific subdirectory.
 			 */
-			fprintf(script, RMDIR_CMD " %s%s\n",
+			fprintf(script, RMDIR_CMD " \"%s%s\"\n",
 					fix_path_separator(os_info.tablespaces[tblnum]), 
 					fix_path_separator(old_cluster.tablespace_suffix));
 	}
@@ -936,7 +1042,7 @@ get_bin_version(ClusterInfo *cluster)
 	int			pre_dot,
 				post_dot;
 
-	snprintf(cmd, sizeof(cmd), "\"%s/pg_ctl\" --version", cluster->bindir);
+	snprintf(cmd, sizeof(cmd), SYSTEMQUOTE "\"%s/pg_ctl\" --version" SYSTEMQUOTE, cluster->bindir);
 
 	if ((output = popen(cmd, "r")) == NULL ||
 		fgets(cmd_output, sizeof(cmd_output), output) == NULL)

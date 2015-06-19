@@ -17,7 +17,7 @@
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.	IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -148,7 +148,9 @@ struct PGP_Context
 	 * internal variables
 	 */
 	int			mdc_checked;
-	int			corrupt_prefix;
+	int			corrupt_prefix; /* prefix failed RFC 4880 "quick check" */
+	int			unsupported_compr;		/* has bzip2 compression */
+	int			unexpected_binary;		/* binary data seen in text_mode */
 	int			in_mdc_pkt;
 	int			use_mdcbuf_filter;
 	PX_MD	   *mdc_ctx;

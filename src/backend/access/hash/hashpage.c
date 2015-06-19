@@ -39,7 +39,7 @@ static bool _hash_alloc_buckets(Relation rel, BlockNumber firstblock,
 static void _hash_splitbucket(Relation rel, Buffer metabuf,
 				  Bucket obucket, Bucket nbucket,
 				  BlockNumber start_oblkno,
-				  BlockNumber start_nblkno,
+				  Buffer nbuf,
 				  uint32 maxbucket,
 				  uint32 highmask, uint32 lowmask);
 
@@ -49,7 +49,7 @@ static void _hash_splitbucket(Relation rel, Buffer metabuf,
  * of the locking rules).  However, we can skip taking lmgr locks when the
  * index is local to the current backend (ie, either temp or new in the
  * current transaction).  No one else can see it, so there's no reason to
- * take locks.	We still take buffer-level locks, but not lmgr locks.
+ * take locks.  We still take buffer-level locks, but not lmgr locks.
  */
 #define USELOCKING(rel)		(!RELATION_IS_LOCAL(rel))
 
@@ -136,7 +136,7 @@ _hash_getbuf(Relation rel, BlockNumber blkno, int access, int flags)
  *
  *		This must be used only to fetch pages that are known to be before
  *		the index's filesystem EOF, but are to be filled from scratch.
- *		_hash_pageinit() is applied automatically.	Otherwise it has
+ *		_hash_pageinit() is applied automatically.  Otherwise it has
  *		effects similar to _hash_getbuf() with access = HASH_WRITE.
  *
  *		When this routine returns, a write lock is set on the
@@ -155,9 +155,8 @@ _hash_getinitbuf(Relation rel, BlockNumber blkno)
 	if (blkno == P_NEW)
 		elog(ERROR, "hash AM does not use P_NEW");
 
-	buf = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_ZERO, NULL);
-
-	LockBuffer(buf, HASH_WRITE);
+	buf = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_ZERO_AND_LOCK,
+							 NULL);
 
 	/* ref count and lock type are correct */
 
@@ -177,7 +176,9 @@ _hash_getinitbuf(Relation rel, BlockNumber blkno)
  *		EOF but before updating the metapage to reflect the added page.)
  *
  *		It is caller's responsibility to ensure that only one process can
- *		extend the index at a time.
+ *		extend the index at a time.  In practice, this function is called
+ *		only while holding write lock on the metapage, because adding a page
+ *		is always associated with an update of metapage data.
  */
 Buffer
 _hash_getnewbuf(Relation rel, BlockNumber blkno, ForkNumber forkNum)
@@ -198,11 +199,13 @@ _hash_getnewbuf(Relation rel, BlockNumber blkno, ForkNumber forkNum)
 		if (BufferGetBlockNumber(buf) != blkno)
 			elog(ERROR, "unexpected hash relation size: %u, should be %u",
 				 BufferGetBlockNumber(buf), blkno);
+		LockBuffer(buf, HASH_WRITE);
 	}
 	else
-		buf = ReadBufferExtended(rel, forkNum, blkno, RBM_ZERO, NULL);
-
-	LockBuffer(buf, HASH_WRITE);
+	{
+		buf = ReadBufferExtended(rel, forkNum, blkno, RBM_ZERO_AND_LOCK,
+								 NULL);
+	}
 
 	/* ref count and lock type are correct */
 
@@ -344,7 +347,7 @@ _hash_metapinit(Relation rel, double num_tuples, ForkNumber forkNum)
 	/*
 	 * Determine the target fill factor (in tuples per bucket) for this index.
 	 * The idea is to make the fill factor correspond to pages about as full
-	 * as the user-settable fillfactor parameter says.	We can compute it
+	 * as the user-settable fillfactor parameter says.  We can compute it
 	 * exactly since the index datatype (i.e. uint32 hash key) is fixed-width.
 	 */
 	data_width = sizeof(uint32);
@@ -377,7 +380,7 @@ _hash_metapinit(Relation rel, double num_tuples, ForkNumber forkNum)
 	/*
 	 * We initialize the metapage, the first N bucket pages, and the first
 	 * bitmap page in sequence, using _hash_getnewbuf to cause smgrextend()
-	 * calls to occur.	This ensures that the smgr level has the right idea of
+	 * calls to occur.  This ensures that the smgr level has the right idea of
 	 * the physical index length.
 	 */
 	metabuf = _hash_getnewbuf(rel, HASH_METAPAGE, forkNum);
@@ -502,6 +505,7 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 	uint32		spare_ndx;
 	BlockNumber start_oblkno;
 	BlockNumber start_nblkno;
+	Buffer		buf_nblkno;
 	uint32		maxbucket;
 	uint32		highmask;
 	uint32		lowmask;
@@ -513,9 +517,9 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 	 * Note: deadlock should be impossible here. Our own backend could only be
 	 * holding bucket sharelocks due to stopped indexscans; those will not
 	 * block other holders of the page-zero lock, who are only interested in
-	 * acquiring bucket sharelocks themselves.	Exclusive bucket locks are
+	 * acquiring bucket sharelocks themselves.  Exclusive bucket locks are
 	 * only taken here and in hashbulkdelete, and neither of these operations
-	 * needs any additional locks to complete.	(If, due to some flaw in this
+	 * needs any additional locks to complete.  (If, due to some flaw in this
 	 * reasoning, we manage to deadlock anyway, it's okay to error out; the
 	 * index will be left in a consistent state.)
 	 */
@@ -557,7 +561,7 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 
 	/*
 	 * Determine which bucket is to be split, and attempt to lock the old
-	 * bucket.	If we can't get the lock, give up.
+	 * bucket.  If we can't get the lock, give up.
 	 *
 	 * The lock protects us against other backends, but not against our own
 	 * backend.  Must check for active scans separately.
@@ -615,7 +619,14 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 	}
 
 	/*
-	 * Okay to proceed with split.	Update the metapage bucket mapping info.
+	 * Physically allocate the new bucket's primary page.  We want to do this
+	 * before changing the metapage's mapping info, in case we can't get the
+	 * disk space.
+	 */
+	buf_nblkno = _hash_getnewbuf(rel, start_nblkno, MAIN_FORKNUM);
+
+	/*
+	 * Okay to proceed with split.  Update the metapage bucket mapping info.
 	 *
 	 * Since we are scribbling on the metapage data right in the shared
 	 * buffer, any failure in this next little bit leaves us with a big
@@ -653,7 +664,7 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 	 * Copy bucket mapping info now; this saves re-accessing the meta page
 	 * inside _hash_splitbucket's inner loop.  Note that once we drop the
 	 * split lock, other splits could begin, so these values might be out of
-	 * date before _hash_splitbucket finishes.	That's okay, since all it
+	 * date before _hash_splitbucket finishes.  That's okay, since all it
 	 * needs is to tell which of these two buckets to map hashkeys into.
 	 */
 	maxbucket = metap->hashm_maxbucket;
@@ -667,8 +678,9 @@ _hash_expandtable(Relation rel, Buffer metabuf)
 	_hash_droplock(rel, 0, HASH_EXCLUSIVE);
 
 	/* Relocate records to the new bucket */
-	_hash_splitbucket(rel, metabuf, old_bucket, new_bucket,
-					  start_oblkno, start_nblkno,
+	_hash_splitbucket(rel, metabuf,
+					  old_bucket, new_bucket,
+					  start_oblkno, buf_nblkno,
 					  maxbucket, highmask, lowmask);
 
 	/* Release bucket locks, allowing others to access them */
@@ -750,6 +762,12 @@ _hash_alloc_buckets(Relation rel, BlockNumber firstblock, uint32 nblocks)
  * The caller must hold a pin, but no lock, on the metapage buffer.
  * The buffer is returned in the same state.  (The metapage is only
  * touched if it becomes necessary to add or remove overflow pages.)
+ *
+ * In addition, the caller must have created the new bucket's base page,
+ * which is passed in buffer nbuf, pinned and write-locked.  That lock and
+ * pin are released here.  (The API is set up this way because we must do
+ * _hash_getnewbuf() before releasing the metapage write lock.  So instead of
+ * passing the new bucket's start block number, we pass an actual buffer.)
  */
 static void
 _hash_splitbucket(Relation rel,
@@ -757,15 +775,12 @@ _hash_splitbucket(Relation rel,
 				  Bucket obucket,
 				  Bucket nbucket,
 				  BlockNumber start_oblkno,
-				  BlockNumber start_nblkno,
+				  Buffer nbuf,
 				  uint32 maxbucket,
 				  uint32 highmask,
 				  uint32 lowmask)
 {
-	BlockNumber oblkno;
-	BlockNumber nblkno;
 	Buffer		obuf;
-	Buffer		nbuf;
 	Page		opage;
 	Page		npage;
 	HashPageOpaque oopaque;
@@ -776,13 +791,10 @@ _hash_splitbucket(Relation rel,
 	 * since no one else can be trying to acquire buffer lock on pages of
 	 * either bucket.
 	 */
-	oblkno = start_oblkno;
-	obuf = _hash_getbuf(rel, oblkno, HASH_WRITE, LH_BUCKET_PAGE);
+	obuf = _hash_getbuf(rel, start_oblkno, HASH_WRITE, LH_BUCKET_PAGE);
 	opage = BufferGetPage(obuf);
 	oopaque = (HashPageOpaque) PageGetSpecialPointer(opage);
 
-	nblkno = start_nblkno;
-	nbuf = _hash_getnewbuf(rel, nblkno, MAIN_FORKNUM);
 	npage = BufferGetPage(nbuf);
 
 	/* initialize the new bucket's primary page */
@@ -801,6 +813,7 @@ _hash_splitbucket(Relation rel,
 	 */
 	for (;;)
 	{
+		BlockNumber oblkno;
 		OffsetNumber ooffnum;
 		OffsetNumber omaxoffnum;
 		OffsetNumber deletable[MaxOffsetNumber];
@@ -831,6 +844,11 @@ _hash_splitbucket(Relation rel,
 				 * insert the tuple into the new bucket.  if it doesn't fit on
 				 * the current page in the new bucket, we must allocate a new
 				 * overflow page and place the tuple on that page instead.
+				 *
+				 * XXX we have a problem here if we fail to get space for a
+				 * new overflow page: we'll error out leaving the bucket split
+				 * only partially complete, meaning the index is corrupt,
+				 * since searches may fail to find entries they should find.
 				 */
 				itemsz = IndexTupleDSize(*itup);
 				itemsz = MAXALIGN(itemsz);
@@ -842,7 +860,7 @@ _hash_splitbucket(Relation rel,
 					/* chain to a new overflow page */
 					nbuf = _hash_addovflpage(rel, metabuf, nbuf);
 					npage = BufferGetPage(nbuf);
-					/* we don't need nblkno or nopaque within the loop */
+					/* we don't need nopaque within the loop */
 				}
 
 				/*
@@ -894,7 +912,7 @@ _hash_splitbucket(Relation rel,
 
 	/*
 	 * We're at the end of the old bucket chain, so we're done partitioning
-	 * the tuples.	Before quitting, call _hash_squeezebucket to ensure the
+	 * the tuples.  Before quitting, call _hash_squeezebucket to ensure the
 	 * tuples remaining in the old bucket (including the overflow pages) are
 	 * packed as tightly as possible.  The new bucket is already tight.
 	 */

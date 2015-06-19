@@ -59,7 +59,7 @@
  * The code will also consider moving MAIN data out-of-line, but only as a
  * last resort if the previous steps haven't reached the target tuple size.
  * In this phase we use a different target size, currently equal to the
- * largest tuple that will fit on a heap page.	This is reasonable since
+ * largest tuple that will fit on a heap page.  This is reasonable since
  * the user has told us to keep the data in-line if at all possible.
  */
 #define TOAST_TUPLES_PER_PAGE_MAIN	1
@@ -75,7 +75,7 @@
 
 /*
  * When we store an oversize datum externally, we divide it into chunks
- * containing at most TOAST_MAX_CHUNK_SIZE data bytes.	This number *must*
+ * containing at most TOAST_MAX_CHUNK_SIZE data bytes.  This number *must*
  * be small enough that the completed toast-table tuple (including the
  * ID and sequence fields and all overhead) will fit on a page.
  * The coding here sets the size on the theory that we want to fit
@@ -153,16 +153,14 @@ extern struct varlena *heap_tuple_untoast_attr_slice(struct varlena * attr,
 extern HeapTuple toast_flatten_tuple(HeapTuple tup, TupleDesc tupleDesc);
 
 /* ----------
- * toast_flatten_tuple_attribute -
+ * toast_flatten_tuple_to_datum -
  *
- *	If a Datum is of composite type, "flatten" it to contain no toasted fields.
- *	This must be invoked on any potentially-composite field that is to be
- *	inserted into a tuple.	Doing this preserves the invariant that toasting
- *	goes only one level deep in a tuple.
+ *	"Flatten" a tuple containing out-of-line toasted fields into a Datum.
  * ----------
  */
-extern Datum toast_flatten_tuple_attribute(Datum value,
-							  Oid typeId, int32 typeMod);
+extern Datum toast_flatten_tuple_to_datum(HeapTupleHeader tup,
+							 uint32 tup_len,
+							 TupleDesc tupleDesc);
 
 /* ----------
  * toast_compress_datum -

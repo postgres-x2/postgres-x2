@@ -88,8 +88,8 @@ static void materializeQueryResult(FunctionCallInfo fcinfo,
 					   const char *conname,
 					   const char *sql,
 					   bool fail);
-static PGresult *storeQueryResult(storeInfo *sinfo, PGconn *conn, const char *sql);
-static void storeRow(storeInfo *sinfo, PGresult *res, bool first);
+static PGresult *storeQueryResult(volatile storeInfo *sinfo, PGconn *conn, const char *sql);
+static void storeRow(volatile storeInfo *sinfo, PGresult *res, bool first);
 static remoteConn *getConnectionByName(const char *name);
 static HTAB *createConnHash(void);
 static void createNewConnection(const char *name, remoteConn *rconn);
@@ -958,17 +958,24 @@ materializeQueryResult(FunctionCallInfo fcinfo,
 {
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 	PGresult   *volatile res = NULL;
-	storeInfo	sinfo;
+	volatile storeInfo sinfo;
 
 	/* prepTuplestoreResult must have been called previously */
 	Assert(rsinfo->returnMode == SFRM_Materialize);
 
 	/* initialize storeInfo to empty */
-	memset(&sinfo, 0, sizeof(sinfo));
+	memset((void *) &sinfo, 0, sizeof(sinfo));
 	sinfo.fcinfo = fcinfo;
 
 	PG_TRY();
 	{
+		/* Create short-lived memory context for data conversions */
+		sinfo.tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+												 "dblink temporary context",
+												 ALLOCSET_DEFAULT_MINSIZE,
+												 ALLOCSET_DEFAULT_INITSIZE,
+												 ALLOCSET_DEFAULT_MAXSIZE);
+
 		/* execute query, collecting any tuples into the tuplestore */
 		res = storeQueryResult(&sinfo, conn, sql);
 
@@ -1033,6 +1040,12 @@ materializeQueryResult(FunctionCallInfo fcinfo,
 			PQclear(res);
 			res = NULL;
 		}
+
+		/* clean up data conversion short-lived memory context */
+		if (sinfo.tmpcontext != NULL)
+			MemoryContextDelete(sinfo.tmpcontext);
+		sinfo.tmpcontext = NULL;
+
 		PQclear(sinfo.last_res);
 		sinfo.last_res = NULL;
 		PQclear(sinfo.cur_res);
@@ -1056,7 +1069,7 @@ materializeQueryResult(FunctionCallInfo fcinfo,
  * Execute query, and send any result rows to sinfo->tuplestore.
  */
 static PGresult *
-storeQueryResult(storeInfo *sinfo, PGconn *conn, const char *sql)
+storeQueryResult(volatile storeInfo *sinfo, PGconn *conn, const char *sql)
 {
 	bool		first = true;
 	int			nestlevel = -1;
@@ -1124,7 +1137,7 @@ storeQueryResult(storeInfo *sinfo, PGconn *conn, const char *sql)
  * (in this case the PGresult might contain either zero or one row).
  */
 static void
-storeRow(storeInfo *sinfo, PGresult *res, bool first)
+storeRow(volatile storeInfo *sinfo, PGresult *res, bool first)
 {
 	int			nfields = PQnfields(res);
 	HeapTuple	tuple;
@@ -1196,15 +1209,6 @@ storeRow(storeInfo *sinfo, PGresult *res, bool first)
 		if (sinfo->cstrs)
 			pfree(sinfo->cstrs);
 		sinfo->cstrs = (char **) palloc(nfields * sizeof(char *));
-
-		/* Create short-lived memory context for data conversions */
-		if (!sinfo->tmpcontext)
-			sinfo->tmpcontext =
-				AllocSetContextCreate(CurrentMemoryContext,
-									  "dblink temporary context",
-									  ALLOCSET_DEFAULT_MINSIZE,
-									  ALLOCSET_DEFAULT_INITSIZE,
-									  ALLOCSET_DEFAULT_MAXSIZE);
 	}
 
 	/* Should have a single-row result if we get here */
@@ -2320,7 +2324,7 @@ get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pk
 	 * Build sql statement to look up tuple of interest, ie, the one matching
 	 * src_pkattvals.  We used to use "SELECT *" here, but it's simpler to
 	 * generate a result tuple that matches the table's physical structure,
-	 * with NULLs for any dropped columns.	Otherwise we have to deal with two
+	 * with NULLs for any dropped columns.  Otherwise we have to deal with two
 	 * different tupdescs and everything's very confusing.
 	 */
 	appendStringInfoString(&buf, "SELECT ");
@@ -2546,7 +2550,7 @@ dblink_security_check(PGconn *conn, remoteConn *rconn)
 }
 
 /*
- * For non-superusers, insist that the connstr specify a password.	This
+ * For non-superusers, insist that the connstr specify a password.  This
  * prevents a password from being picked up from .pgpass, a service file,
  * the environment, etc.  We don't want the postgres user's passwords
  * to be accessible to non-superusers.

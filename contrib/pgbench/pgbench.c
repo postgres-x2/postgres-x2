@@ -795,6 +795,7 @@ runShellCommand(CState *st, char *variable, char **argv, int argc)
 	{
 		if (!timer_exceeded)
 			fprintf(stderr, "%s: cannot read the result\n", argv[0]);
+		(void) pclose(fp);
 		return false;
 	}
 	if (pclose(fp) < 0)
@@ -1127,7 +1128,7 @@ top:
 
 			/*
 			 * getrand() neeeds to be able to subtract max from min and add
-			 * one the result without overflowing.	Since we know max > min,
+			 * one the result without overflowing.  Since we know max > min,
 			 * we can detect overflow just by checking for a negative result.
 			 * But we must check both that the subtraction doesn't overflow,
 			 * and that adding one to the result doesn't overflow either.
@@ -1579,6 +1580,7 @@ parseQuery(Command *cmd, const char *raw_sql)
 
 		if (cmd->argc >= MAX_ARGS)
 		{
+			free(name);
 			fprintf(stderr, "statement has too many arguments (maximum is %d): %s\n", MAX_ARGS - 1, raw_sql);
 			return false;
 		}
@@ -1776,6 +1778,7 @@ process_file(char *filename)
 		fd = stdin;
 	else if ((fd = fopen(filename, "r")) == NULL)
 	{
+		free(my_commands);
 		fprintf(stderr, "%s: %s\n", filename, strerror(errno));
 		return false;
 	}
@@ -2175,7 +2178,7 @@ main(int argc, char **argv)
 			case 'M':
 				if (num_files > 0)
 				{
-					fprintf(stderr, "query mode (-M) should be specifiled before transaction scripts (-f)\n");
+					fprintf(stderr, "query mode (-M) should be specified before transaction scripts (-f)\n");
 					exit(1);
 				}
 				for (querymode = 0; querymode < NUM_QUERYMODE; querymode++)

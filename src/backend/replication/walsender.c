@@ -216,7 +216,15 @@ WalSndHandshake(void)
 		set_ps_display("idle", false);
 
 		/* Wait for a command to arrive */
+		pq_startmsgread();
 		firstchar = pq_getbyte();
+
+		/* Read the message contents */
+		if (firstchar != EOF)
+		{
+			if (pq_getmessage(&input_message, 0))
+				firstchar = EOF;	/* suitable message already logged */
+		}
 
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
@@ -233,16 +241,6 @@ WalSndHandshake(void)
 		{
 			got_SIGHUP = false;
 			ProcessConfigFile(PGC_SIGHUP);
-		}
-
-		if (firstchar != EOF)
-		{
-			/*
-			 * Read the message contents. This is expected to be done without
-			 * blocking because we've been able to get message type code.
-			 */
-			if (pq_getmessage(&input_message, 0))
-				firstchar = EOF;	/* suitable message already logged */
 		}
 
 		/* Handle the very limited subset of commands expected in this phase */
@@ -300,7 +298,7 @@ IdentifySystem(void)
 			 GetSystemIdentifier());
 	snprintf(tli, sizeof(tli), "%u", ThisTimeLineID);
 
-	logptr = am_cascading_walsender ? GetStandbyFlushRecPtr(NULL) : GetInsertRecPtr();
+	logptr = am_cascading_walsender ? GetStandbyFlushRecPtr(NULL) : GetFlushRecPtr();
 
 	snprintf(xpos, sizeof(xpos), "%X/%X",
 			 logptr.xlogid, logptr.xrecoff);
@@ -513,6 +511,7 @@ ProcessRepliesIfAny(void)
 
 	for (;;)
 	{
+		pq_startmsgread();
 		r = pq_getbyte_if_available(&firstchar);
 		if (r < 0)
 		{
@@ -525,7 +524,18 @@ ProcessRepliesIfAny(void)
 		if (r == 0)
 		{
 			/* no data available without blocking */
+			pq_endmsgread();
 			break;
+		}
+
+		/* Read the message contents */
+		resetStringInfo(&reply_message);
+		if (pq_getmessage(&reply_message, 0))
+		{
+			ereport(COMMERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("unexpected EOF on standby connection")));
+			proc_exit(0);
 		}
 
 		/* Handle the very limited subset of commands expected in this phase */
@@ -567,19 +577,6 @@ static void
 ProcessStandbyMessage(void)
 {
 	char		msgtype;
-
-	resetStringInfo(&reply_message);
-
-	/*
-	 * Read the message contents.
-	 */
-	if (pq_getmessage(&reply_message, 0))
-	{
-		ereport(COMMERROR,
-				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 errmsg("unexpected EOF on standby connection")));
-		proc_exit(0);
-	}
 
 	/*
 	 * Check message type from the first byte.
@@ -656,9 +653,12 @@ ProcessStandbyHSFeedbackMessage(void)
 		 reply.xmin,
 		 reply.epoch);
 
-	/* Ignore invalid xmin (can't actually happen with current walreceiver) */
+	/* Unset WalSender's xmin if the feedback message value is invalid */
 	if (!TransactionIdIsNormal(reply.xmin))
+	{
+		MyPgXact->xmin = InvalidTransactionId;
 		return;
+	}
 
 	/*
 	 * Check that the provided xmin/epoch are sane, that is, not in the future
@@ -695,7 +695,7 @@ ProcessStandbyHSFeedbackMessage(void)
 	 * far enough to make reply.xmin wrap around.  In that case the xmin we
 	 * set here would be "in the future" and have no effect.  No point in
 	 * worrying about this since it's too late to save the desired data
-	 * anyway.	Assuming that the standby sends us an increasing sequence of
+	 * anyway.  Assuming that the standby sends us an increasing sequence of
 	 * xmins, this could only happen during the first reply cycle, else our
 	 * own xmin would prevent nextXid from advancing so far.
 	 *
@@ -1357,7 +1357,7 @@ WalSndQuickDieHandler(SIGNAL_ARGS)
 	on_exit_reset();
 
 	/*
-	 * Note we do exit(2) not exit(0).	This is to force the postmaster into a
+	 * Note we do exit(2) not exit(0).  This is to force the postmaster into a
 	 * system reset cycle if some idiot DBA sends a manual SIGQUIT to a random
 	 * backend.  This is necessary precisely because we don't clean up our
 	 * shared memory state.  (The "dead man switch" mechanism in pmsignal.c

@@ -168,8 +168,15 @@ sub plcheck
 	{
 		next unless -d "$pl/sql" && -d "$pl/expected";
 		my $lang = $pl eq 'tcl' ? 'pltcl' : $pl;
-		next unless -d "../../$Config/$lang";
-		$lang = 'plpythonu' if $lang eq 'plpython';
+		if ($lang eq 'plpython')
+		{
+			next unless -d "../../$Config/plpython2";
+			$lang = 'plpythonu';
+		}
+		else
+		{
+			next unless -d "../../$Config/$lang";
+		}
 		my @lang_args = ("--load-extension=$lang");
 		chdir $pl;
 		my @tests = fetchTests();
@@ -234,6 +241,15 @@ sub contribcheck
 	exit $mstat if $mstat;
 }
 
+# Run "initdb", then reconfigure authentication.
+sub standard_initdb
+{
+	return (
+		system('initdb') == 0 and system(
+			"$topdir/$Config/pg_regress/pg_regress", '--config-auth',
+			$ENV{PGDATA}) == 0);
+}
+
 sub upgradecheck
 {
 	my $status;
@@ -245,6 +261,7 @@ sub upgradecheck
 	# i.e. only this version to this version check. That's
 	# what pg_upgrade's "make check" does.
 
+	$ENV{PGHOST} = 'localhost';
 	$ENV{PGPORT} ||= 50432;
 	my $tmp_root = "$topdir/contrib/pg_upgrade/tmp_check";
 	(mkdir $tmp_root || die $!) unless -d $tmp_root;
@@ -261,7 +278,7 @@ sub upgradecheck
 	my $logdir = "$topdir/contrib/pg_upgrade/log";
 	(mkdir $logdir || die $!) unless -d $logdir;
 	print "\nRunning initdb on old cluster\n\n";
-	system("initdb") == 0 or exit 1;
+	standard_initdb() or exit 1;
 	print "\nStarting old cluster\n\n";
 	system("pg_ctl start -l $logdir/postmaster1.log -w") == 0 or exit 1;
 	print "\nSetting up data for upgrading\n\n";
@@ -274,7 +291,7 @@ sub upgradecheck
 	system("pg_ctl -m fast stop") == 0 or exit 1;
 	$ENV{PGDATA} = "$data";
 	print "\nSetting up new cluster\n\n";
-	system("initdb") == 0 or exit 1;
+	standard_initdb() or exit 1;
 	print "\nRunning pg_upgrade\n\n";
 	system("pg_upgrade -d $data.old -D $data -b $bindir -B $bindir") == 0 
 	  or exit 1;
@@ -313,12 +330,18 @@ sub fetchRegressOpts
 	my $m = <$handle>;
 	close($handle);
 	my @opts;
+
+	$m =~ s{\\\r?\n}{}g;
 	if ($m =~ /^\s*REGRESS_OPTS\s*=(.*)/m)
 	{
 
-		# ignore options that use makefile variables - can't handle those
-		# ignore anything that isn't an option staring with --
-		@opts = grep { $_ !~ /\$\(/ && $_ =~ /^--/ } split(/\s+/, $1);
+		# Substitute known Makefile variables, then ignore options that retain
+		# an unhandled variable reference.  Ignore anything that isn't an
+		# option starting with "--".
+		@opts = grep {
+			s/\Q$(top_builddir)\E/\"$topdir\"/;
+			$_ !~ /\$\(/ && $_ =~ /^--/
+		} split(/\s+/, $1);
 	}
 	if ($m =~ /^\s*ENCODING\s*=\s*(\S+)/m)
 	{

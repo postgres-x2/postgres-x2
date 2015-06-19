@@ -18,7 +18,7 @@
  * to produce a new database.
  *
  * For largely-historical reasons, the template1 database is the one built
- * by the basic bootstrap process.	After it is complete, template0 and
+ * by the basic bootstrap process.  After it is complete, template0 and
  * the default database, postgres, are made just by copying template1.
  *
  * To create template1, we run the postgres (backend) program in bootstrap
@@ -1126,7 +1126,7 @@ setup_config(void)
 
 		/* for best results, this code should match parse_hba() */
 		hints.ai_flags = AI_NUMERICHOST;
-		hints.ai_family = PF_UNSPEC;
+		hints.ai_family = AF_UNSPEC;
 		hints.ai_socktype = 0;
 		hints.ai_protocol = 0;
 		hints.ai_addrlen = 0;
@@ -1265,7 +1265,7 @@ bootstrap_template1(void)
 	unsetenv("PGCLIENTENCODING");
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" --boot -x1 %s %s",
+			 SYSTEMQUOTE "\"%s\" --boot -x1 %s %s" SYSTEMQUOTE,
 			 backend_exec, boot_options, talkargs);
 
 	PG_CMD_OPEN;
@@ -1304,7 +1304,7 @@ setup_auth(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1365,8 +1365,12 @@ get_set_pwd(void)
 		}
 		if (!fgets(pwdbuf, sizeof(pwdbuf), pwf))
 		{
-			fprintf(stderr, _("%s: could not read password from file \"%s\": %s\n"),
-					progname, pwfilename, strerror(errno));
+			if (ferror(pwf))
+				fprintf(stderr, _("%s: could not read password from file \"%s\": %s\n"),
+						progname, pwfilename, strerror(errno));
+			else
+				fprintf(stderr, _("%s: password file \"%s\" is empty\n"),
+						progname, pwfilename);
 			exit_nicely();
 		}
 		fclose(pwf);
@@ -1382,7 +1386,7 @@ get_set_pwd(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1482,7 +1486,7 @@ setup_depend(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1515,7 +1519,7 @@ setup_sysviews(void)
 	 * We use -j here to avoid backslashing stuff in system_views.sql
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s -j template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1575,7 +1579,7 @@ setup_description(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1682,7 +1686,7 @@ setup_collation(void)
 
 #if defined(HAVE_LOCALE_T) && !defined(WIN32)
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1775,7 +1779,7 @@ setup_collation(void)
 	 * When copying collations to the final location, eliminate aliases that
 	 * conflict with an existing locale name for the same encoding.  For
 	 * example, "br_FR.iso88591" is normalized to "br_FR", both for encoding
-	 * LATIN1.	But the unnormalized locale "br_FR" already exists for LATIN1.
+	 * LATIN1.  But the unnormalized locale "br_FR" already exists for LATIN1.
 	 * Prefer the alias that matches the OS locale name, else the first locale
 	 * name by sort order (arbitrary choice to be deterministic).
 	 *
@@ -1821,7 +1825,7 @@ setup_conversion(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1859,7 +1863,7 @@ setup_dictionary(void)
 	 * We use -j here to avoid backslashing stuff
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s -j template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1882,7 +1886,7 @@ setup_dictionary(void)
 /*
  * Set up privileges
  *
- * We mark most system catalogs as world-readable.	We don't currently have
+ * We mark most system catalogs as world-readable.  We don't currently have
  * to touch functions, languages, or databases, because their default
  * permissions are OK.
  *
@@ -1910,7 +1914,7 @@ setup_privileges(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1973,7 +1977,7 @@ setup_schema(void)
 	 * We use -j here to avoid backslashing stuff in information_schema.sql
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s -j template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1990,7 +1994,7 @@ setup_schema(void)
 	PG_CMD_CLOSE;
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2024,7 +2028,7 @@ load_plpgsql(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2079,7 +2083,7 @@ vacuum_db(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2135,7 +2139,7 @@ make_template0(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2167,7 +2171,7 @@ make_postgres(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s template1 >%s",
+			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2244,7 +2248,7 @@ check_ok(void)
  *
  * Note: this is used to process both postgresql.conf entries and SQL
  * string literals.  Since postgresql.conf strings are defined to treat
- * backslashes as escapes, we have to double backslashes here.	Hence,
+ * backslashes as escapes, we have to double backslashes here.  Hence,
  * when using this for a SQL string literal, use E'' syntax.
  *
  * We do not need to worry about encoding considerations because all
@@ -2333,7 +2337,7 @@ locale_date_order(const char *locale)
  * Is the locale name valid for the locale category?
  *
  * If successful, and canonname isn't NULL, a malloc'd copy of the locale's
- * canonical name is stored there.	This is especially useful for figuring out
+ * canonical name is stored there.  This is especially useful for figuring out
  * what locale name "" means (ie, the environment value).  (Actually,
  * it seems that on most implementations that's the only thing it's good for;
  * we could wish that setlocale gave back a canonically spelled version of
@@ -2542,7 +2546,8 @@ CreateRestrictedProcess(char *cmd, PROCESS_INFORMATION *processInfo)
 	SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_POWER_USERS, 0, 0, 0, 0, 0,
 								  0, &dropSids[1].Sid))
 	{
-		fprintf(stderr, _("%s: could not to allocate SIDs: error code %lu\n"), progname, GetLastError());
+		fprintf(stderr, _("%s: could not allocate SIDs: error code %lu\n"),
+				progname, GetLastError());
 		return 0;
 	}
 
@@ -2751,6 +2756,15 @@ main(int argc, char *argv[])
 		"pg_tblspc",
 		"pg_stat_tmp"
 	};
+
+	/*
+	 * Ensure that buffering behavior of stdout and stderr matches what it is
+	 * in interactive usage (at least on most platforms).  This prevents
+	 * unexpected output ordering when, eg, output is redirected to a file.
+	 * POSIX says we must do this before any other usage of these files.
+	 */
+	setvbuf(stdout, NULL, PG_IOLBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("initdb"));

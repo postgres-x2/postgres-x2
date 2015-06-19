@@ -23,7 +23,7 @@ typedef struct RelationData *Relation;
 /* ----------------
  *		RelationPtr is used in the executor to support index scans
  *		where we have to keep track of several index relations in an
- *		array.	-cim 9/10/89
+ *		array.  -cim 9/10/89
  * ----------------
  */
 typedef Relation *RelationPtr;
@@ -96,7 +96,6 @@ extern void AtEOSubXact_RelationCache(bool isCommit, SubTransactionId mySubid,
 /*
  * Routines to help manage rebuilding of relcache init files
  */
-extern bool RelationIdIsInInitFile(Oid relationId);
 extern void RelationCacheInitFilePreInvalidate(void);
 extern void RelationCacheInitFilePostInvalidate(void);
 extern void RelationCacheInitFileRemove(void);

@@ -206,6 +206,7 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 		GistNSN		oldnsn = {0, 0};
 		SplitedPageLayout rootpg;
 		bool		is_rootsplit;
+		int			npage;
 
 		is_rootsplit = (blkno == GIST_ROOT_BLKNO);
 
@@ -225,6 +226,19 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 		}
 		itvec = gistjoinvector(itvec, &tlen, itup, ntup);
 		dist = gistSplit(rel, page, itvec, tlen, giststate);
+
+		/*
+		 * Check that split didn't produce too many pages.
+		 */
+		npage = 0;
+		for (ptr = dist; ptr; ptr = ptr->next)
+			npage++;
+		/* in a root split, we'll add one more page to the list below */
+		if (is_rootsplit)
+			npage++;
+		if (npage > GIST_MAX_SPLIT_PAGES)
+			elog(ERROR, "GiST page split into too many halves (%d, maximum %d)",
+				 npage, GIST_MAX_SPLIT_PAGES);
 
 		/*
 		 * Set up pages to work with. Allocate new buffers for all but the
@@ -1241,6 +1255,24 @@ gistSplit(Relation r,
 	int			i;
 	SplitedPageLayout *res = NULL;
 
+	/* this should never recurse very deeply, but better safe than sorry */
+	check_stack_depth();
+
+	/* there's no point in splitting an empty page */
+	Assert(len > 0);
+
+	/*
+	 * If a single tuple doesn't fit on a page, no amount of splitting will
+	 * help.
+	 */
+	if (len == 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
+				   (unsigned long) IndexTupleSize(itup[0]),
+				   (unsigned long) GiSTPageSize,
+				   RelationGetRelationName(r))));
+
 	memset(v.spl_lisnull, TRUE, sizeof(bool) * giststate->tupdesc->natts);
 	memset(v.spl_risnull, TRUE, sizeof(bool) * giststate->tupdesc->natts);
 	gistSplitByKey(r, page, itup, len, giststate, &v, 0);
@@ -1358,7 +1390,7 @@ initGISTstate(Relation index)
 		/*
 		 * If the index column has a specified collation, we should honor that
 		 * while doing comparisons.  However, we may have a collatable storage
-		 * type for a noncollatable indexed data type.	If there's no index
+		 * type for a noncollatable indexed data type.  If there's no index
 		 * collation then specify default collation in case the support
 		 * functions need collation.  This is harmless if the support
 		 * functions don't care about collation, so we just do it

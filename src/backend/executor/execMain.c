@@ -19,7 +19,7 @@
  *	ExecutorRun accepts direction and count arguments that specify whether
  *	the plan is to be executed forwards, backwards, and for how many tuples.
  *	In some cases ExecutorRun may be called multiple times to process all
- *	the tuples for a plan.	It is also acceptable to stop short of executing
+ *	the tuples for a plan.  It is also acceptable to stop short of executing
  *	the whole plan (but only if it is a SELECT).
  *
  *	ExecutorFinish must be called after the final ExecutorRun call and
@@ -82,11 +82,22 @@ static void ExecutePlan(EState *estate, PlanState *planstate,
 			DestReceiver *dest);
 static bool ExecCheckRTEPerms(RangeTblEntry *rte);
 static void ExecCheckXactReadOnly(PlannedStmt *plannedstmt);
-static char *ExecBuildSlotValueDescription(TupleTableSlot *slot,
+static char *ExecBuildSlotValueDescription(Oid reloid,
+							  TupleTableSlot *slot,
 							  TupleDesc tupdesc,
+							  Bitmapset *modifiedCols,
 							  int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
+
+/*
+ * Note that this macro also exists in commands/trigger.c.  There does not
+ * appear to be any good header to put it into, given the structures that
+ * it uses, so we let them be duplicated.  Be sure to update both if one needs
+ * to be changed, however.
+ */
+#define GetModifiedColumns(relinfo, estate) \
+	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->modifiedCols)
 
 /* end of local decls */
 
@@ -328,12 +339,12 @@ standard_ExecutorRun(QueryDesc *queryDesc,
  *		ExecutorFinish
  *
  *		This routine must be called after the last ExecutorRun call.
- *		It performs cleanup such as firing AFTER triggers.	It is
+ *		It performs cleanup such as firing AFTER triggers.  It is
  *		separate from ExecutorEnd because EXPLAIN ANALYZE needs to
  *		include these actions in the total runtime.
  *
  *		We provide a function hook variable that lets loadable plugins
- *		get control when ExecutorFinish is called.	Such a plugin would
+ *		get control when ExecutorFinish is called.  Such a plugin would
  *		normally call standard_ExecutorFinish().
  *
  * ----------------------------------------------------------------
@@ -564,7 +575,7 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 	 * userid to check as: current user unless we have a setuid indication.
 	 *
 	 * Note: GetUserId() is presently fast enough that there's no harm in
-	 * calling it separately for each RTE.	If that stops being true, we could
+	 * calling it separately for each RTE.  If that stops being true, we could
 	 * call it once in ExecCheckRTPerms and pass the userid down from there.
 	 * But for now, no need for the extra clutter.
 	 */
@@ -802,6 +813,10 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		if (rc->isParent)
 			continue;
 
+		/*
+		 * If you change the conditions under which rel locks are acquired
+		 * here, be sure to adjust ExecOpenScanRelation to match.
+		 */
 		switch (rc->markType)
 		{
 			case ROW_MARK_EXCLUSIVE:
@@ -1115,7 +1130,7 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
  * if so it doesn't matter which one we pick.)  However, it is sometimes
  * necessary to fire triggers on other relations; this happens mainly when an
  * RI update trigger queues additional triggers on other relations, which will
- * be processed in the context of the outer query.	For efficiency's sake,
+ * be processed in the context of the outer query.  For efficiency's sake,
  * we want to have a ResultRelInfo for those triggers too; that can avoid
  * repeated re-opening of the relation.  (It also provides a way for EXPLAIN
  * ANALYZE to report the runtimes of such triggers.)  So we make additional
@@ -1152,7 +1167,7 @@ ExecGetTriggerResultRel(EState *estate, Oid relid)
 	/*
 	 * Open the target relation's relcache entry.  We assume that an
 	 * appropriate lock is still held by the backend from whenever the trigger
-	 * event got queued, so we need take no new lock here.	Also, we need not
+	 * event got queued, so we need take no new lock here.  Also, we need not
 	 * recheck the relkind, so no need for CheckValidResultRel.
 	 */
 	rel = heap_open(relid, NoLock);
@@ -1258,7 +1273,7 @@ ExecPostprocessPlan(EState *estate)
 
 	/*
 	 * Run any secondary ModifyTable nodes to completion, in case the main
-	 * query did not fetch all rows from them.	(We do this to ensure that
+	 * query did not fetch all rows from them.  (We do this to ensure that
 	 * such nodes have predictable results.)
 	 */
 	foreach(lc, estate->es_auxmodifytables)
@@ -1530,14 +1545,23 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 		{
 			if (tupdesc->attrs[attrChk - 1]->attnotnull &&
 				slot_attisnull(slot, attrChk))
+			{
+				char	   *val_desc;
+				Bitmapset  *modifiedCols;
+
+				modifiedCols = GetModifiedColumns(resultRelInfo, estate);
+				val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
+														 slot,
+														 tupdesc,
+														 modifiedCols,
+														 64);
+
 				ereport(ERROR,
 						(errcode(ERRCODE_NOT_NULL_VIOLATION),
 						 errmsg("null value in column \"%s\" violates not-null constraint",
-						  NameStr(tupdesc->attrs[attrChk - 1]->attname)),
-						 errdetail("Failing row contains %s.",
-								   ExecBuildSlotValueDescription(slot,
-																 tupdesc,
-																 64))));
+								NameStr(tupdesc->attrs[attrChk - 1]->attname)),
+						 val_desc ? errdetail("Failing row contains %s.", val_desc) : 0));
+			}
 		}
 	}
 
@@ -1546,14 +1570,22 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 		const char *failed;
 
 		if ((failed = ExecRelCheck(resultRelInfo, slot, estate)) != NULL)
+		{
+			char	   *val_desc;
+			Bitmapset  *modifiedCols;
+
+			modifiedCols = GetModifiedColumns(resultRelInfo, estate);
+			val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
+													 slot,
+													 tupdesc,
+													 modifiedCols,
+													 64);
 			ereport(ERROR,
 					(errcode(ERRCODE_CHECK_VIOLATION),
 					 errmsg("new row for relation \"%s\" violates check constraint \"%s\"",
 							RelationGetRelationName(rel), failed),
-					 errdetail("Failing row contains %s.",
-							   ExecBuildSlotValueDescription(slot,
-															 tupdesc,
-															 64))));
+					 val_desc ? errdetail("Failing row contains %s.", val_desc) : 0));
+		}
 	}
 }
 
@@ -1562,32 +1594,63 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
  *
  * This is intentionally very similar to BuildIndexValueDescription, but
  * unlike that function, we truncate long field values (to at most maxfieldlen
- * bytes).	That seems necessary here since heap field values could be very
+ * bytes).  That seems necessary here since heap field values could be very
  * long, whereas index entries typically aren't so wide.
  *
  * Also, unlike the case with index entries, we need to be prepared to ignore
  * dropped columns.  We used to use the slot's tuple descriptor to decode the
  * data, but the slot's descriptor doesn't identify dropped columns, so we
  * now need to be passed the relation's descriptor.
+ *
+ * Note that, like BuildIndexValueDescription, if the user does not have
+ * permission to view any of the columns involved, a NULL is returned.  Unlike
+ * BuildIndexValueDescription, if the user has access to view a subset of the
+ * column involved, that subset will be returned with a key identifying which
+ * columns they are.
  */
 static char *
-ExecBuildSlotValueDescription(TupleTableSlot *slot,
+ExecBuildSlotValueDescription(Oid reloid,
+							  TupleTableSlot *slot,
 							  TupleDesc tupdesc,
+							  Bitmapset *modifiedCols,
 							  int maxfieldlen)
 {
 	StringInfoData buf;
+	StringInfoData collist;
 	bool		write_comma = false;
+	bool		write_comma_collist = false;
 	int			i;
-
-	/* Make sure the tuple is fully deconstructed */
-	slot_getallattrs(slot);
+	AclResult	aclresult;
+	bool		table_perm = false;
+	bool		any_perm = false;
 
 	initStringInfo(&buf);
 
 	appendStringInfoChar(&buf, '(');
 
+	/*
+	 * Check if the user has permissions to see the row.  Table-level SELECT
+	 * allows access to all columns.  If the user does not have table-level
+	 * SELECT then we check each column and include those the user has SELECT
+	 * rights on.  Additionally, we always include columns the user provided
+	 * data for.
+	 */
+	aclresult = pg_class_aclcheck(reloid, GetUserId(), ACL_SELECT);
+	if (aclresult != ACLCHECK_OK)
+	{
+		/* Set up the buffer for the column list */
+		initStringInfo(&collist);
+		appendStringInfoChar(&collist, '(');
+	}
+	else
+		table_perm = any_perm = true;
+
+	/* Make sure the tuple is fully deconstructed */
+	slot_getallattrs(slot);
+
 	for (i = 0; i < tupdesc->natts; i++)
 	{
+		bool		column_perm = false;
 		char	   *val;
 		int			vallen;
 
@@ -1595,36 +1658,75 @@ ExecBuildSlotValueDescription(TupleTableSlot *slot,
 		if (tupdesc->attrs[i]->attisdropped)
 			continue;
 
-		if (slot->tts_isnull[i])
-			val = "null";
-		else
+		if (!table_perm)
 		{
-			Oid			foutoid;
-			bool		typisvarlena;
+			/*
+			 * No table-level SELECT, so need to make sure they either have
+			 * SELECT rights on the column or that they have provided the
+			 * data for the column.  If not, omit this column from the error
+			 * message.
+			 */
+			aclresult = pg_attribute_aclcheck(reloid, tupdesc->attrs[i]->attnum,
+											  GetUserId(), ACL_SELECT);
+			if (bms_is_member(tupdesc->attrs[i]->attnum - FirstLowInvalidHeapAttributeNumber,
+							  modifiedCols) || aclresult == ACLCHECK_OK)
+			{
+				column_perm = any_perm = true;
 
-			getTypeOutputInfo(tupdesc->attrs[i]->atttypid,
-							  &foutoid, &typisvarlena);
-			val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
+				if (write_comma_collist)
+					appendStringInfoString(&collist, ", ");
+				else
+					write_comma_collist = true;
+
+				appendStringInfoString(&collist, NameStr(tupdesc->attrs[i]->attname));
+			}
 		}
 
-		if (write_comma)
-			appendStringInfoString(&buf, ", ");
-		else
-			write_comma = true;
-
-		/* truncate if needed */
-		vallen = strlen(val);
-		if (vallen <= maxfieldlen)
-			appendStringInfoString(&buf, val);
-		else
+		if (table_perm || column_perm)
 		{
-			vallen = pg_mbcliplen(val, vallen, maxfieldlen);
-			appendBinaryStringInfo(&buf, val, vallen);
-			appendStringInfoString(&buf, "...");
+			if (slot->tts_isnull[i])
+				val = "null";
+			else
+			{
+				Oid			foutoid;
+				bool		typisvarlena;
+
+				getTypeOutputInfo(tupdesc->attrs[i]->atttypid,
+								  &foutoid, &typisvarlena);
+				val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
+			}
+
+			if (write_comma)
+				appendStringInfoString(&buf, ", ");
+			else
+				write_comma = true;
+
+			/* truncate if needed */
+			vallen = strlen(val);
+			if (vallen <= maxfieldlen)
+				appendStringInfoString(&buf, val);
+			else
+			{
+				vallen = pg_mbcliplen(val, vallen, maxfieldlen);
+				appendBinaryStringInfo(&buf, val, vallen);
+				appendStringInfoString(&buf, "...");
+			}
 		}
 	}
 
+	/* If we end up with zero columns being returned, then return NULL. */
+	if (!any_perm)
+		return NULL;
+
 	appendStringInfoChar(&buf, ')');
+
+	if (!table_perm)
+	{
+		appendStringInfoString(&collist, ") = ");
+		appendStringInfoString(&collist, buf.data);
+
+		return collist.data;
+	}
 
 	return buf.data;
 }
@@ -1752,7 +1854,7 @@ EvalPlanQual(EState *estate, EPQState *epqstate,
 	*tid = copyTuple->t_self;
 
 	/*
-	 * Need to run a recheck subquery.	Initialize or reinitialize EPQ state.
+	 * Need to run a recheck subquery.  Initialize or reinitialize EPQ state.
 	 */
 	EvalPlanQualBegin(epqstate, estate);
 
@@ -1836,7 +1938,7 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 
 			/*
 			 * If xmin isn't what we're expecting, the slot must have been
-			 * recycled and reused for an unrelated tuple.	This implies that
+			 * recycled and reused for an unrelated tuple.  This implies that
 			 * the latest version of the row was deleted, so we need do
 			 * nothing.  (Should be safe to examine xmin without getting
 			 * buffer's content lock, since xmin never changes in an existing
@@ -2062,7 +2164,7 @@ EvalPlanQualGetTuple(EPQState *epqstate, Index rti)
 
 /*
  * Fetch the current row values for any non-locked relations that need
- * to be scanned by an EvalPlanQual operation.	origslot must have been set
+ * to be scanned by an EvalPlanQual operation.  origslot must have been set
  * to contain the current result row (top-level row) that we need to recheck.
  */
 void
@@ -2149,7 +2251,9 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 			/* build a temporary HeapTuple control structure */
 			tuple.t_len = HeapTupleHeaderGetDatumLength(td);
 			ItemPointerSetInvalid(&(tuple.t_self));
-			tuple.t_tableOid = InvalidOid;
+			/* relation might be a foreign table, if so provide tableoid */
+			tuple.t_tableOid = getrelid(erm->rti,
+										epqstate->estate->es_range_table);
 #ifdef PGXC
 			tuple.t_xc_node_id = 0;
 #endif
@@ -2252,6 +2356,14 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	 * the snapshot, rangetable, result-rel info, and external Param info.
 	 * They need their own copies of local state, including a tuple table,
 	 * es_param_exec_vals, etc.
+	 *
+	 * The ResultRelInfo array management is trickier than it looks.  We
+	 * create a fresh array for the child but copy all the content from the
+	 * parent.  This is because it's okay for the child to share any
+	 * per-relation state the parent has already created --- but if the child
+	 * sets up any ResultRelInfo fields, such as its own junkfilter, that
+	 * state must *not* propagate back to the parent.  (For one thing, the
+	 * pointed-to data is in a memory context that won't last long enough.)
 	 */
 	estate->es_direction = ForwardScanDirection;
 	estate->es_snapshot = parentestate->es_snapshot;
@@ -2260,15 +2372,23 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	estate->es_plannedstmt = parentestate->es_plannedstmt;
 	estate->es_junkFilter = parentestate->es_junkFilter;
 	estate->es_output_cid = parentestate->es_output_cid;
-	estate->es_result_relations = parentestate->es_result_relations;
-	estate->es_num_result_relations = parentestate->es_num_result_relations;
-	estate->es_result_relation_info = parentestate->es_result_relation_info;
+	if (parentestate->es_num_result_relations > 0)
+	{
+		int			numResultRelations = parentestate->es_num_result_relations;
+		ResultRelInfo *resultRelInfos;
 
+		resultRelInfos = (ResultRelInfo *)
+			palloc(numResultRelations * sizeof(ResultRelInfo));
+		memcpy(resultRelInfos, parentestate->es_result_relations,
+			   numResultRelations * sizeof(ResultRelInfo));
+		estate->es_result_relations = resultRelInfos;
+		estate->es_num_result_relations = numResultRelations;
+	}
 #ifdef PGXC
 	/* XXX Check if this is OK */
 	estate->es_result_remoterel = parentestate->es_result_remoterel;
 #endif
-
+	/* es_result_relation_info must NOT be copied */
 	/* es_trig_target_relations must NOT be copied */
 	estate->es_rowMarks = parentestate->es_rowMarks;
 	estate->es_top_eflags = parentestate->es_top_eflags;
@@ -2300,7 +2420,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 
 	/*
 	 * Each EState must have its own es_epqScanDone state, but if we have
-	 * nested EPQ checks they should share es_epqTuple arrays.	This allows
+	 * nested EPQ checks they should share es_epqTuple arrays.  This allows
 	 * sub-rechecks to inherit the values being examined by an outer recheck.
 	 */
 	estate->es_epqScanDone = (bool *) palloc0(rtsize * sizeof(bool));
@@ -2357,7 +2477,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
  *
  * This is a cut-down version of ExecutorEnd(); basically we want to do most
  * of the normal cleanup, but *not* close result relations (which we are
- * just sharing from the outer query).	We do, however, have to close any
+ * just sharing from the outer query).  We do, however, have to close any
  * trigger target relations that got opened, since those are not shared.
  * (There probably shouldn't be any of the latter, but just in case...)
  */

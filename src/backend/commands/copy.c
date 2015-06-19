@@ -167,6 +167,7 @@ typedef struct CopyStateData
 	int		   *defmap;			/* array of default att numbers */
 	ExprState **defexprs;		/* array of default att expressions */
 	bool		volatile_defexprs;		/* is any of defexprs volatile? */
+	List	   *range_table;
 
 	/*
 	 * These variables are used to reduce overhead in textual COPY FROM.
@@ -196,7 +197,7 @@ typedef struct CopyStateData
 
 	/*
 	 * Finally, raw_buf holds raw data read from the data source (file or
-	 * client connection).	CopyReadLine parses this data sufficiently to
+	 * client connection).  CopyReadLine parses this data sufficiently to
 	 * locate line boundaries, then transfers the data to line_buf and
 	 * converts it.  Note: we guarantee that there is a \0 at
 	 * raw_buf[raw_buf_len].
@@ -226,7 +227,7 @@ typedef struct
  * function call overhead in tight COPY loops.
  *
  * We must use "if (1)" because the usual "do {...} while(0)" wrapper would
- * prevent the continue/break processing from working.	We end the "if (1)"
+ * prevent the continue/break processing from working.  We end the "if (1)"
  * with "else ((void) 0)" to ensure the "if" does not unintentionally match
  * any "else" in the calling code, and to avoid any compiler warnings about
  * empty statements.  See http://www.cit.gu.edu.au/~anthony/info/C/C.macros.
@@ -420,6 +421,8 @@ ReceiveCopyBegin(CopyState cstate)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			errmsg("COPY BINARY is not supported to stdout or from stdin")));
 		pq_putemptymessage('G');
+		/* any error in old protocol will make us lose sync */
+		pq_startmsgread();
 		cstate->copy_dest = COPY_OLD_FE;
 	}
 	else
@@ -430,6 +433,8 @@ ReceiveCopyBegin(CopyState cstate)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			errmsg("COPY BINARY is not supported to stdout or from stdin")));
 		pq_putemptymessage('D');
+		/* any error in old protocol will make us lose sync */
+		pq_startmsgread();
 		cstate->copy_dest = COPY_OLD_FE;
 	}
 	/* We *must* flush here to ensure FE knows it can send. */
@@ -543,7 +548,7 @@ CopySendEndOfRow(CopyState cstate)
  * CopyGetData reads data from the source (file or frontend)
  *
  * We attempt to read at least minread, and at most maxread, bytes from
- * the source.	The actual number of bytes read is returned; if this is
+ * the source.  The actual number of bytes read is returned; if this is
  * less than minread, EOF was detected.
  *
  * Note: when copying from the frontend, we expect a proper EOF mark per
@@ -595,6 +600,8 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 					int			mtype;
 
 			readmessage:
+					HOLD_CANCEL_INTERRUPTS();
+					pq_startmsgread();
 					mtype = pq_getbyte();
 					if (mtype == EOF)
 						ereport(ERROR,
@@ -604,6 +611,7 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
 								 errmsg("unexpected EOF on client connection with an open transaction")));
+					RESUME_CANCEL_INTERRUPTS();
 					switch (mtype)
 					{
 						case 'd':		/* CopyData */
@@ -771,7 +779,7 @@ CopyLoadRawBuf(CopyState cstate)
  * we also support copying the output of an arbitrary SELECT query.
  *
  * If <pipe> is false, transfer is between the table and the file named
- * <filename>.	Otherwise, transfer is between the table and our regular
+ * <filename>.  Otherwise, transfer is between the table and our regular
  * input/output stream. The latter could be either stdin/stdout or a
  * socket, depending on whether we're running under Postmaster control.
  *
@@ -789,6 +797,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	bool		pipe = (stmt->filename == NULL);
 	Relation	rel;
 	uint64		processed;
+	List	   *range_table = NIL;
 
 	/* Disallow file COPY except to superusers. */
 	if (!pipe && !superuser())
@@ -802,9 +811,9 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	{
 		TupleDesc	tupDesc;
 		AclMode		required_access = (is_from ? ACL_INSERT : ACL_SELECT);
-		RangeTblEntry *rte;
 		List	   *attnums;
 		ListCell   *cur;
+		RangeTblEntry *rte;
 
 		Assert(!stmt->query);
 
@@ -817,6 +826,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		rte->relid = RelationGetRelid(rel);
 		rte->relkind = rel->rd_rel->relkind;
 		rte->requiredPerms = required_access;
+		range_table = list_make1(rte);
 
 #ifdef PGXC
 		/* In case COPY is used on a temporary table, never use 2PC for implicit commits */
@@ -836,7 +846,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 			else
 				rte->selectedCols = bms_add_member(rte->selectedCols, attno);
 		}
-		ExecCheckRTPerms(list_make1(rte), true);
+		ExecCheckRTPerms(range_table, true);
 	}
 	else
 	{
@@ -855,6 +865,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 
 		cstate = BeginCopyFrom(rel, stmt->filename,
 							   stmt->attlist, stmt->options);
+		cstate->range_table = range_table;
 		processed = CopyFrom(cstate);	/* copy from file to database */
 		EndCopyFrom(cstate);
 	}
@@ -1268,7 +1279,7 @@ BeginCopy(bool is_from,
 					 errmsg("COPY (SELECT) WITH OIDS is not supported")));
 
 		/*
-		 * Run parse analysis and rewrite.	Note this also acquires sufficient
+		 * Run parse analysis and rewrite.  Note this also acquires sufficient
 		 * locks on the source table(s).
 		 *
 		 * Because the parser and planner tend to scribble on their input, we
@@ -1624,7 +1635,7 @@ CopyTo(CopyState cstate)
 	 * Create a temporary memory context that we can reset once per row to
 	 * recover palloc'd memory.  This avoids any problems with leaks inside
 	 * datatype output routines, and should be faster than retail pfree's
-	 * anyway.	(We don't need a whole econtext as CopyFrom does.)
+	 * anyway.  (We don't need a whole econtext as CopyFrom does.)
 	 */
 	cstate->rowcontext = AllocSetContextCreate(CurrentMemoryContext,
 											   "COPY TO",
@@ -2116,6 +2127,7 @@ CopyFrom(CopyState cstate)
 	estate->es_result_relations = resultRelInfo;
 	estate->es_num_result_relations = 1;
 	estate->es_result_relation_info = resultRelInfo;
+	estate->es_range_table = cstate->range_table;
 
 	/* Set up a tuple slot too */
 	myslot = ExecInitExtraTupleSlot(estate);
@@ -2392,6 +2404,12 @@ CopyFrom(CopyState cstate)
 				replicated ? COMBINE_TYPE_SAME : COMBINE_TYPE_SUM);
 	}
 #endif
+	/*
+	 * In the old protocol, tell pqcomm that we can process normal protocol
+	 * messages again.
+	 */
+	if (cstate->copy_dest == COPY_OLD_FE)
+		pq_endmsgread();
 
 	/* Execute AFTER STATEMENT insertion triggers */
 	ExecASInsertTriggers(estate, resultRelInfo);
@@ -2968,7 +2986,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 			 * if client chooses to send that now.
 			 *
 			 * Note that we MUST NOT try to read more data in an old-protocol
-			 * copy, since there is no protocol-level EOF marker then.	We
+			 * copy, since there is no protocol-level EOF marker then.  We
 			 * could go either way for copy from file, but choose to throw
 			 * error if there's data after the EOF marker, for consistency
 			 * with the new-protocol case.
@@ -3060,7 +3078,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 
 	/*
 	 * Now compute and insert any defaults available for the columns not
-	 * provided by the input data.	Anything not processed here or above will
+	 * provided by the input data.  Anything not processed here or above will
 	 * remain NULL.
 	 */
 	for (i = 0; i < num_defaults; i++)
@@ -3186,7 +3204,7 @@ EndCopyFrom(CopyState cstate)
  * server encoding.
  *
  * Result is true if read was terminated by EOF, false if terminated
- * by newline.	The terminating newline or EOF marker is not included
+ * by newline.  The terminating newline or EOF marker is not included
  * in the final value of line_buf.
  */
 static bool
@@ -3342,7 +3360,7 @@ CopyReadLineText(CopyState cstate)
 		 * of read-ahead and avoid the many calls to
 		 * IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(), but the COPY_OLD_FE protocol
 		 * does not allow us to read too far ahead or we might read into the
-		 * next data, so we read-ahead only as far we know we can.	One
+		 * next data, so we read-ahead only as far we know we can.  One
 		 * optimization would be to read-ahead four byte here if
 		 * cstate->copy_dest != COPY_OLD_FE, but it hardly seems worth it,
 		 * considering the size of the buffer.
@@ -3352,7 +3370,7 @@ CopyReadLineText(CopyState cstate)
 			REFILL_LINEBUF;
 
 			/*
-			 * Try to read some more data.	This will certainly reset
+			 * Try to read some more data.  This will certainly reset
 			 * raw_buf_index to zero, and raw_buf_ptr must go with it.
 			 */
 			if (!CopyLoadRawBuf(cstate))
@@ -3410,7 +3428,7 @@ CopyReadLineText(CopyState cstate)
 			/*
 			 * Updating the line count for embedded CR and/or LF chars is
 			 * necessarily a little fragile - this test is probably about the
-			 * best we can do.	(XXX it's arguable whether we should do this
+			 * best we can do.  (XXX it's arguable whether we should do this
 			 * at all --- is cur_lineno a physical or logical count?)
 			 */
 			if (in_quote && c == (cstate->eol_type == EOL_NL ? '\n' : '\r'))
@@ -3589,7 +3607,7 @@ CopyReadLineText(CopyState cstate)
 				 * after a backslash is special, so we skip over that second
 				 * character too.  If we didn't do that \\. would be
 				 * considered an eof-of copy, while in non-CSV mode it is a
-				 * literal backslash followed by a period.	In CSV mode,
+				 * literal backslash followed by a period.  In CSV mode,
 				 * backslashes are not special, so we want to process the
 				 * character after the backslash just like a normal character,
 				 * so we don't increment in those cases.
@@ -3692,7 +3710,7 @@ CopyReadAttributesText(CopyState cstate)
 	/*
 	 * The de-escaped attributes will certainly not be longer than the input
 	 * data line, so we can just force attribute_buf to be large enough and
-	 * then transfer data without any checks for enough space.	We need to do
+	 * then transfer data without any checks for enough space.  We need to do
 	 * it this way because enlarging attribute_buf mid-stream would invalidate
 	 * pointers already stored into cstate->raw_fields[].
 	 */
@@ -3922,7 +3940,7 @@ CopyReadAttributesCSV(CopyState cstate)
 	/*
 	 * The de-escaped attributes will certainly not be longer than the input
 	 * data line, so we can just force attribute_buf to be large enough and
-	 * then transfer data without any checks for enough space.	We need to do
+	 * then transfer data without any checks for enough space.  We need to do
 	 * it this way because enlarging attribute_buf mid-stream would invalidate
 	 * pointers already stored into cstate->raw_fields[].
 	 */
@@ -4159,7 +4177,7 @@ CopyAttributeOutText(CopyState cstate, char *string)
 	/*
 	 * We have to grovel through the string searching for control characters
 	 * and instances of the delimiter character.  In most cases, though, these
-	 * are infrequent.	To avoid overhead from calling CopySendData once per
+	 * are infrequent.  To avoid overhead from calling CopySendData once per
 	 * character, we dump out all characters between escaped characters in a
 	 * single call.  The loop invariant is that the data from "start" to "ptr"
 	 * can be sent literally, but hasn't yet been.

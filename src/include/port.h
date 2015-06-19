@@ -160,7 +160,7 @@ extern unsigned char pg_ascii_tolower(unsigned char ch);
 
 /*
  * Versions of libintl >= 0.13 try to replace printf() and friends with
- * macros to their own versions that understand the %$ format.	We do the
+ * macros to their own versions that understand the %$ format.  We do the
  * same, so disable their macros, if they exist.
  */
 #ifdef vsnprintf
@@ -353,6 +353,20 @@ extern int	gettimeofday(struct timeval * tp, struct timezone * tzp);
 #endif   /* WIN32 */
 
 /*
+ * On Windows, setvbuf() does not support _IOLBF mode, and interprets that
+ * as _IOFBF.  To add insult to injury, setvbuf(file, NULL, _IOFBF, 0)
+ * crashes outright if "parameter validation" is enabled.  Therefore, in
+ * places where we'd like to select line-buffered mode, we fall back to
+ * unbuffered mode instead on Windows.  Always use PG_IOLBF not _IOLBF
+ * directly in order to implement this behavior.
+ */
+#ifndef WIN32
+#define PG_IOLBF	_IOLBF
+#else
+#define PG_IOLBF	_IONBF
+#endif
+
+/*
  * Default "extern" declarations or macro substitutes for library routines.
  * When necessary, these routines are provided by files in src/port/.
  */
@@ -392,6 +406,10 @@ extern int	getpeereid(int sock, uid_t *uid, gid_t *gid);
 
 #ifndef HAVE_ISINF
 extern int	isinf(double x);
+#endif
+
+#ifndef HAVE_MKDTEMP
+extern char *mkdtemp(char *path);
 #endif
 
 #ifndef HAVE_RINT

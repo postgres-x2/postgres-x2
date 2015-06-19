@@ -75,7 +75,7 @@ static void process_settings(Oid databaseid, Oid roleid);
  * GetDatabaseTuple -- fetch the pg_database row for a database
  *
  * This is used during backend startup when we don't yet have any access to
- * system catalogs in general.	In the worst case, we can seqscan pg_database
+ * system catalogs in general.  In the worst case, we can seqscan pg_database
  * using nothing but the hard-wired descriptor that relcache.c creates for
  * pg_database.  In more typical cases, relcache.c was able to load
  * descriptors for both pg_database and its indexes from the shared relcache
@@ -99,7 +99,7 @@ GetDatabaseTuple(const char *dbname)
 				CStringGetDatum(dbname));
 
 	/*
-	 * Open pg_database and fetch a tuple.	Force heap scan if we haven't yet
+	 * Open pg_database and fetch a tuple.  Force heap scan if we haven't yet
 	 * built the critical shared relcache entries (i.e., we're starting up
 	 * without a shared relcache cache file).
 	 */
@@ -142,7 +142,7 @@ GetDatabaseTupleByOid(Oid dboid)
 				ObjectIdGetDatum(dboid));
 
 	/*
-	 * Open pg_database and fetch a tuple.	Force heap scan if we haven't yet
+	 * Open pg_database and fetch a tuple.  Force heap scan if we haven't yet
 	 * built the critical shared relcache entries (i.e., we're starting up
 	 * without a shared relcache cache file).
 	 */
@@ -183,7 +183,7 @@ PerformAuthentication(Port *port)
 	 * are loading them into the startup transaction's memory context, not
 	 * PostmasterContext, but that shouldn't matter.
 	 *
-	 * FIXME: [fork/exec] Ugh.	Is there a way around this overhead?
+	 * FIXME: [fork/exec] Ugh.  Is there a way around this overhead?
 	 */
 #ifdef EXEC_BACKEND
 	if (!load_hba())
@@ -282,7 +282,7 @@ CheckMyDatabase(const char *name, bool am_superuser)
 					name)));
 
 		/*
-		 * Check privilege to connect to the database.	(The am_superuser test
+		 * Check privilege to connect to the database.  (The am_superuser test
 		 * is redundant, but since we have the flag, might as well check it
 		 * and save a few cycles.)
 		 */
@@ -298,7 +298,7 @@ CheckMyDatabase(const char *name, bool am_superuser)
 		 * Check connection limit for this database.
 		 *
 		 * There is a race condition here --- we create our PGPROC before
-		 * checking for other PGPROCs.	If two backends did this at about the
+		 * checking for other PGPROCs.  If two backends did this at about the
 		 * same time, they might both think they were over the limit, while
 		 * ideally one should succeed and one fail.  Getting that to work
 		 * exactly seems more trouble than it is worth, however; instead we
@@ -443,7 +443,7 @@ BaseInit(void)
  *		Initialize POSTGRES.
  *
  * The database can be specified by name, using the in_dbname parameter, or by
- * OID, using the dboid parameter.	In the latter case, the actual database
+ * OID, using the dboid parameter.  In the latter case, the actual database
  * name can be returned to the caller in out_dbname.  If out_dbname isn't
  * NULL, it must point to a buffer of size NAMEDATALEN.
  *
@@ -741,10 +741,6 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 			strcpy(out_dbname, dbname);
 	}
 
-	/* Now we can mark our PGPROC entry with the database ID */
-	/* (We assume this is an atomic store so no lock is needed) */
-	MyProc->databaseId = MyDatabaseId;
-
 	/*
 	 * Now, take a writer's lock on the database we are trying to connect to.
 	 * If there is a concurrently running DROP DATABASE on that database, this
@@ -752,9 +748,13 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 * pg_database).
 	 *
 	 * Note that the lock is not held long, only until the end of this startup
-	 * transaction.  This is OK since we are already advertising our use of
-	 * the database in the PGPROC array; anyone trying a DROP DATABASE after
-	 * this point will see us there.
+	 * transaction.  This is OK since we will advertise our use of the
+	 * database in the ProcArray before dropping the lock (in fact, that's the
+	 * next thing to do).  Anyone trying a DROP DATABASE after this point will
+	 * see us in the array once they have the lock.  Ordering is important for
+	 * this because we don't want to advertise ourselves as being in this
+	 * database until we have the lock; otherwise we create what amounts to a
+	 * deadlock with CountOtherDBBackends().
 	 *
 	 * Note: use of RowExclusiveLock here is reasonable because we envision
 	 * our session as being a concurrent writer of the database.  If we had a
@@ -765,6 +765,20 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	if (!bootstrap)
 		LockSharedObject(DatabaseRelationId, MyDatabaseId, 0,
 						 RowExclusiveLock);
+
+	/*
+	 * Now we can mark our PGPROC entry with the database ID.
+	 *
+	 * We assume this is an atomic store so no lock is needed; though actually
+	 * things would work fine even if it weren't atomic.  Anyone searching the
+	 * ProcArray for this database's ID should hold the database lock, so they
+	 * would not be executing concurrently with this store.  A process looking
+	 * for another database's ID could in theory see a chance match if it read
+	 * a partially-updated databaseId value; but as long as all such searches
+	 * wait and retry, as in CountOtherDBBackends(), they will certainly see
+	 * the correct value on their next try.
+	 */
+	MyProc->databaseId = MyDatabaseId;
 
 	/*
 	 * Recheck pg_database to make sure the target database hasn't gone away.
@@ -836,7 +850,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 
 	/*
 	 * Now process any command-line switches and any additional GUC variable
-	 * settings passed in the startup packet.	We couldn't do this before
+	 * settings passed in the startup packet.   We couldn't do this before
 	 * because we didn't know if client is a superuser.
 	 */
 	if (MyProcPort != NULL)

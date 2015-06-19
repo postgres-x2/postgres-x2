@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "access/htup.h"
+#include "access/itup.h"
 
 
 /* ----------------------------------------------------------------
@@ -52,7 +53,7 @@ PageInit(Page page, Size pageSize, Size specialSize)
  * PageHeaderIsValid
  *		Check that the header fields of a page appear valid.
  *
- * This is called when a page has just been read in from disk.	The idea is
+ * This is called when a page has just been read in from disk.  The idea is
  * to cheaply detect trashed pages before we go nuts following bogus item
  * pointers, testing invalid transaction identifiers, etc.
  *
@@ -97,7 +98,7 @@ PageHeaderIsValid(PageHeader page)
 /*
  *	PageAddItem
  *
- *	Add an item to a page.	Return value is offset at which it was
+ *	Add an item to a page.  Return value is offset at which it was
  *	inserted, or InvalidOffsetNumber if there's not room to insert.
  *
  *	If overwrite is true, we just store the item at the specified
@@ -362,8 +363,6 @@ PageRepairFragmentation(Page page)
 	Offset		pd_lower = ((PageHeader) page)->pd_lower;
 	Offset		pd_upper = ((PageHeader) page)->pd_upper;
 	Offset		pd_special = ((PageHeader) page)->pd_special;
-	itemIdSort	itemidbase,
-				itemidptr;
 	ItemId		lp;
 	int			nline,
 				nstorage,
@@ -413,10 +412,11 @@ PageRepairFragmentation(Page page)
 		((PageHeader) page)->pd_upper = pd_special;
 	}
 	else
-	{							/* nstorage != 0 */
+	{
 		/* Need to compact the page the hard way */
-		itemidbase = (itemIdSort) palloc(sizeof(itemIdSortData) * nstorage);
-		itemidptr = itemidbase;
+		itemIdSortData itemidbase[MaxHeapTuplesPerPage];
+		itemIdSort	itemidptr = itemidbase;
+
 		totallen = 0;
 		for (i = 0; i < nline; i++)
 		{
@@ -461,8 +461,6 @@ PageRepairFragmentation(Page page)
 		}
 
 		((PageHeader) page)->pd_upper = upper;
-
-		pfree(itemidbase);
 	}
 
 	/* Set hint bit for PageAddItem */
@@ -700,7 +698,7 @@ PageIndexTupleDelete(Page page, OffsetNumber offnum)
  * PageIndexMultiDelete
  *
  * This routine handles the case of deleting multiple tuples from an
- * index page at once.	It is considerably faster than a loop around
+ * index page at once.  It is considerably faster than a loop around
  * PageIndexTupleDelete ... however, the caller *must* supply the array
  * of item numbers to be deleted in item number order!
  */
@@ -711,8 +709,8 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 	Offset		pd_lower = phdr->pd_lower;
 	Offset		pd_upper = phdr->pd_upper;
 	Offset		pd_special = phdr->pd_special;
-	itemIdSort	itemidbase,
-				itemidptr;
+	itemIdSortData	itemidbase[MaxIndexTuplesPerPage];
+	itemIdSort	itemidptr;
 	ItemId		lp;
 	int			nline,
 				nused;
@@ -723,6 +721,8 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 	unsigned	offset;
 	int			nextitm;
 	OffsetNumber offnum;
+
+	Assert(nitems <= MaxIndexTuplesPerPage);
 
 	/*
 	 * If there aren't very many items to delete, then retail
@@ -758,7 +758,6 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 	 * still validity-checking.
 	 */
 	nline = PageGetMaxOffsetNumber(page);
-	itemidbase = (itemIdSort) palloc(sizeof(itemIdSortData) * nline);
 	itemidptr = itemidbase;
 	totallen = 0;
 	nused = 0;
@@ -824,6 +823,4 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 
 	phdr->pd_lower = SizeOfPageHeaderData + nused * sizeof(ItemIdData);
 	phdr->pd_upper = upper;
-
-	pfree(itemidbase);
 }

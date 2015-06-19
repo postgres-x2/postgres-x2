@@ -503,7 +503,7 @@ test_postmaster_connection(bool do_checkpoint)
 			 *		6	9.1+ server, shared memory not created
 			 *		7	9.1+ server, shared memory created
 			 *
-			 * This code does not support pre-9.1 servers.	On Unix machines
+			 * This code does not support pre-9.1 servers.  On Unix machines
 			 * we could consider extracting the port number from the shmem
 			 * key, but that (a) is not robust, and (b) doesn't help with
 			 * finding out the socket directory.  And it wouldn't work anyway
@@ -536,7 +536,7 @@ test_postmaster_connection(bool do_checkpoint)
 					time_t		pmstart;
 
 					/*
-					 * Make sanity checks.	If it's for a standalone backend
+					 * Make sanity checks.  If it's for a standalone backend
 					 * (negative PID), or the recorded start time is before
 					 * pg_ctl started, then either we are looking at the wrong
 					 * data directory, or this is a pre-existing pidfile that
@@ -650,7 +650,7 @@ test_postmaster_connection(bool do_checkpoint)
 
 		/*
 		 * If we've been able to identify the child postmaster's PID, check
-		 * the process is still alive.	This covers cases where the postmaster
+		 * the process is still alive.  This covers cases where the postmaster
 		 * successfully created the pidfile but then crashed without removing
 		 * it.
 		 */
@@ -1191,7 +1191,7 @@ postmaster_is_alive(pid_t pid)
 	 * postmaster we are after.
 	 *
 	 * Don't believe that our own PID or parent shell's PID is the postmaster,
-	 * either.	(Windows hasn't got getppid(), though.)
+	 * either.  (Windows hasn't got getppid(), though.)
 	 */
 	if (pid == getpid())
 		return false;
@@ -1525,15 +1525,27 @@ pgwin32_ServiceMain(DWORD argc, LPTSTR *argv)
 	switch (ret)
 	{
 		case WAIT_OBJECT_0:		/* shutdown event */
-			kill(postmasterPID, SIGINT);
+			{
+				/*
+				 * status.dwCheckPoint can be incremented by
+				 * test_postmaster_connection(true), so it might not
+				 * start from 0.
+				 */
+				int maxShutdownCheckPoint = status.dwCheckPoint + 12;;
 
-			/*
-			 * Increment the checkpoint and try again Abort after 12
-			 * checkpoints as the postmaster has probably hung
-			 */
-			while (WaitForSingleObject(postmasterProcess, 5000) == WAIT_TIMEOUT && status.dwCheckPoint < 12)
-				status.dwCheckPoint++;
-			break;
+				kill(postmasterPID, SIGINT);
+
+				/*
+				 * Increment the checkpoint and try again. Abort after 12
+				 * checkpoints as the postmaster has probably hung.
+				 */
+				while (WaitForSingleObject(postmasterProcess, 5000) == WAIT_TIMEOUT && status.dwCheckPoint < maxShutdownCheckPoint)
+				{
+					status.dwCheckPoint++;
+					SetServiceStatus(hStatus, (LPSERVICE_STATUS) &status);
+				}
+				break;
+			}
 
 		case (WAIT_OBJECT_0 + 1):		/* postmaster went down */
 			break;
@@ -1996,9 +2008,11 @@ adjust_data_dir(void)
 	else
 		my_exec_path = xstrdup(exec_path);
 
-	snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s -C data_directory" SYSTEMQUOTE,
-			 my_exec_path, pgdata_opt ? pgdata_opt : "", post_opts ?
-			 post_opts : "");
+	/* it's important for -C to be the first option, see main.c */
+	snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" -C data_directory %s%s" SYSTEMQUOTE,
+			 my_exec_path,
+			 pgdata_opt ? pgdata_opt : "",
+			 post_opts ? post_opts : "");
 
 	fd = popen(cmd, "r");
 	if (fd == NULL || fgets(filename, sizeof(filename), fd) == NULL)

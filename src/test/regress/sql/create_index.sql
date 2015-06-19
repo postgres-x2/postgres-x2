@@ -921,3 +921,23 @@ ORDER BY thousand;
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;
+
+SET enable_indexonlyscan = OFF;
+
+explain (costs off)
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+RESET enable_indexscan;
+
+--
+-- Check elimination of constant-NULL subexpressions
+--
+
+explain (costs off)
+  select * from tenk1 where (thousand, tenthous) in ((1,1001), (null,null));

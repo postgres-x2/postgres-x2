@@ -1445,7 +1445,7 @@ DESCR("natural exponential (e^x)");
 
 /*
  * This form of obj_description is now deprecated, since it will fail if
- * OIDs are not unique across system catalogs.	Use the other form instead.
+ * OIDs are not unique across system catalogs.  Use the other form instead.
  */
 DATA(insert OID = 1348 (  obj_description	 PGNSP PGUID 14 100 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ "select description from pg_catalog.pg_description where objoid = $1 and objsubid = 0" _null_ _null_ _null_ ));
 DESCR("deprecated, use two-argument form instead");
@@ -1750,7 +1750,7 @@ DATA(insert OID = 1576 (  setval			PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 20 "
 DESCR("set sequence value");
 DATA(insert OID = 1765 (  setval			PGNSP PGUID 12 1 0 0 0 f f f f t f v 3 0 20 "2205 20 16" _null_ _null_ _null_ _null_ setval3_oid _null_ _null_ _null_ ));
 DESCR("set sequence value and is_called status");
-DATA(insert OID = 3078 (  pg_sequence_parameters	PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 2249 "26" "{23,20,20,20,20,16}" "{i,o,o,o,o,o}" "{sequence_oid,start_value,minimum_value,maximum_value,increment,cycle_option}" _null_ pg_sequence_parameters _null_ _null_ _null_));
+DATA(insert OID = 3078 (  pg_sequence_parameters	PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 2249 "26" "{26,20,20,20,20,16}" "{i,o,o,o,o,o}" "{sequence_oid,start_value,minimum_value,maximum_value,increment,cycle_option}" _null_ pg_sequence_parameters _null_ _null_ _null_));
 DESCR("sequence parameters, for use by information schema");
 
 DATA(insert OID = 1579 (  varbit_in			PGNSP PGUID 12 1 0 0 0 f f f f t f i 3 0 1562 "2275 26 23" _null_ _null_ _null_ _null_ varbit_in _null_ _null_ _null_ ));
@@ -4687,7 +4687,7 @@ DESCR("lock the cluster for taking backup");
 #define PROVOLATILE_VOLATILE	'v'		/* can change even within a scan */
 
 /*
- * Symbolic values for proargmodes column.	Note that these must agree with
+ * Symbolic values for proargmodes column.  Note that these must agree with
  * the FunctionParameterMode enum in parsenodes.h; we declare them here to
  * be accessible from either header.
  */

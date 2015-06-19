@@ -31,11 +31,11 @@
  * where there can be zero to four backup blocks (as signaled by xl_info flag
  * bits).  XLogRecord structs always start on MAXALIGN boundaries in the WAL
  * files, and we round up SizeOfXLogRecord so that the rmgr data is also
- * guaranteed to begin on a MAXALIGN boundary.	However, no padding is added
+ * guaranteed to begin on a MAXALIGN boundary.  However, no padding is added
  * to align BkpBlock structs or backup block data.
  *
  * NOTE: xl_len counts only the rmgr data, not the XLogRecord header,
- * and also not any backup blocks.	xl_tot_len counts everything.  Neither
+ * and also not any backup blocks.  xl_tot_len counts everything.  Neither
  * length field is rounded up to an alignment boundary.
  */
 typedef struct XLogRecord
@@ -106,7 +106,7 @@ extern int	sync_method;
  * value (ignoring InvalidBuffer) appearing in the rdata chain.
  *
  * When buffer is valid, caller must set buffer_std to indicate whether the
- * page uses standard pd_lower/pd_upper header fields.	If this is true, then
+ * page uses standard pd_lower/pd_upper header fields.  If this is true, then
  * XLOG is allowed to omit the free space between pd_lower and pd_upper from
  * the backed-up page image.  Note that even when buffer_std is false, the
  * page MUST have an LSN field as its first eight bytes!
@@ -244,6 +244,8 @@ extern bool XLOG_DEBUG;
 /* These indicate the cause of a checkpoint request */
 #define CHECKPOINT_CAUSE_XLOG	0x0020	/* XLOG consumption */
 #define CHECKPOINT_CAUSE_TIME	0x0040	/* Elapsed time */
+#define CHECKPOINT_FLUSH_ALL	0x0080	/* Flush all pages, including those
+										 * belonging to unlogged tables */
 
 /* Checkpoint statistics */
 typedef struct CheckpointStatsData

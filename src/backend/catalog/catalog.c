@@ -80,7 +80,8 @@ forkname_to_number(char *forkName)
 	ereport(ERROR,
 			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 			 errmsg("invalid fork name"),
-			 errhint("Valid fork names are \"main\", \"fsm\", and \"vm\".")));
+			 errhint("Valid fork names are \"main\", \"fsm\", "
+					 "\"vm\", and \"init\".")));
 	return InvalidForkNumber;	/* keep compiler quiet */
 }
 
@@ -88,7 +89,7 @@ forkname_to_number(char *forkName)
  * forkname_chars
  *		We use this to figure out whether a filename could be a relation
  *		fork (as opposed to an oddly named stray file that somehow ended
- *		up in the database directory).	If the passed string begins with
+ *		up in the database directory).  If the passed string begins with
  *		a fork name (other than the main fork name), we return its length,
  *		and set *fork (if not NULL) to the fork number.  If not, we return 0.
  *
@@ -407,7 +408,7 @@ IsReservedName(const char *name)
  *
  * Hard-wiring this list is pretty grotty, but we really need it so that
  * we can compute the locktag for a relation (and then lock it) without
- * having already read its pg_class entry.	If we try to retrieve relisshared
+ * having already read its pg_class entry.  If we try to retrieve relisshared
  * from pg_class with no pre-existing lock, there is a race condition against
  * anyone who is concurrently committing a change to the pg_class entry:
  * since we read system catalog entries under SnapshotNow, it's possible
@@ -487,7 +488,7 @@ IsSharedRelation(Oid relationId)
  * Since the OID is not immediately inserted into the table, there is a
  * race condition here; but a problem could occur only if someone else
  * managed to cycle through 2^32 OIDs and generate the same OID before we
- * finish inserting our row.  This seems unlikely to be a problem.	Note
+ * finish inserting our row.  This seems unlikely to be a problem.  Note
  * that if we had to *commit* the row to end the race condition, the risk
  * would be rather higher; therefore we use SnapshotDirty in the test,
  * so that we will see uncommitted rows.

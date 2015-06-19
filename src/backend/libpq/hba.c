@@ -74,11 +74,11 @@ static MemoryContext parsed_hba_context = NULL;
 
 /*
  * These variables hold the pre-parsed contents of the ident usermap
- * configuration file.	ident_lines is a triple-nested list of lines, fields
+ * configuration file.  ident_lines is a triple-nested list of lines, fields
  * and tokens, as returned by tokenize_file.  There will be one line in
- * ident_lines for each (non-empty, non-comment) line of the file.	Note there
+ * ident_lines for each (non-empty, non-comment) line of the file.  Note there
  * will always be at least one field, since blank lines are not entered in the
- * data structure.	ident_line_nums is an integer list containing the actual
+ * data structure.  ident_line_nums is an integer list containing the actual
  * line number for each line represented in ident_lines.  ident_context is
  * the memory context holding all this.
  */
@@ -565,35 +565,47 @@ check_hostname(hbaPort *port, const char *hostname)
 	int			ret;
 	bool		found;
 
+	/* Quick out if remote host name already known bad */
+	if (port->remote_hostname_resolv < 0)
+		return false;
+
 	/* Lookup remote host name if not already done */
 	if (!port->remote_hostname)
 	{
 		char		remote_hostname[NI_MAXHOST];
 
-		if (pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
-							   remote_hostname, sizeof(remote_hostname),
-							   NULL, 0,
-							   0) != 0)
+		ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
+								 remote_hostname, sizeof(remote_hostname),
+								 NULL, 0,
+								 NI_NAMEREQD);
+		if (ret != 0)
+		{
+			/* remember failure; don't complain in the postmaster log yet */
+			port->remote_hostname_resolv = -2;
+			port->remote_hostname_errcode = ret;
 			return false;
+		}
 
 		port->remote_hostname = pstrdup(remote_hostname);
 	}
 
+	/* Now see if remote host name matches this pg_hba line */
 	if (!hostname_match(hostname, port->remote_hostname))
 		return false;
 
-	/* Lookup IP from host name and check against original IP */
-
+	/* If we already verified the forward lookup, we're done */
 	if (port->remote_hostname_resolv == +1)
 		return true;
-	if (port->remote_hostname_resolv == -1)
-		return false;
 
+	/* Lookup IP from host name and check against original IP */
 	ret = getaddrinfo(port->remote_hostname, NULL, NULL, &gai_result);
 	if (ret != 0)
-		ereport(ERROR,
-				(errmsg("could not translate host name \"%s\" to address: %s",
-						port->remote_hostname, gai_strerror(ret))));
+	{
+		/* remember failure; don't complain in the postmaster log yet */
+		port->remote_hostname_resolv = -2;
+		port->remote_hostname_errcode = ret;
+		return false;
+	}
 
 	found = false;
 	for (gai = gai_result; gai; gai = gai->ai_next)
@@ -641,42 +653,12 @@ check_hostname(hbaPort *port, const char *hostname)
 static bool
 check_ip(SockAddr *raddr, struct sockaddr * addr, struct sockaddr * mask)
 {
-	if (raddr->addr.ss_family == addr->sa_family)
-	{
-		/* Same address family */
-		if (!pg_range_sockaddr(&raddr->addr,
-							   (struct sockaddr_storage *) addr,
-							   (struct sockaddr_storage *) mask))
-			return false;
-	}
-#ifdef HAVE_IPV6
-	else if (addr->sa_family == AF_INET &&
-			 raddr->addr.ss_family == AF_INET6)
-	{
-		/*
-		 * If we're connected on IPv6 but the file specifies an IPv4 address
-		 * to match against, promote the latter to an IPv6 address before
-		 * trying to match the client's address.
-		 */
-		struct sockaddr_storage addrcopy,
-					maskcopy;
-
-		memcpy(&addrcopy, &addr, sizeof(addrcopy));
-		memcpy(&maskcopy, &mask, sizeof(maskcopy));
-		pg_promote_v4_to_v6_addr(&addrcopy);
-		pg_promote_v4_to_v6_mask(&maskcopy);
-
-		if (!pg_range_sockaddr(&raddr->addr, &addrcopy, &maskcopy))
-			return false;
-	}
-#endif   /* HAVE_IPV6 */
-	else
-	{
-		/* Wrong address family, no IPV6 */
-		return false;
-	}
-
-	return true;
+	if (raddr->addr.ss_family == addr->sa_family &&
+		pg_range_sockaddr(&raddr->addr,
+						  (struct sockaddr_storage *) addr,
+						  (struct sockaddr_storage *) mask))
+		return true;
+	return false;
 }
 
 /*
@@ -1003,7 +985,7 @@ parse_hba_line(List *line, int line_num)
 
 			/* Get the IP address either way */
 			hints.ai_flags = AI_NUMERICHOST;
-			hints.ai_family = PF_UNSPEC;
+			hints.ai_family = AF_UNSPEC;
 			hints.ai_socktype = 0;
 			hints.ai_protocol = 0;
 			hints.ai_addrlen = 0;
@@ -1692,7 +1674,7 @@ check_hba(hbaPort *port)
  * Read the config file and create a List of HbaLine records for the contents.
  *
  * The configuration is read into a temporary list, and if any parse error
- * occurs the old list is kept in place and false is returned.	Only if the
+ * occurs the old list is kept in place and false is returned.  Only if the
  * whole file parses OK is the list replaced, and the function returns true.
  *
  * On a false result, caller will take care of reporting a FATAL error in case
@@ -2081,7 +2063,7 @@ load_ident(void)
 
 /*
  *	Determine what authentication method should be used when accessing database
- *	"database" from frontend "raddr", user "user".	Return the method and
+ *	"database" from frontend "raddr", user "user".  Return the method and
  *	an optional argument (stored in fields of *port), and STATUS_OK.
  *
  *	If the file does not contain any entry matching the request, we return

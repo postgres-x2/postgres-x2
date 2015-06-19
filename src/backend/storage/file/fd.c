@@ -62,12 +62,17 @@
 #include "pgxc/pgxc.h"
 #endif
 
+/* Define PG_FLUSH_DATA_WORKS if we have an implementation for pg_flush_data */
+#if defined(USE_POSIX_FADVISE) && defined(POSIX_FADV_DONTNEED)
+#define PG_FLUSH_DATA_WORKS 1
+#endif
+
 /*
  * We must leave some file descriptors free for system(), the dynamic loader,
  * and other code that tries to open files without consulting fd.c.  This
  * is the number left free.  (While we can be pretty sure we won't get
  * EMFILE, there's never any guarantee that we won't get ENFILE due to
- * other processes chewing up FDs.	So it's a bad idea to try to open files
+ * other processes chewing up FDs.  So it's a bad idea to try to open files
  * without consulting fd.c.  Nonetheless we cannot control all code.)
  *
  * Because this is just a fixed setting, we are effectively assuming that
@@ -152,8 +157,8 @@ typedef struct vfd
 } Vfd;
 
 /*
- * Virtual File Descriptor array pointer and size.	This grows as
- * needed.	'File' values are indexes into this array.
+ * Virtual File Descriptor array pointer and size.  This grows as
+ * needed.  'File' values are indexes into this array.
  * Note that VfdCache[0] is not a usable VFD, just a list header.
  */
 static Vfd *VfdCache;
@@ -173,7 +178,7 @@ static bool have_xact_temporary_files = false;
 /*
  * Tracks the total size of all temporary files.  Note: when temp_file_limit
  * is being enforced, this cannot overflow since the limit cannot be more
- * than INT_MAX kilobytes.	When not enforcing, it could theoretically
+ * than INT_MAX kilobytes.  When not enforcing, it could theoretically
  * overflow, but we don't care.
  */
 static uint64 temporary_files_size = 0;
@@ -233,7 +238,7 @@ static int	nextTempTableSpace = 0;
  *
  * The Least Recently Used ring is a doubly linked list that begins and
  * ends on element zero.  Element zero is special -- it doesn't represent
- * a file and its "fd" field always == VFD_CLOSED.	Element zero is just an
+ * a file and its "fd" field always == VFD_CLOSED.  Element zero is just an
  * anchor that shows us the beginning/end of the ring.
  * Only VFD elements that are currently really open (have an FD assigned) are
  * in the Lru ring.  Elements that are "virtually" open can be recognized
@@ -263,12 +268,23 @@ static int	FileAccess(File file);
 static File OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError);
 static bool reserveAllocatedDesc(void);
 static int	FreeDesc(AllocateDesc *desc);
+static struct dirent *ReadDirExtended(DIR *dir, const char *dirname, int elevel);
+
 static void AtProcExit_Files(int code, Datum arg);
 static void CleanupTempFiles(bool isProcExit);
 static void RemovePgTempFilesInDir(const char *tmpdirname);
 static void RemovePgTempRelationFiles(const char *tsdirname);
 static void RemovePgTempRelationFilesInDbspace(const char *dbspacedirname);
 static bool looks_like_temp_rel_name(const char *name);
+
+static void walkdir(const char *path,
+		void (*action) (const char *fname, bool isdir, int elevel),
+		bool process_symlinks,
+		int elevel);
+#ifdef PG_FLUSH_DATA_WORKS
+static void pre_sync_fname(const char *fname, bool isdir, int elevel);
+#endif
+static void fsync_fname_ext(const char *fname, bool isdir, int elevel);
 
 
 /*
@@ -345,15 +361,80 @@ pg_fdatasync(int fd)
  * pg_flush_data --- advise OS that the data described won't be needed soon
  *
  * Not all platforms have posix_fadvise; treat as noop if not available.
+ * Also, treat as no-op if enableFsync is off; this is because the call isn't
+ * free, and some platforms such as Linux will actually block the requestor
+ * until the write is scheduled.
  */
 int
 pg_flush_data(int fd, off_t offset, off_t amount)
 {
+#ifdef PG_FLUSH_DATA_WORKS
+	if (enableFsync)
+	{
 #if defined(USE_POSIX_FADVISE) && defined(POSIX_FADV_DONTNEED)
-	return posix_fadvise(fd, offset, amount, POSIX_FADV_DONTNEED);
+		return posix_fadvise(fd, offset, amount, POSIX_FADV_DONTNEED);
 #else
-	return 0;
+#error PG_FLUSH_DATA_WORKS should not have been defined
 #endif
+	}
+#endif
+	return 0;
+}
+
+
+/*
+ * fsync_fname -- fsync a file or directory, handling errors properly
+ *
+ * Try to fsync a file or directory. When doing the latter, ignore errors that
+ * indicate the OS just doesn't allow/require fsyncing directories.
+ */
+void
+fsync_fname(char *fname, bool isdir)
+{
+	int			fd;
+	int			returncode;
+
+	/*
+	 * Some OSs require directories to be opened read-only whereas other
+	 * systems don't allow us to fsync files opened read-only; so we need both
+	 * cases here
+	 */
+	if (!isdir)
+		fd = BasicOpenFile(fname,
+						   O_RDWR | PG_BINARY,
+						   S_IRUSR | S_IWUSR);
+	else
+		fd = BasicOpenFile(fname,
+						   O_RDONLY | PG_BINARY,
+						   S_IRUSR | S_IWUSR);
+
+	/*
+	 * Some OSs don't allow us to open directories at all (Windows returns
+	 * EACCES)
+	 */
+	if (fd < 0 && isdir && (errno == EISDIR || errno == EACCES))
+		return;
+
+	else if (fd < 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m", fname)));
+
+	returncode = pg_fsync(fd);
+
+	/* Some OSs don't allow us to fsync directories at all */
+	if (returncode != 0 && isdir && errno == EBADF)
+	{
+		close(fd);
+		return;
+	}
+
+	if (returncode != 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not fsync file \"%s\": %m", fname)));
+
+	close(fd);
 }
 
 
@@ -391,7 +472,7 @@ InitFileAccess(void)
  * We stop counting if usable_fds reaches max_to_probe.  Note: a small
  * value of max_to_probe might result in an underestimate of already_open;
  * we must fill in any "gaps" in the set of used FDs before the calculation
- * of already_open will give the right answer.	In practice, max_to_probe
+ * of already_open will give the right answer.  In practice, max_to_probe
  * of a couple of dozen should be enough to ensure good results.
  *
  * We assume stdin (FD 0) is available for dup'ing
@@ -468,7 +549,7 @@ count_usable_fds(int max_to_probe, int *usable_fds, int *already_open)
 	pfree(fd);
 
 	/*
-	 * Return results.	usable_fds is just the number of successful dups. We
+	 * Return results.  usable_fds is just the number of successful dups. We
 	 * assume that the system limit is highestfd+1 (remember 0 is a legal FD
 	 * number) and so already_open is highestfd+1 - usable_fds.
 	 */
@@ -963,7 +1044,7 @@ OpenTemporaryFile(bool interXact)
 
 	/*
 	 * If not, or if tablespace is bad, create in database's default
-	 * tablespace.	MyDatabaseTableSpace should normally be set before we get
+	 * tablespace.  MyDatabaseTableSpace should normally be set before we get
 	 * here, but just in case it isn't, fall back to pg_default tablespace.
 	 */
 	if (file <= 0)
@@ -1263,7 +1344,7 @@ FileWrite(File file, char *buffer, int amount)
 
 	/*
 	 * If enforcing temp_file_limit and it's a temp file, check to see if the
-	 * write would overrun temp_file_limit, and throw error if so.	Note: it's
+	 * write would overrun temp_file_limit, and throw error if so.  Note: it's
 	 * really a modularity violation to throw error here; we should set errno
 	 * and return -1.  However, there's no way to report a suitable error
 	 * message if we do that.  All current callers would just throw error
@@ -1542,7 +1623,7 @@ reserveAllocatedDesc(void)
 /*
  * Routines that want to use stdio (ie, FILE*) should use AllocateFile
  * rather than plain fopen().  This lets fd.c deal with freeing FDs if
- * necessary to open the file.	When done, call FreeFile rather than fclose.
+ * necessary to open the file.  When done, call FreeFile rather than fclose.
  *
  * Note that files that will be open for any significant length of time
  * should NOT be handled this way, since they cannot share kernel file
@@ -1721,7 +1802,7 @@ TryAgain:
  * Read a directory opened with AllocateDir, ereport'ing any error.
  *
  * This is easier to use than raw readdir() since it takes care of some
- * otherwise rather tedious and error-prone manipulation of errno.	Also,
+ * otherwise rather tedious and error-prone manipulation of errno.  Also,
  * if you are happy with a generic error message for AllocateDir failure,
  * you can just do
  *
@@ -1740,31 +1821,40 @@ TryAgain:
 struct dirent *
 ReadDir(DIR *dir, const char *dirname)
 {
+	return ReadDirExtended(dir, dirname, ERROR);
+}
+
+/*
+ * Alternate version that allows caller to specify the elevel for any
+ * error report.  If elevel < ERROR, returns NULL on any error.
+ */
+static struct dirent *
+ReadDirExtended(DIR *dir, const char *dirname, int elevel)
+{
 	struct dirent *dent;
 
 	/* Give a generic message for AllocateDir failure, if caller didn't */
 	if (dir == NULL)
-		ereport(ERROR,
+	{
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not open directory \"%s\": %m",
 						dirname)));
+		return NULL;
+	}
 
 	errno = 0;
 	if ((dent = readdir(dir)) != NULL)
 		return dent;
 
 #ifdef WIN32
-
-	/*
-	 * This fix is in mingw cvs (runtime/mingwex/dirent.c rev 1.4), but not in
-	 * released version
-	 */
+	/* Bug in old Mingw dirent.c;  fixed in mingw-runtime-3.2, 2003-10-10 */
 	if (GetLastError() == ERROR_NO_MORE_FILES)
 		errno = 0;
 #endif
 
 	if (errno)
-		ereport(ERROR,
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not read directory \"%s\": %m",
 						dirname)));
@@ -1841,7 +1931,7 @@ SetTempTablespaces(Oid *tableSpaces, int numSpaces)
 	numTempTableSpaces = numSpaces;
 
 	/*
-	 * Select a random starting point in the list.	This is to minimize
+	 * Select a random starting point in the list.  This is to minimize
 	 * conflicts between backends that are most likely sharing the same list
 	 * of temp tablespaces.  Note that if we create multiple temp files in the
 	 * same transaction, we'll advance circularly through the list --- this
@@ -1870,7 +1960,7 @@ TempTablespacesAreSet(void)
 /*
  * GetNextTempTableSpace
  *
- * Select the next temp tablespace to use.	A result of InvalidOid means
+ * Select the next temp tablespace to use.  A result of InvalidOid means
  * to use the current database's default tablespace.
  */
 Oid
@@ -2232,4 +2322,249 @@ looks_like_temp_rel_name(const char *name)
 	if (name[pos] != '\0')
 		return false;
 	return true;
+}
+
+
+/*
+ * Issue fsync recursively on PGDATA and all its contents.
+ *
+ * We fsync regular files and directories wherever they are, but we
+ * follow symlinks only for pg_xlog and immediately under pg_tblspc.
+ * Other symlinks are presumed to point at files we're not responsible
+ * for fsyncing, and might not have privileges to write at all.
+ *
+ * Errors are logged but not considered fatal; that's because this is used
+ * only during database startup, to deal with the possibility that there are
+ * issued-but-unsynced writes pending against the data directory.  We want to
+ * ensure that such writes reach disk before anything that's done in the new
+ * run.  However, aborting on error would result in failure to start for
+ * harmless cases such as read-only files in the data directory, and that's
+ * not good either.
+ *
+ * Note we assume we're chdir'd into PGDATA to begin with.
+ */
+void
+SyncDataDirectory(void)
+{
+	bool		xlog_is_symlink;
+
+	/* We can skip this whole thing if fsync is disabled. */
+	if (!enableFsync)
+		return;
+
+	/*
+	 * If pg_xlog is a symlink, we'll need to recurse into it separately,
+	 * because the first walkdir below will ignore it.
+	 */
+	xlog_is_symlink = false;
+
+#ifndef WIN32
+	{
+		struct stat st;
+
+		if (lstat("pg_xlog", &st) < 0)
+			ereport(LOG,
+					(errcode_for_file_access(),
+					 errmsg("could not stat file \"%s\": %m",
+							"pg_xlog")));
+		else if (S_ISLNK(st.st_mode))
+			xlog_is_symlink = true;
+	}
+#else
+	if (pgwin32_is_junction("pg_xlog"))
+		xlog_is_symlink = true;
+#endif
+
+	/*
+	 * If possible, hint to the kernel that we're soon going to fsync the data
+	 * directory and its contents.  Errors in this step are even less
+	 * interesting than normal, so log them only at DEBUG1.
+	 */
+#ifdef PG_FLUSH_DATA_WORKS
+	walkdir(".", pre_sync_fname, false, DEBUG1);
+	if (xlog_is_symlink)
+		walkdir("pg_xlog", pre_sync_fname, false, DEBUG1);
+	walkdir("pg_tblspc", pre_sync_fname, true, DEBUG1);
+#endif
+
+	/*
+	 * Now we do the fsync()s in the same order.
+	 *
+	 * The main call ignores symlinks, so in addition to specially processing
+	 * pg_xlog if it's a symlink, pg_tblspc has to be visited separately with
+	 * process_symlinks = true.  Note that if there are any plain directories
+	 * in pg_tblspc, they'll get fsync'd twice.  That's not an expected case
+	 * so we don't worry about optimizing it.
+	 */
+	walkdir(".", fsync_fname_ext, false, LOG);
+	if (xlog_is_symlink)
+		walkdir("pg_xlog", fsync_fname_ext, false, LOG);
+	walkdir("pg_tblspc", fsync_fname_ext, true, LOG);
+}
+
+/*
+ * walkdir: recursively walk a directory, applying the action to each
+ * regular file and directory (including the named directory itself).
+ *
+ * If process_symlinks is true, the action and recursion are also applied
+ * to regular files and directories that are pointed to by symlinks in the
+ * given directory; otherwise symlinks are ignored.  Symlinks are always
+ * ignored in subdirectories, ie we intentionally don't pass down the
+ * process_symlinks flag to recursive calls.
+ *
+ * Errors are reported at level elevel, which might be ERROR or less.
+ *
+ * See also walkdir in initdb.c, which is a frontend version of this logic.
+ */
+static void
+walkdir(const char *path,
+		void (*action) (const char *fname, bool isdir, int elevel),
+		bool process_symlinks,
+		int elevel)
+{
+	DIR		   *dir;
+	struct dirent *de;
+
+	dir = AllocateDir(path);
+	if (dir == NULL)
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open directory \"%s\": %m", path)));
+		return;
+	}
+
+	while ((de = ReadDirExtended(dir, path, elevel)) != NULL)
+	{
+		char		subpath[MAXPGPATH];
+		struct stat fst;
+		int			sret;
+
+		CHECK_FOR_INTERRUPTS();
+
+		if (strcmp(de->d_name, ".") == 0 ||
+			strcmp(de->d_name, "..") == 0)
+			continue;
+
+		snprintf(subpath, MAXPGPATH, "%s/%s", path, de->d_name);
+
+		if (process_symlinks)
+			sret = stat(subpath, &fst);
+		else
+			sret = lstat(subpath, &fst);
+
+		if (sret < 0)
+		{
+			ereport(elevel,
+					(errcode_for_file_access(),
+					 errmsg("could not stat file \"%s\": %m", subpath)));
+			continue;
+		}
+
+		if (S_ISREG(fst.st_mode))
+			(*action) (subpath, false, elevel);
+		else if (S_ISDIR(fst.st_mode))
+			walkdir(subpath, action, false, elevel);
+	}
+
+	FreeDir(dir);				/* we ignore any error here */
+
+	/*
+	 * It's important to fsync the destination directory itself as individual
+	 * file fsyncs don't guarantee that the directory entry for the file is
+	 * synced.
+	 */
+	(*action) (path, true, elevel);
+}
+
+
+/*
+ * Hint to the OS that it should get ready to fsync() this file.
+ *
+ * Ignores errors trying to open unreadable files, and logs other errors at a
+ * caller-specified level.
+ */
+#ifdef PG_FLUSH_DATA_WORKS
+
+static void
+pre_sync_fname(const char *fname, bool isdir, int elevel)
+{
+	int			fd;
+
+	fd = BasicOpenFile((char *) fname, O_RDONLY | PG_BINARY, 0);
+
+	if (fd < 0)
+	{
+		if (errno == EACCES || (isdir && errno == EISDIR))
+			return;
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m", fname)));
+		return;
+	}
+
+	/*
+	 * We ignore errors from pg_flush_data() because this is only a hint.
+	 */
+	(void) pg_flush_data(fd, 0, 0);
+
+	(void) close(fd);
+}
+
+#endif   /* PG_FLUSH_DATA_WORKS */
+
+/*
+ * fsync_fname_ext -- Try to fsync a file or directory
+ *
+ * Ignores errors trying to open unreadable files, or trying to fsync
+ * directories on systems where that isn't allowed/required, and logs other
+ * errors at a caller-specified level.
+ */
+static void
+fsync_fname_ext(const char *fname, bool isdir, int elevel)
+{
+	int			fd;
+	int			flags;
+	int			returncode;
+
+	/*
+	 * Some OSs require directories to be opened read-only whereas other
+	 * systems don't allow us to fsync files opened read-only; so we need both
+	 * cases here.  Using O_RDWR will cause us to fail to fsync files that are
+	 * not writable by our userid, but we assume that's OK.
+	 */
+	flags = PG_BINARY;
+	if (!isdir)
+		flags |= O_RDWR;
+	else
+		flags |= O_RDONLY;
+
+	/*
+	 * Open the file, silently ignoring errors about unreadable files (or
+	 * unsupported operations, e.g. opening a directory under Windows), and
+	 * logging others.
+	 */
+	fd = BasicOpenFile((char *) fname, flags, 0);
+	if (fd < 0)
+	{
+		if (errno == EACCES || (isdir && errno == EISDIR))
+			return;
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m", fname)));
+		return;
+	}
+
+	returncode = pg_fsync(fd);
+
+	/*
+	 * Some OSes don't allow us to fsync directories at all, so we can ignore
+	 * those errors. Anything else needs to be logged.
+	 */
+	if (returncode != 0 && !(isdir && errno == EBADF))
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not fsync file \"%s\": %m", fname)));
+
+	(void) close(fd);
 }

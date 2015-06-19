@@ -49,7 +49,7 @@ static int	recv_and_check_password_packet(Port *port);
 /* Max size of username ident server can return */
 #define IDENT_USERNAME_MAX 512
 
-/* Standard TCP port number for Ident service.	Assigned by IANA */
+/* Standard TCP port number for Ident service.  Assigned by IANA */
 #define IDENT_PORT 113
 
 static int	ident_inet(hbaPort *port);
@@ -440,15 +440,25 @@ ClientAuthentication(Port *port)
 								   NI_NUMERICHOST);
 
 #define HOSTNAME_LOOKUP_DETAIL(port) \
-				(port->remote_hostname				  \
-				 ? (port->remote_hostname_resolv == +1					\
-					? errdetail_log("Client IP address resolved to \"%s\", forward lookup matches.", port->remote_hostname) \
-					: (port->remote_hostname_resolv == 0				\
-					   ? errdetail_log("Client IP address resolved to \"%s\", forward lookup not checked.", port->remote_hostname) \
-					   : (port->remote_hostname_resolv == -1			\
-						  ? errdetail_log("Client IP address resolved to \"%s\", forward lookup does not match.", port->remote_hostname) \
-						  : 0)))										\
-				 : 0)
+				(port->remote_hostname ? \
+				 (port->remote_hostname_resolv == +1 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup matches.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == 0 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup not checked.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == -1 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup does not match.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == -2 ? \
+				  errdetail_log("Could not translate client host name \"%s\" to IP address: %s.", \
+								port->remote_hostname, \
+								gai_strerror(port->remote_hostname_errcode)) : \
+				  0) \
+				 : (port->remote_hostname_resolv == -2 ? \
+					errdetail_log("Could not resolve client IP address to a host name: %s.", \
+								  gai_strerror(port->remote_hostname_errcode)) : \
+					0))
 
 				if (am_walsender)
 				{
@@ -639,6 +649,7 @@ recv_password_packet(Port *port)
 {
 	StringInfoData buf;
 
+	pq_startmsgread();
 	if (PG_PROTOCOL_MAJOR(port->proto) >= 3)
 	{
 		/* Expect 'p' message type */
@@ -691,7 +702,7 @@ recv_password_packet(Port *port)
 			(errmsg("received password packet")));
 
 	/*
-	 * Return the received string.	Note we do not attempt to do any
+	 * Return the received string.  Note we do not attempt to do any
 	 * character-set conversion on it; since we don't yet know the client's
 	 * encoding, there wouldn't be much point.
 	 */
@@ -1011,15 +1022,16 @@ pg_GSS_recvauth(Port *port)
 			size_t		kt_len = strlen(pg_krb_server_keyfile) + 14;
 			char	   *kt_path = malloc(kt_len);
 
-			if (!kt_path)
+			if (!kt_path ||
+				snprintf(kt_path, kt_len, "KRB5_KTNAME=%s",
+						 pg_krb_server_keyfile) != kt_len - 2 ||
+				putenv(kt_path) != 0)
 			{
 				ereport(LOG,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
 				return STATUS_ERROR;
 			}
-			snprintf(kt_path, kt_len, "KRB5_KTNAME=%s", pg_krb_server_keyfile);
-			putenv(kt_path);
 		}
 	}
 
@@ -1044,6 +1056,7 @@ pg_GSS_recvauth(Port *port)
 	 */
 	do
 	{
+		pq_startmsgread();
 		mtype = pq_getbyte();
 		if (mtype != 'p')
 		{
@@ -1282,6 +1295,7 @@ pg_SSPI_recvauth(Port *port)
 	 */
 	do
 	{
+		pq_startmsgread();
 		mtype = pq_getbyte();
 		if (mtype != 'p')
 		{
@@ -1587,7 +1601,7 @@ interpret_ident_response(const char *ident_response,
 /*
  *	Talk to the ident server on host "remote_ip_addr" and find out who
  *	owns the tcp connection from his port "remote_port" to port
- *	"local_port_addr" on host "local_ip_addr".	Return the user name the
+ *	"local_port_addr" on host "local_ip_addr".  Return the user name the
  *	ident server gives as "*ident_user".
  *
  *	IP addresses and port numbers are in network byte order.
@@ -1600,8 +1614,7 @@ ident_inet(hbaPort *port)
 	const SockAddr remote_addr = port->raddr;
 	const SockAddr local_addr = port->laddr;
 	char		ident_user[IDENT_USERNAME_MAX + 1];
-	pgsocket	sock_fd;		/* File descriptor for socket on which we talk
-								 * to Ident */
+	pgsocket	sock_fd = PGINVALID_SOCKET;		/* for talking to Ident server */
 	int			rc;				/* Return code from a locally called function */
 	bool		ident_return;
 	char		remote_addr_s[NI_MAXHOST];
@@ -1640,9 +1653,9 @@ ident_inet(hbaPort *port)
 	rc = pg_getaddrinfo_all(remote_addr_s, ident_port, &hints, &ident_serv);
 	if (rc || !ident_serv)
 	{
-		if (ident_serv)
-			pg_freeaddrinfo_all(hints.ai_family, ident_serv);
-		return STATUS_ERROR;	/* we don't expect this to happen */
+		/* we don't expect this to happen */
+		ident_return = false;
+		goto ident_inet_done;
 	}
 
 	hints.ai_flags = AI_NUMERICHOST;
@@ -1656,14 +1669,14 @@ ident_inet(hbaPort *port)
 	rc = pg_getaddrinfo_all(local_addr_s, NULL, &hints, &la);
 	if (rc || !la)
 	{
-		if (la)
-			pg_freeaddrinfo_all(hints.ai_family, la);
-		return STATUS_ERROR;	/* we don't expect this to happen */
+		/* we don't expect this to happen */
+		ident_return = false;
+		goto ident_inet_done;
 	}
 
 	sock_fd = socket(ident_serv->ai_family, ident_serv->ai_socktype,
 					 ident_serv->ai_protocol);
-	if (sock_fd < 0)
+	if (sock_fd == PGINVALID_SOCKET)
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
@@ -1743,10 +1756,12 @@ ident_inet(hbaPort *port)
 					ident_response)));
 
 ident_inet_done:
-	if (sock_fd >= 0)
+	if (sock_fd != PGINVALID_SOCKET)
 		closesocket(sock_fd);
-	pg_freeaddrinfo_all(remote_addr.addr.ss_family, ident_serv);
-	pg_freeaddrinfo_all(local_addr.addr.ss_family, la);
+	if (ident_serv)
+		pg_freeaddrinfo_all(remote_addr.addr.ss_family, ident_serv);
+	if (la)
+		pg_freeaddrinfo_all(local_addr.addr.ss_family, la);
 
 	if (ident_return)
 		/* Success! Check the usermap */
@@ -2566,7 +2581,7 @@ CheckRADIUSAuth(Port *port)
 	packet->length = htons(packet->length);
 
 	sock = socket(serveraddrs[0].ai_family, SOCK_DGRAM, 0);
-	if (sock < 0)
+	if (sock == PGINVALID_SOCKET)
 	{
 		ereport(LOG,
 				(errmsg("could not create RADIUS socket: %m")));

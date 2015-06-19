@@ -303,7 +303,8 @@ ECPGdump_a_type(FILE *o, const char *name, struct ECPGtype * type, const int bra
 
 					ECPGdump_a_simple(o, name,
 									  type->u.element->type,
-									  type->u.element->size, type->size, NULL, prefix, type->u.element->counter);
+									  type->u.element->size, type->size, struct_sizeof ? struct_sizeof : NULL,
+									  prefix, type->u.element->counter);
 
 					if (ind_type != NULL)
 					{
@@ -409,7 +410,8 @@ ECPGdump_a_simple(FILE *o, const char *name, enum ECPGttype type,
 			case ECPGt_unsigned_char:
 			case ECPGt_char_variable:
 			case ECPGt_string:
-
+			{
+				char	*sizeof_name = "char";
 				/*
 				 * we have to use the pointer except for arrays with given
 				 * bounds, ecpglib will distinguish between * and []
@@ -419,12 +421,24 @@ ECPGdump_a_simple(FILE *o, const char *name, enum ECPGttype type,
 				 (atoi(varcharsize) == 0 && strcmp(varcharsize, "0") != 0) ||
 					 (atoi(arrsize) == 0 && strcmp(arrsize, "0") != 0))
 					&& siz == NULL)
+				{
 					sprintf(variable, "(%s%s)", prefix ? prefix : "", name);
+					if ((type == ECPGt_char || type == ECPGt_unsigned_char) &&
+						strcmp(varcharsize, "0") == 0)
+					{
+						/*
+						 * If this is an array of char *, the offset would be
+						 * sizeof(char *) and not sizeof(char).
+						 */
+						sizeof_name = "char *";
+					}
+				}
 				else
 					sprintf(variable, "&(%s%s)", prefix ? prefix : "", name);
 
-				sprintf(offset, "(%s)*sizeof(char)", strcmp(varcharsize, "0") == 0 ? "1" : varcharsize);
+				sprintf(offset, "(%s)*sizeof(%s)", strcmp(varcharsize, "0") == 0 ? "1" : varcharsize, sizeof_name);
 				break;
+			}
 			case ECPGt_numeric:
 
 				/*
@@ -481,11 +495,19 @@ ECPGdump_a_simple(FILE *o, const char *name, enum ECPGttype type,
 				sprintf(offset, "sizeof(%s)", ecpg_type_name(type));
 				break;
 		}
-
-		if (atoi(arrsize) < 0)
+		
+		/*
+		 * Array size would be -1 for addresses of members within structure,
+		 * when pointer to structure is being dumped.
+		 */
+		if (atoi(arrsize) < 0 && !siz)
 			strcpy(arrsize, "1");
 
-		if (siz == NULL || strlen(siz) == 0 || strcmp(arrsize, "0") == 0 || strcmp(arrsize, "1") == 0)
+		/*
+		 * If siz i.e. the size of structure of which this variable is part of,
+		 * that gives the offset to the next element, if required 
+		 */
+		if (siz == NULL || strlen(siz) == 0)
 			fprintf(o, "\n\t%s,%s,(long)%s,(long)%s,%s, ", get_type(type), variable, varcharsize, arrsize, offset);
 		else
 			fprintf(o, "\n\t%s,%s,(long)%s,(long)%s,%s, ", get_type(type), variable, varcharsize, arrsize, siz);

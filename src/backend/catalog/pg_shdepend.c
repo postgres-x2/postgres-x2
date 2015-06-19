@@ -37,6 +37,8 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_tablespace.h"
+#include "catalog/pg_ts_config.h"
+#include "catalog/pg_ts_dict.h"
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
 #include "commands/collationcmds.h"
@@ -60,7 +62,7 @@ typedef enum
 	LOCAL_OBJECT,
 	SHARED_OBJECT,
 	REMOTE_OBJECT
-} objectType;
+} SharedDependencyObjectType;
 
 static void getOidListDiff(Oid *list1, int *nlist1, Oid *list2, int *nlist2);
 static Oid	classIdGetDbId(Oid classId);
@@ -77,7 +79,8 @@ static void shdepDropDependency(Relation sdepRel,
 					bool drop_subobjects,
 					Oid refclassId, Oid refobjId,
 					SharedDependencyType deptype);
-static void storeObjectDescription(StringInfo descs, objectType type,
+static void storeObjectDescription(StringInfo descs,
+					   SharedDependencyObjectType type,
 					   ObjectAddress *object,
 					   SharedDependencyType deptype,
 					   int count);
@@ -162,7 +165,7 @@ recordDependencyOnOwner(Oid classId, Oid objectId, Oid owner)
  * shdepChangeDep
  *
  * Update shared dependency records to account for an updated referenced
- * object.	This is an internal workhorse for operations such as changing
+ * object.  This is an internal workhorse for operations such as changing
  * an object's owner.
  *
  * There must be no more than one existing entry for the given dependent
@@ -311,7 +314,7 @@ changeDependencyOnOwner(Oid classId, Oid objectId, Oid newOwnerId)
 	 * was previously granted some rights to the object.
 	 *
 	 * This step is analogous to aclnewowner's removal of duplicate entries
-	 * in the ACL.	We have to do it to handle this scenario:
+	 * in the ACL.  We have to do it to handle this scenario:
 	 *		A grants some rights on an object to B
 	 *		ALTER OWNER changes the object's owner to B
 	 *		ALTER OWNER changes the object's owner to C
@@ -397,9 +400,9 @@ getOidListDiff(Oid *list1, int *nlist1, Oid *list2, int *nlist2)
  * and then insert or delete from pg_shdepend as appropriate.
  *
  * Note that we can't just insert all referenced roles blindly during GRANT,
- * because we would end up with duplicate registered dependencies.	We could
+ * because we would end up with duplicate registered dependencies.  We could
  * check for existence of the tuples before inserting, but that seems to be
- * more expensive than what we are doing here.	Likewise we can't just delete
+ * more expensive than what we are doing here.  Likewise we can't just delete
  * blindly during REVOKE, because the user may still have other privileges.
  * It is also possible that REVOKE actually adds dependencies, due to
  * instantiation of a formerly implicit default ACL (although at present,
@@ -530,7 +533,7 @@ checkSharedDependencies(Oid classId, Oid objectId,
 	/*
 	 * We limit the number of dependencies reported to the client to
 	 * MAX_REPORTED_DEPS, since client software may not deal well with
-	 * enormous error strings.	The server log always gets a full report.
+	 * enormous error strings.  The server log always gets a full report.
 	 */
 #define MAX_REPORTED_DEPS 100
 
@@ -611,7 +614,7 @@ checkSharedDependencies(Oid classId, Oid objectId,
 			bool		stored = false;
 
 			/*
-			 * XXX this info is kept on a simple List.	Maybe it's not good
+			 * XXX this info is kept on a simple List.  Maybe it's not good
 			 * for performance, but using a hash table seems needlessly
 			 * complex.  The expected number of databases is not high anyway,
 			 * I suppose.
@@ -848,7 +851,7 @@ shdepAddDependency(Relation sdepRel,
 
 	/*
 	 * Make sure the object doesn't go away while we record the dependency on
-	 * it.	DROP routines should lock the object exclusively before they check
+	 * it.  DROP routines should lock the object exclusively before they check
 	 * shared dependencies.
 	 */
 	shdepLockAndCheckObject(refclassId, refobjId);
@@ -999,7 +1002,7 @@ shdepLockAndCheckObject(Oid classId, Oid objectId)
 
 			/*
 			 * Currently, this routine need not support any other shared
-			 * object types besides roles.	If we wanted to record explicit
+			 * object types besides roles.  If we wanted to record explicit
 			 * dependencies on databases or tablespaces, we'd need code along
 			 * these lines:
 			 */
@@ -1055,7 +1058,8 @@ shdepLockAndCheckObject(Oid classId, Oid objectId)
  * and count to be nonzero; deptype is not used in this case.
  */
 static void
-storeObjectDescription(StringInfo descs, objectType type,
+storeObjectDescription(StringInfo descs,
+					   SharedDependencyObjectType type,
 					   ObjectAddress *object,
 					   SharedDependencyType deptype,
 					   int count)
@@ -1145,7 +1149,7 @@ isSharedObjectPinned(Oid classId, Oid objectId, Relation sdepRel)
 /*
  * shdepDropOwned
  *
- * Drop the objects owned by any one of the given RoleIds.	If a role has
+ * Drop the objects owned by any one of the given RoleIds.  If a role has
  * access to an object, the grant will be removed as well (but the object
  * will not, of course).
  *
@@ -1403,6 +1407,14 @@ shdepReassignOwned(List *roleids, Oid newrole)
 
 				case ExtensionRelationId:
 					AlterExtensionOwner_oid(sdepForm->objid, newrole);
+					break;
+
+				case TSConfigRelationId:
+					AlterTSConfigurationOwner_oid(sdepForm->objid, newrole);
+					break;
+
+				case TSDictionaryRelationId:
+					AlterTSDictionaryOwner_oid(sdepForm->objid, newrole);
 					break;
 
 				default:

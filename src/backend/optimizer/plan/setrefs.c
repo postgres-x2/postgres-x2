@@ -168,7 +168,7 @@ static List *set_remote_returning_refs(PlannerInfo *root, List *rlist, Plan *top
 /*
  * set_plan_references
  *
- * This is the final processing pass of the planner/optimizer.	The plan
+ * This is the final processing pass of the planner/optimizer.  The plan
  * tree is complete; we just have to adjust some representational details
  * for the convenience of the executor:
  *
@@ -212,7 +212,7 @@ static List *set_remote_returning_refs(PlannerInfo *root, List *rlist, Plan *top
  * and root->glob->invalItems (for everything else).
  *
  * Notice that we modify Plan nodes in-place, but use expression_tree_mutator
- * to process targetlist and qual expressions.	We can assume that the Plan
+ * to process targetlist and qual expressions.  We can assume that the Plan
  * nodes were just built by the planner and are not multiply referenced, but
  * it's not so safe to assume that for expression tree nodes.
  */
@@ -261,7 +261,7 @@ set_plan_references(PlannerInfo *root, Plan *plan)
 		 * We do this even though the RTE might be unreferenced in the plan
 		 * tree; this would correspond to cases such as views that were
 		 * expanded, child tables that were eliminated by constraint
-		 * exclusion, etc.	Schema invalidation on such a rel must still force
+		 * exclusion, etc.  Schema invalidation on such a rel must still force
 		 * rebuilding of the plan.
 		 *
 		 * Note we don't bother to avoid duplicate list entries.  We could,
@@ -502,7 +502,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			/*
 			 * These plan types don't actually bother to evaluate their
 			 * targetlists, because they just return their unmodified input
-			 * tuples.	Even though the targetlist won't be used by the
+			 * tuples.  Even though the targetlist won't be used by the
 			 * executor, we fix it up for possible use by EXPLAIN (not to
 			 * mention ease of debugging --- wrong varnos are very confusing).
 			 */
@@ -520,7 +520,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 
 				/*
 				 * Like the plan types above, LockRows doesn't evaluate its
-				 * tlist or quals.	But we have to fix up the RT indexes in
+				 * tlist or quals.  But we have to fix up the RT indexes in
 				 * its rowmarks.
 				 */
 				set_dummy_tlist_references(plan, rtoffset);
@@ -700,7 +700,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 					 * Set up the visible plan targetlist as being the same as
 					 * the first RETURNING list. This is for the use of
 					 * EXPLAIN; the executor won't pay any attention to the
-					 * targetlist.	We postpone this step until here so that
+					 * targetlist.  We postpone this step until here so that
 					 * we don't have to do set_returning_clause_references()
 					 * twice on identical targetlists.
 					 */
@@ -955,7 +955,7 @@ set_subqueryscan_references(PlannerInfo *root,
 	else
 	{
 		/*
-		 * Keep the SubqueryScan node.	We have to do the processing that
+		 * Keep the SubqueryScan node.  We have to do the processing that
 		 * set_plan_references would otherwise have done on it.  Notice we do
 		 * not do set_upper_references() here, because a SubqueryScan will
 		 * always have been created with correct references to its subplan's
@@ -1230,19 +1230,13 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 	outer_itlist = build_tlist_index(outer_plan->targetlist);
 	inner_itlist = build_tlist_index(inner_plan->targetlist);
 
-	/* All join plans have tlist, qual, and joinqual */
-	join->plan.targetlist = fix_join_expr(root,
-										  join->plan.targetlist,
-										  outer_itlist,
-										  inner_itlist,
-										  (Index) 0,
-										  rtoffset);
-	join->plan.qual = fix_join_expr(root,
-									join->plan.qual,
-									outer_itlist,
-									inner_itlist,
-									(Index) 0,
-									rtoffset);
+	/*
+	 * First process the joinquals (including merge or hash clauses).  These
+	 * are logically below the join so they can always use all values
+	 * available from the input tlists.  It's okay to also handle
+	 * NestLoopParams now, because those couldn't refer to nullable
+	 * subexpressions.
+	 */
 	join->joinqual = fix_join_expr(root,
 								   join->joinqual,
 								   outer_itlist,
@@ -1293,6 +1287,49 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 										(Index) 0,
 										rtoffset);
 	}
+
+	/*
+	 * Now we need to fix up the targetlist and qpqual, which are logically
+	 * above the join.  This means they should not re-use any input expression
+	 * that was computed in the nullable side of an outer join.  Vars and
+	 * PlaceHolderVars are fine, so we can implement this restriction just by
+	 * clearing has_non_vars in the indexed_tlist structs.
+	 *
+	 * XXX This is a grotty workaround for the fact that we don't clearly
+	 * distinguish between a Var appearing below an outer join and the "same"
+	 * Var appearing above it.  If we did, we'd not need to hack the matching
+	 * rules this way.
+	 */
+	switch (join->jointype)
+	{
+		case JOIN_LEFT:
+		case JOIN_SEMI:
+		case JOIN_ANTI:
+			inner_itlist->has_non_vars = false;
+			break;
+		case JOIN_RIGHT:
+			outer_itlist->has_non_vars = false;
+			break;
+		case JOIN_FULL:
+			outer_itlist->has_non_vars = false;
+			inner_itlist->has_non_vars = false;
+			break;
+		default:
+			break;
+	}
+
+	join->plan.targetlist = fix_join_expr(root,
+										  join->plan.targetlist,
+										  outer_itlist,
+										  inner_itlist,
+										  (Index) 0,
+										  rtoffset);
+	join->plan.qual = fix_join_expr(root,
+									join->plan.qual,
+									outer_itlist,
+									inner_itlist,
+									(Index) 0,
+									rtoffset);
 
 	pfree(outer_itlist);
 	pfree(inner_itlist);
@@ -1427,7 +1464,7 @@ set_dummy_tlist_references(Plan *plan, int rtoffset)
  *
  * In most cases, subplan tlists will be "flat" tlists with only Vars,
  * so we try to optimize that case by extracting information about Vars
- * in advance.	Matching a parent tlist to a child is still an O(N^2)
+ * in advance.  Matching a parent tlist to a child is still an O(N^2)
  * operation, but at least with a much smaller constant factor than plain
  * tlist_member() searches.
  *
@@ -1572,7 +1609,9 @@ search_indexed_tlist_for_var(Var *var, indexed_tlist *itlist,
  * If no match, return NULL.
  *
  * NOTE: it is a waste of time to call this unless itlist->has_ph_vars or
- * itlist->has_non_vars
+ * itlist->has_non_vars.  Furthermore, set_join_references() relies on being
+ * able to prevent matching of non-Vars by clearing itlist->has_non_vars,
+ * so there's a correctness reason not to call it unless that's set.
  */
 static Var *
 search_indexed_tlist_for_non_var(Node *node,
@@ -1872,7 +1911,7 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * adjust any Vars that refer to other tables to reference junk tlist
  * entries in the top subplan's targetlist.  Vars referencing the result
  * table should be left alone, however (the executor will evaluate them
- * using the actual heap tuple, after firing triggers if any).	In the
+ * using the actual heap tuple, after firing triggers if any).  In the
  * adjusted RETURNING list, result-table Vars will have their original
  * varno (plus rtoffset), but Vars for other rels will have varno OUTER_VAR.
  *

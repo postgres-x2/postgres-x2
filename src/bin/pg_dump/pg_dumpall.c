@@ -479,9 +479,9 @@ main(int argc, char *argv[])
 	if (!data_only)
 	{
 		/*
-		 * If asked to --clean, do that first.	We can avoid detailed
+		 * If asked to --clean, do that first.  We can avoid detailed
 		 * dependency analysis because databases never depend on each other,
-		 * and tablespaces never depend on each other.	Roles could have
+		 * and tablespaces never depend on each other.  Roles could have
 		 * grants to each other, but DROP ROLE will clean those up silently.
 		 */
 		if (output_clean)
@@ -709,7 +709,7 @@ dumpRoles(PGconn *conn)
 						  "ORDER BY 2");
 	else
 		printfPQExpBuffer(buf,
-						  "SELECT 0, usename as rolname, "
+						  "SELECT 0 as oid, usename as rolname, "
 						  "usesuper as rolsuper, "
 						  "true as rolinherit, "
 						  "usesuper as rolcreaterole, "
@@ -722,7 +722,7 @@ dumpRoles(PGconn *conn)
 						  "null as rolcomment "
 						  "FROM pg_shadow "
 						  "UNION ALL "
-						  "SELECT 0, groname as rolname, "
+						  "SELECT 0 as oid, groname as rolname, "
 						  "false as rolsuper, "
 						  "true as rolinherit, "
 						  "false as rolcreaterole, "
@@ -1202,7 +1202,7 @@ dumpCreateDB(PGconn *conn)
 	 * commands for just those databases with values different from defaults.
 	 *
 	 * We consider template0's encoding and locale (or, pre-7.1, template1's)
-	 * to define the installation default.	Pre-8.4 installations do not have
+	 * to define the installation default.  Pre-8.4 installations do not have
 	 * per-database locale settings; for them, every database must necessarily
 	 * be using the installation default, so there's no need to do anything
 	 * (which is good, since in very old versions there is no good way to find
@@ -1386,17 +1386,17 @@ dumpCreateDB(PGconn *conn)
 				appendStringLiteralConn(buf, dbname, conn);
 				appendPQExpBuffer(buf, ";\n");
 			}
+		}
 
-			if (binary_upgrade)
-			{
-				appendPQExpBuffer(buf, "-- For binary upgrade, set datfrozenxid.\n");
-				appendPQExpBuffer(buf, "UPDATE pg_catalog.pg_database "
-								  "SET datfrozenxid = '%u' "
-								  "WHERE datname = ",
-								  dbfrozenxid);
-				appendStringLiteralConn(buf, dbname, conn);
-				appendPQExpBuffer(buf, ";\n");
-			}
+		if (binary_upgrade)
+		{
+			appendPQExpBuffer(buf, "-- For binary upgrade, set datfrozenxid.\n");
+			appendPQExpBuffer(buf, "UPDATE pg_catalog.pg_database "
+							  "SET datfrozenxid = '%u' "
+							  "WHERE datname = ",
+							  dbfrozenxid);
+			appendStringLiteralConn(buf, dbname, conn);
+			appendPQExpBuffer(buf, ";\n");
 		}
 
 		if (!skip_acls &&

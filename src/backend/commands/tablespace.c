@@ -31,7 +31,7 @@
  * To allow CREATE DATABASE to give a new database a default tablespace
  * that's different from the template database's default, we make the
  * provision that a zero in pg_class.reltablespace means the database's
- * default tablespace.	Without this, CREATE DATABASE would have to go in
+ * default tablespace.  Without this, CREATE DATABASE would have to go in
  * and munge the system catalogs of the new database.
  *
  *
@@ -275,7 +275,7 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 
 	/*
 	 * Check that location isn't too long. Remember that we're going to append
-	 * 'PG_XXX/<dboid>/<relid>.<nnn>'.	FYI, we never actually reference the
+	 * 'PG_XXX/<dboid>/<relid>.<nnn>'.  FYI, we never actually reference the
 	 * whole path, but mkdir() uses the first two parts.
 	 */
 	if (strlen(location) + 1 + strlen(TABLESPACE_VERSION_DIRECTORY) + 1 +
@@ -500,7 +500,7 @@ DropTableSpace(DropTableSpaceStmt *stmt)
 		 * Not all files deleted?  However, there can be lingering empty files
 		 * in the directories, left behind by for example DROP TABLE, that
 		 * have been scheduled for deletion at next checkpoint (see comments
-		 * in mdunlink() for details).	We could just delete them immediately,
+		 * in mdunlink() for details).  We could just delete them immediately,
 		 * but we can't tell them apart from important data files that we
 		 * mustn't delete.  So instead, we force a checkpoint which will clean
 		 * out any lingering files, and try again.
@@ -577,6 +577,7 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 	char	   *location_with_version_dir = palloc(strlen(location) + 1 +
 								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1);
 #endif
+	struct stat st;
 
 	sprintf(linkloc, "pg_tblspc/%u", tablespaceoid);
 #ifdef PGXC
@@ -594,7 +595,7 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 #endif
 
 	/*
-	 * Attempt to coerce target directory to safe permissions.	If this fails,
+	 * Attempt to coerce target directory to safe permissions.  If this fails,
 	 * it doesn't exist or has the wrong owner.
 	 */
 	if (chmod(location, S_IRWXU) != 0)
@@ -614,8 +615,6 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 
 	if (InRecovery)
 	{
-		struct stat st;
-
 		/*
 		 * Our theory for replaying a CREATE is to forcibly drop the target
 		 * subdirectory if present, and then recreate it. This may be more
@@ -649,14 +648,32 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 							location_with_version_dir)));
 	}
 
-	/* Remove old symlink in recovery, in case it points to the wrong place */
+	/*
+	 * In recovery, remove old symlink, in case it points to the wrong place.
+	 *
+	 * On Windows, junction points act like directories so we must be able to
+	 * apply rmdir; in general it seems best to make this code work like the
+	 * symlink removal code in destroy_tablespace_directories, except that
+	 * failure to remove is always an ERROR.
+	 */
 	if (InRecovery)
 	{
-		if (unlink(linkloc) < 0 && errno != ENOENT)
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("could not remove symbolic link \"%s\": %m",
-							linkloc)));
+		if (lstat(linkloc, &st) == 0 && S_ISDIR(st.st_mode))
+		{
+			if (rmdir(linkloc) < 0)
+				ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("could not remove directory \"%s\": %m",
+								linkloc)));
+		}
+		else
+		{
+			if (unlink(linkloc) < 0 && errno != ENOENT)
+				ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("could not remove symbolic link \"%s\": %m",
+								linkloc)));
+		}
 	}
 
 	/*
@@ -748,7 +765,7 @@ createtbspc_abort_callback(bool isCommit, void *arg)
  * Attempt to remove filesystem infrastructure for the tablespace.
  *
  * 'redo' indicates we are redoing a drop from XLOG; in that case we should
- * not throw an ERROR for problems, just LOG them.	The worst consequence of
+ * not throw an ERROR for problems, just LOG them.  The worst consequence of
  * not removing files here would be failure to release some disk space, which
  * does not justify throwing an error that would require manual intervention
  * to get the database running again.
@@ -794,10 +811,10 @@ destroy_tablespace_directories(Oid tablespaceoid, bool redo)
 	 *
 	 * If redo is true then ENOENT is a likely outcome here, and we allow it
 	 * to pass without comment.  In normal operation we still allow it, but
-	 * with a warning.	This is because even though ProcessUtility disallows
+	 * with a warning.  This is because even though ProcessUtility disallows
 	 * DROP TABLESPACE in a transaction block, it's possible that a previous
 	 * DROP failed and rolled back after removing the tablespace directories
-	 * and/or symlink.	We want to allow a new DROP attempt to succeed at
+	 * and/or symlink.  We want to allow a new DROP attempt to succeed at
 	 * removing the catalog entries (and symlink if still present), so we
 	 * should not give a hard error here.
 	 */
@@ -1180,7 +1197,7 @@ check_default_tablespace(char **newval, void **extra, GucSource source)
 {
 	/*
 	 * If we aren't inside a transaction, we cannot do database access so
-	 * cannot verify the name.	Must accept the value on faith.
+	 * cannot verify the name.  Must accept the value on faith.
 	 */
 	if (IsTransactionState())
 	{
@@ -1295,7 +1312,7 @@ check_temp_tablespaces(char **newval, void **extra, GucSource source)
 
 	/*
 	 * If we aren't inside a transaction, we cannot do database access so
-	 * cannot verify the individual names.	Must accept the list on faith.
+	 * cannot verify the individual names.  Must accept the list on faith.
 	 * Fortunately, there's then also no need to pass the data to fd.c.
 	 */
 	if (IsTransactionState())
@@ -1322,9 +1339,9 @@ check_temp_tablespaces(char **newval, void **extra, GucSource source)
 			}
 
 			/*
-			 * In an interactive SET command, we ereport for bad info.	When
+			 * In an interactive SET command, we ereport for bad info.  When
 			 * source == PGC_S_TEST, we are checking the argument of an ALTER
-			 * DATABASE SET or ALTER USER SET command.	pg_dumpall dumps all
+			 * DATABASE SET or ALTER USER SET command.  pg_dumpall dumps all
 			 * roles before tablespaces, so if we're restoring a pg_dumpall
 			 * script the tablespace might not yet exist, but will be created
 			 * later.  Because of that, issue a NOTICE if source ==
