@@ -832,19 +832,6 @@
       <row>
        <entry>
         <indexterm>
-         <primary>random</primary>
-        </indexterm>
-        <literal><function>random()</function></literal>
-       </entry>
-       <entry><type>dp</type></entry>
-       <entry>random value in the range 0.0 &lt;= x &lt; 1.0</entry>
-       <entry><literal>random()</literal></entry>
-       <entry></entry>
-      </row>
-
-      <row>
-       <entry>
-        <indexterm>
          <primary>round</primary>
         </indexterm>
         <literal><function>round(<type>dp</type> or <type>numeric</type>)</function></literal>
@@ -861,20 +848,6 @@
        <entry>round to <parameter>s</parameter> decimal places</entry>
        <entry><literal>round(42.4382, 2)</literal></entry>
        <entry><literal>42.44</literal></entry>
-      </row>
-
-      <row>
-       <entry>
-        <indexterm>
-         <primary>setseed</primary>
-        </indexterm>
-        <literal><function>setseed(<type>dp</type>)</function></literal>
-       </entry>
-       <entry><type>void</type></entry>
-       <entry>set seed for subsequent <literal>random()</literal> calls (value between -1.0 and
-       1.0, inclusive)</entry>
-       <entry><literal>setseed(0.54823)</literal></entry>
-       <entry></entry>
       </row>
 
       <row>
@@ -951,6 +924,56 @@
      </tbody>
     </tgroup>
    </table>
+
+  <para>
+    <xref linkend="functions-math-random-table"> shows functions for
+    generating random numbers.
+  </para>
+
+   <table id="functions-math-random-table">
+    <title>Random Functions</title>
+
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>Function</entry>
+       <entry>Return Type</entry>
+       <entry>Description</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <indexterm>
+         <primary>random</primary>
+        </indexterm>
+        <literal><function>random()</function></literal>
+       </entry>
+       <entry><type>dp</type></entry>
+       <entry>random value in the range 0.0 &lt;= x &lt; 1.0</entry>
+      </row>
+
+      <row>
+       <entry>
+        <indexterm>
+         <primary>setseed</primary>
+        </indexterm>
+        <literal><function>setseed(<type>dp</type>)</function></literal>
+       </entry>
+       <entry><type>void</type></entry>
+       <entry>set seed for subsequent <literal>random()</literal> calls (value between -1.0 and
+       1.0, inclusive)</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+  <para>
+   The characteristics of the values returned by
+   <literal><function>random()</function></literal> depend
+   on the system implementation. It is not suitable for cryptographic
+   applications; see <xref linkend="pgcrypto"> module for an alternative.
+   </para>
 
   <para>
    Finally, <xref linkend="functions-math-trig-table"> shows the
@@ -5490,11 +5513,11 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
        <row>
         <entry><literal>Y,YYY</literal></entry>
-        <entry>year (4 and more digits) with comma</entry>
+        <entry>year (4 or more digits) with comma</entry>
        </row>
        <row>
         <entry><literal>YYYY</literal></entry>
-        <entry>year (4 and more digits)</entry>
+        <entry>year (4 or more digits)</entry>
        </row>
        <row>
         <entry><literal>YYY</literal></entry>
@@ -5510,19 +5533,19 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
        <row>
         <entry><literal>IYYY</literal></entry>
-        <entry>ISO year (4 and more digits)</entry>
+        <entry>ISO 8601 week-numbering year (4 or more digits)</entry>
        </row>
        <row>
         <entry><literal>IYY</literal></entry>
-        <entry>last 3 digits of ISO year</entry>
+        <entry>last 3 digits of ISO 8601 week-numbering year</entry>
        </row>
        <row>
         <entry><literal>IY</literal></entry>
-        <entry>last 2 digits of ISO year</entry>
+        <entry>last 2 digits of ISO 8601 week-numbering year</entry>
        </row>
        <row>
         <entry><literal>I</literal></entry>
-        <entry>last digit of ISO year</entry>
+        <entry>last digit of ISO 8601 week-numbering year</entry>
        </row>
        <row>
         <entry><literal>BC</literal>, <literal>bc</literal>,
@@ -5592,7 +5615,7 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
        <row>
         <entry><literal>IDDD</literal></entry>
-        <entry>ISO day of year (001-371; day 1 of the year is Monday of the first ISO week.)</entry>
+        <entry>day of ISO 8601 week-numbering year (001-371; day 1 of the year is Monday of the first ISO week)</entry>
        </row>
        <row>
         <entry><literal>DD</literal></entry>
@@ -5600,27 +5623,27 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
        <row>
         <entry><literal>D</literal></entry>
-        <entry>day of the week, Sunday(<literal>1</>) to Saturday(<literal>7</>)</entry>
+        <entry>day of the week, Sunday (<literal>1</>) to Saturday (<literal>7</>)</entry>
        </row>
        <row>
         <entry><literal>ID</literal></entry>
-        <entry>ISO day of the week, Monday(<literal>1</>) to Sunday(<literal>7</>)</entry>
+        <entry>ISO 8601 day of the week, Monday (<literal>1</>) to Sunday (<literal>7</>)</entry>
        </row>
        <row>
         <entry><literal>W</literal></entry>
-        <entry>week of month (1-5) (The first week starts on the first day of the month.)</entry>
+        <entry>week of month (1-5) (the first week starts on the first day of the month)</entry>
        </row>
        <row>
         <entry><literal>WW</literal></entry>
-        <entry>week number of year (1-53) (The first week starts on the first day of the year.)</entry>
+        <entry>week number of year (1-53) (the first week starts on the first day of the year)</entry>
        </row>
        <row>
         <entry><literal>IW</literal></entry>
-        <entry>ISO week number of year (01 - 53; the first Thursday of the new year is in week 1.)</entry>
+        <entry>week number of ISO 8601 week-numbering year (01-53; the first Thursday of the year is in week 1)</entry>
        </row>
        <row>
         <entry><literal>CC</literal></entry>
-        <entry>century (2 digits) (The twenty-first century starts on 2001-01-01.)</entry>
+        <entry>century (2 digits) (the twenty-first century starts on 2001-01-01)</entry>
        </row>
        <row>
         <entry><literal>J</literal></entry>
@@ -5802,16 +5825,16 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
 
      <listitem>
       <para>
-       An ISO week date (as distinct from a Gregorian date) can be
-       specified to <function>to_timestamp</function> and
+       An ISO 8601 week-numbering date (as distinct from a Gregorian date)
+       can be specified to <function>to_timestamp</function> and
        <function>to_date</function> in one of two ways:
        <itemizedlist>
         <listitem>
          <para>
-          Year, week, and weekday:  for example <literal>to_date('2006-42-4',
-          'IYYY-IW-ID')</literal> returns the date
-          <literal>2006-10-19</literal>.  If you omit the weekday it
-          is assumed to be 1 (Monday).
+          Year, week number, and weekday:  for
+          example <literal>to_date('2006-42-4', 'IYYY-IW-ID')</literal>
+          returns the date <literal>2006-10-19</literal>.
+          If you omit the weekday it is assumed to be 1 (Monday).
          </para>
         </listitem>
         <listitem>
@@ -5823,13 +5846,25 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </itemizedlist>
       </para>
       <para>
-       Attempting to construct a date using a mixture of ISO week and
-       Gregorian date fields is nonsensical, and will cause an error.  In the
-       context of an ISO year, the concept of a <quote>month</> or <quote>day
-       of month</> has no meaning.  In the context of a Gregorian year, the
-       ISO week has no meaning.  Users should avoid mixing Gregorian and
-       ISO date specifications.
+       Attempting to enter a date using a mixture of ISO 8601 week-numbering
+       fields and Gregorian date fields is nonsensical, and will cause an
+       error.  In the context of an ISO 8601 week-numbering year, the
+       concept of a <quote>month</> or <quote>day of month</> has no
+       meaning.  In the context of a Gregorian year, the ISO week has no
+       meaning.
       </para>
+      <caution>
+       <para>
+        While <function>to_date</function> will reject a mixture of
+        Gregorian and ISO week-numbering date
+        fields, <function>to_char</function> will not, since output format
+        specifications like <literal>YYYY-MM-DD (IYYY-IDDD)</> can be
+        useful.  But avoid writing something like <literal>IYYY-MM-DD</>;
+        that would yield surprising results near the start of the year.
+        (See <xref linkend="functions-datetime-extract"> for more
+        information.)
+       </para>
+      </caution>
      </listitem>
 
      <listitem>
@@ -6712,6 +6747,9 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
     </table>
 
    <para>
+    <indexterm>
+      <primary>OVERLAPS</primary>
+    </indexterm>
     In addition to these functions, the SQL <literal>OVERLAPS</> operator is
     supported:
 <synopsis>
@@ -6875,8 +6913,8 @@ SELECT EXTRACT(DECADE FROM TIMESTAMP '2001-02-16 20:38:40');
       <term><literal>dow</literal></term>
       <listitem>
        <para>
-        The day of the week as Sunday(<literal>0</>) to
-        Saturday(<literal>6</>)
+        The day of the week as Sunday (<literal>0</>) to
+        Saturday (<literal>6</>)
        </para>
 
 <screen>
@@ -6958,8 +6996,8 @@ SELECT EXTRACT(HOUR FROM TIMESTAMP '2001-02-16 20:38:40');
       <term><literal>isodow</literal></term>
       <listitem>
        <para>
-        The day of the week as Monday(<literal>1</>) to
-        Sunday(<literal>7</>)
+        The day of the week as Monday (<literal>1</>) to
+        Sunday (<literal>7</>)
        </para>
 
 <screen>
@@ -6978,7 +7016,8 @@ SELECT EXTRACT(ISODOW FROM TIMESTAMP '2001-02-18 20:38:40');
       <term><literal>isoyear</literal></term>
       <listitem>
        <para>
-        The <acronym>ISO</acronym> 8601 year that the date falls in (not applicable to intervals)
+        The <acronym>ISO</acronym> 8601 week-numbering year that the date
+        falls in (not applicable to intervals)
        </para>
 
 <screen>
@@ -6989,7 +7028,11 @@ SELECT EXTRACT(ISOYEAR FROM DATE '2006-01-02');
 </screen>
 
        <para>
-        Each <acronym>ISO</acronym> year begins with the Monday of the week containing the 4th of January, so in early January or late December the <acronym>ISO</acronym> year may be different from the Gregorian year.  See the <literal>week</literal> field for more information.
+        Each <acronym>ISO</acronym> 8601 week-numbering year begins with the
+        Monday of the week containing the 4th of January, so in early
+        January or late December the <acronym>ISO</acronym> year may be
+        different from the Gregorian year.  See the <literal>week</literal>
+        field for more information.
        </para>
        <para>
         This field is not available in PostgreSQL releases prior to 8.3.
@@ -7155,14 +7198,14 @@ SELECT EXTRACT(SECOND FROM TIME '17:12:28.5');
       <term><literal>week</literal></term>
       <listitem>
        <para>
-        The number of the week of the year that the day is in.  By definition
-        (<acronym>ISO</acronym> 8601), weeks start on Mondays and the first
+        The number of the <acronym>ISO</acronym> 8601 week-numbering week of
+        the year.  By definition, ISO weeks start on Mondays and the first
         week of a year contains January 4 of that year.  In other words, the
         first Thursday of a year is in week 1 of that year.
        </para>
        <para>
-        In the ISO definition, it is possible for early-January dates to be
-        part of the 52nd or 53rd week of the previous year, and for
+        In the ISO week-numbering system, it is possible for early-January
+        dates to be part of the 52nd or 53rd week of the previous year, and for
         late-December dates to be part of the first week of the next year.
         For example, <literal>2005-01-01</> is part of the 53rd week of year
         2004, and <literal>2006-01-01</> is part of the 52nd week of year
@@ -10566,11 +10609,13 @@ SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 
    <note>
     <para>
-     As described in <xref linkend="xfunc-volatility">, functions and
-     operators marked <literal>IMMUTABLE</literal> can be evaluated when
-     the query is planned rather than when it is executed.  This means
-     that constant parts of a subexpression that is not evaluated during
-     query execution might still be evaluated during query planning.
+     As described in <xref linkend="syntax-express-eval">, there are various
+     situations in which subexpressions of an expression are evaluated at
+     different times, so that the principle that <quote><token>CASE</token>
+     evaluates only necessary subexpressions</quote> is not ironclad.  For
+     example a constant <literal>1/0</> subexpression will usually result in
+     a division-by-zero failure at planning time, even if it's within
+     a <token>CASE</token> arm that would never be entered at run time.
     </para>
    </note>
   </sect2>
@@ -11568,15 +11613,15 @@ SELECT NULLIF(value, '(none)') ...
        <indexterm>
         <primary>json_agg</primary>
        </indexterm>
-       <function>json_agg(<replaceable class="parameter">record</replaceable>)</function>
+       <function>json_agg(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
       <entry>
-       <type>record</type>
+       <type>any</type>
       </entry>
       <entry>
        <type>json</type>
       </entry>
-      <entry>aggregates records as a JSON array of objects</entry>
+      <entry>aggregates values as a JSON array</entry>
      </row>
 
      <row>
@@ -11640,14 +11685,13 @@ SELECT NULLIF(value, '(none)') ...
       <entry>
        <type>smallint</type>, <type>int</type>,
        <type>bigint</type>, <type>real</type>, <type>double
-       precision</type>, <type>numeric</type>, or
-       <type>interval</type>
+       precision</type>, <type>numeric</type>,
+       <type>interval</type>, or <type>money</>
       </entry>
       <entry>
        <type>bigint</type> for <type>smallint</type> or
        <type>int</type> arguments, <type>numeric</type> for
-       <type>bigint</type> arguments, <type>double precision</type>
-       for floating-point arguments, otherwise the same as the
+       <type>bigint</type> arguments, otherwise the same as the
        argument data type
       </entry>
       <entry>sum of <replaceable class="parameter">expression</replaceable> across all input values</entry>
@@ -14578,7 +14622,7 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
    <parameter>schema</> is the schema name that the object belongs in, or
    <literal>NULL</> for object types that do not belong to schemas;
    <parameter>name</> is the name of the object, quoted if necessary, only
-   present if it can be used (alongside schema name, if pertinent) as an unique
+   present if it can be used (alongside schema name, if pertinent) as a unique
    identifier of the object, otherwise <literal>NULL</>;
    <parameter>identity</> is the complete object identity, with the precise format
    depending on object type, and each part within the format being
@@ -15670,7 +15714,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
        <entry><type>bigint</type></entry>
        <entry>
         Disk space used by the specified fork (<literal>'main'</literal>,
-        <literal>'fsm'</literal> or <literal>'vm'</>)
+        <literal>'fsm'</literal>, <literal>'vm'</>, or <literal>'init'</>)
         of the specified table or index
        </entry>
       </row>
@@ -15769,22 +15813,48 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
    <para>
     <function>pg_database_size</function> and <function>pg_tablespace_size</>
     accept the OID or name of a database or tablespace, and return the total
-    disk space used therein.
+    disk space used therein.  To use <function>pg_database_size</function>,
+    you must have <literal>CONNECT</> permission on the specified database
+    (which is granted by default).  To use <function>pg_tablespace_size</>,
+    you must have <literal>CREATE</> permission on the specified tablespace,
+    unless it is the default tablespace for the current database.
    </para>
 
    <para>
-    <function>pg_relation_size</> accepts the OID or name of a table, index or
-    toast table, and returns the on-disk size in bytes. Specifying
-    <literal>'main'</literal> or leaving out the second argument returns the
-    size of the main data fork of the relation. Specifying
-    <literal>'fsm'</literal> returns the size of the
-    Free Space Map (see <xref linkend="storage-fsm">) associated with the
-    relation. Specifying <literal>'vm'</literal> returns the size of the
-    Visibility Map (see <xref linkend="storage-vm">) associated with the
-    relation.  Note that this function shows the size of only one fork;
-    for most purposes it is more convenient to use the higher-level
-    functions <function>pg_total_relation_size</> or
-    <function>pg_table_size</>.
+    <function>pg_relation_size</> accepts the OID or name of a table, index
+    or toast table, and returns the on-disk size in bytes of one fork of
+    that relation.  (Note that for most purposes it is more convenient to
+    use the higher-level functions <function>pg_total_relation_size</>
+    or <function>pg_table_size</>, which sum the sizes of all forks.)
+    With one argument, it returns the size of the main data fork of the
+    relation.  The second argument can be provided to specify which fork
+    to examine:
+    <itemizedlist spacing="compact">
+     <listitem>
+      <para>
+       <literal>'main'</literal> returns the size of the main
+       data fork of the relation.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>'fsm'</literal> returns the size of the Free Space Map
+       (see <xref linkend="storage-fsm">) associated with the relation.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>'vm'</literal> returns the size of the Visibility Map
+       (see <xref linkend="storage-vm">) associated with the relation.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>'init'</literal> returns the size of the initialization fork,
+       if any, (see <xref linkend="storage-init">) associated with the relation.
+      </para>
+     </listitem>
+    </itemizedlist>
    </para>
 
    <para>
@@ -16518,7 +16588,7 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
         <entry><type>text</type></entry>
         <entry>
          Name of the object, if the combination of schema and name can be
-         used as an unique identifier for the object; otherwise <literal>NULL</>.
+         used as a unique identifier for the object; otherwise <literal>NULL</>.
          No quoting is applied, and name is never schema-qualified.
         </entry>
        </row>

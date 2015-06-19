@@ -105,6 +105,9 @@ man-stamp: stylesheet-man.xsl postgres.xml
 .PHONY: draft
 
 JADE.html.call = $(JADE) $(JADEFLAGS) $(SPFLAGS) $(SGMLINCLUDE) $(CATALOG) -d stylesheet.dsl -t sgml -i output-html
+ifeq ($(STYLE),website)
+JADE.html.call += -V website-stylesheet
+endif
 
 # The draft target creates HTML output in draft mode, without index (for faster build).
 draft: postgres.sgml $(ALMOSTALLSGML) stylesheet.dsl
@@ -133,14 +136,17 @@ HTML.index: postgres.sgml $(ALMOSTALLSGML) stylesheet.dsl
 	$(JADE.html.call) -V html-index $<
 
 bookindex.sgml: HTML.index
+ifdef COLLATEINDEX
 	LC_ALL=C $(PERL) $(COLLATEINDEX) -f -g -i 'bookindex' -o $@ $<
+else
+	@$(missing) collateindex.pl $< $@
+endif
 
 # Technically, this should depend on Makefile.global, but then
 # version.sgml would need to be rebuilt after every configure run,
 # even in distribution tarballs.  So this is cheating a bit, but it
 # will achieve the goal of updating the version number when it
 # changes.
-# Please note that XC version needs manual maintenance here.
 version.sgml: $(top_srcdir)/configure
 	{ \
 	  echo "<!ENTITY version \"1.2.1\">"; \
@@ -231,26 +237,22 @@ INC_LIST = -I PG -I EN
 ##
 
 JADE.text = $(JADE) $(JADEFLAGS) $(SGMLINCLUDE) $(CATALOG) -d stylesheet.dsl -i output-text -t sgml
+ICONV = iconv
 LYNX = lynx
 
-INSTALL HISTORY regress_README: % : %.html
-	$(PERL) -p -e 's/<H(1|2)$$/<H\1 align=center/g' $< | $(LYNX) -force_html -dump -nolist -stdin > $@
+# The documentation may contain non-ASCII characters (mostly for
+# contributor names), which lynx converts to the encoding determined
+# by the current locale.  To get text output that is deterministic and
+# easily readable by everyone, we make lynx produce LATIN1 and then
+# convert that to ASCII with transliteration for the non-ASCII characters.
+# Official releases were historically built on FreeBSD, which has limited
+# locale support and is very picky about locale name spelling.  The
+# below has been finely tuned to run on FreeBSD and Linux/glibc.
+INSTALL: % : %.html
+	$(PERL) -p -e 's/<H(1|2)$$/<H\1 align=center/g' $< | LC_ALL=en_US.ISO8859-1 $(LYNX) -force_html -dump -nolist -stdin | $(ICONV) -f latin1 -t us-ascii//TRANSLIT > $@
 
 INSTALL.html: standalone-install.sgml installation.sgml version.sgml
 	$(JADE.text) -V nochunks standalone-install.sgml installation.sgml > $@
-
-HISTORY.html: generate_history.pl $(wildcard $(srcdir)/release*.sgml)
-	$(PERL) $< "$(srcdir)" release.sgml >tempfile_HISTORY.sgml
-	$(JADE.text) -V nochunks tempfile_HISTORY.sgml > $@
-	rm tempfile_HISTORY.sgml
-
-regress_README.html: regress.sgml
-	( echo '<!DOCTYPE chapter PUBLIC "-//OASIS//DTD DocBook V4.2//EN" ['; \
-	  echo '<!ENTITY % standalone-ignore "IGNORE">'; \
-	  echo '<!ENTITY % standalone-include "INCLUDE"> ]>'; \
-	  cat $< ) >tempfile_regress_README.sgml
-	$(JADE.text) -V nochunks tempfile_regress_README.sgml > $@
-	rm tempfile_regress_README.sgml
 
 
 ##
@@ -392,13 +394,13 @@ check-tabs:
 # This allows removing some files from the distribution tarballs while
 # keeping the dependencies satisfied.
 .SECONDARY: postgres.xml $(GENERATED_SGML) HTML.index
-.SECONDARY: INSTALL.html HISTORY.html regress_README.html
+.SECONDARY: INSTALL.html
 .SECONDARY: %-A4.tex-ps %-US.tex-ps %-A4.tex-pdf %-US.tex-pdf
 
 clean:
 # text --- these are shipped, but not in this directory
-	rm -f INSTALL HISTORY regress_README
-	rm -f INSTALL.html HISTORY.html regress_README.html
+	rm -f INSTALL
+	rm -f INSTALL.html
 # single-page output
 	rm -f postgres.html postgres.txt
 # print

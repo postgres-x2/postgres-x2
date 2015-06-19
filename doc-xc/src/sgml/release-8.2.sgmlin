@@ -153,7 +153,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.14,
-    see the release notes for 8.2.14.
+    see <xref linkend="release-8-2-14">.
    </para>
 
   </sect2>
@@ -397,7 +397,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.14,
-    see the release notes for 8.2.14.
+    see <xref linkend="release-8-2-14">.
    </para>
 
   </sect2>
@@ -683,7 +683,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.14,
-    see the release notes for 8.2.14.
+    see <xref linkend="release-8-2-14">.
    </para>
 
   </sect2>
@@ -884,7 +884,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.14,
-    see the release notes for 8.2.14.
+    see <xref linkend="release-8-2-14">.
    </para>
 
   </sect2>
@@ -1155,7 +1155,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.14,
-    see the release notes for 8.2.14.
+    see <xref linkend="release-8-2-14">.
    </para>
 
   </sect2>
@@ -1401,7 +1401,7 @@
     However, if you have any hash indexes on <type>interval</> columns,
     you must <command>REINDEX</> them after updating to 8.2.14.
     Also, if you are upgrading from a version earlier than 8.2.11,
-    see the release notes for 8.2.11.
+    see <xref linkend="release-8-2-11">.
    </para>
 
   </sect2>
@@ -1629,7 +1629,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.11,
-    see the release notes for 8.2.11.
+    see <xref linkend="release-8-2-11">.
    </para>
 
   </sect2>
@@ -1795,7 +1795,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.11,
-    see the release notes for 8.2.11.
+    see <xref linkend="release-8-2-11">.
    </para>
 
   </sect2>
@@ -1974,7 +1974,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.7,
-    see the release notes for 8.2.7.  Also, if you were running a previous
+    see <xref linkend="release-8-2-7">.  Also, if you were running a previous
     8.2.X release, it is recommended to <command>REINDEX</> all GiST
     indexes after the upgrade.
    </para>
@@ -2158,7 +2158,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.7,
-    see the release notes for 8.2.7.
+    see <xref linkend="release-8-2-7">.
    </para>
 
   </sect2>
@@ -2390,7 +2390,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.7,
-    see the release notes for 8.2.7.
+    see <xref linkend="release-8-2-7">.
    </para>
 
   </sect2>
@@ -2457,7 +2457,7 @@
    <para>
     A dump/restore is not required for those running 8.2.X.
     However, if you are upgrading from a version earlier than 8.2.7,
-    see the release notes for 8.2.7.
+    see <xref linkend="release-8-2-7">.
    </para>
 
   </sect2>
@@ -5216,7 +5216,7 @@
       <para>
        The new syntax is <link linkend="SQL-CREATEINDEX"><command>CREATE
        INDEX CONCURRENTLY</></link>.  The default behavior is
-       still to block table modification while a index is being
+       still to block table modification while an index is being
        created.
       </para>
      </listitem>

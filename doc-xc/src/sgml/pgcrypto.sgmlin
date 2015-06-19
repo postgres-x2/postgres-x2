@@ -593,7 +593,7 @@ pgp_pub_encrypt_bytea(data bytea, key bytea [, options text ]) returns bytea
 &common;
    <para>
     Encrypt <parameter>data</> with a public PGP key <parameter>key</>.
-    Giving this function a secret key will produce a error.
+    Giving this function a secret key will produce an error.
    </para>
    <para>
     The <parameter>options</> parameter can contain option settings,
@@ -812,12 +812,12 @@ Applies to: pgp_sym_encrypt, pgp_pub_encrypt
   </sect4>
 
   <sect4>
-   <title>enable-session-key</title>
+   <title>sess-key</title>
 
 &common;
    <para>
     Use separate session key.  Public-key encryption always uses a separate
-    session key; this is for symmetric-key encryption, which by default
+    session key; this option is for symmetric-key encryption, which by default
     uses the S2K key directly.
    </para>
 <literallayout>
@@ -1254,6 +1254,14 @@ gen_random_bytes(count integer) returns bytea
 
    <para>
     If you cannot, then better do crypto inside client application.
+   </para>
+
+   <para>
+    The implementation does not resist
+    <ulink url="http://en.wikipedia.org/wiki/Side-channel_attack">side-channel
+    attacks</ulink>.  For example, the time required for
+    a <filename>pgcrypto</> decryption function to complete varies among
+    ciphertexts of a given size.
    </para>
   </sect3>
 

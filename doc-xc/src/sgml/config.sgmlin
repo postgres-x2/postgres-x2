@@ -626,7 +626,11 @@ include 'filename'
        </para>
 
        <para>
-        This parameter is irrelevant on Windows, which does not have
+        This parameter is irrelevant on systems, notably Solaris as of Solaris
+        10, that ignore socket permissions entirely.  There, one can achieve a
+        similar effect by pointing <varname>unix_socket_directories</> to a
+        directory having search permission limited to the desired audience.
+        This parameter is also irrelevant on Windows, which does not have
         Unix-domain sockets.
        </para>
       </listitem>
@@ -2601,7 +2605,7 @@ include 'filename'
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-hot-standby-feedback" xreflabel="hot_standby">
+     <varlistentry id="guc-hot-standby-feedback" xreflabel="hot_standby_feedback">
       <term><varname>hot_standby_feedback</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary><varname>hot_standby_feedback</> configuration parameter</primary>
@@ -3544,6 +3548,7 @@ local0.*    /var/log/postgresql
         cluster data directory.
         This parameter can only be set in the <filename>postgresql.conf</>
         file or on the server command line.
+        The default is <literal>pg_log</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -3569,6 +3574,7 @@ local0.*    /var/log/postgresql
         </ulink> specification.
         Note that the system's <systemitem>strftime</systemitem> is not used
         directly, so platform-specific (nonstandard) extensions do not work.
+        The default is <literal>postgresql-%Y-%m-%d_%H%M%S.log</literal>.
        </para>
        <para>
         If you specify a file name without escapes, you should plan to
@@ -3585,8 +3591,6 @@ local0.*    /var/log/postgresql
         log file name to create the file name for CSV-format output.
         (If <varname>log_filename</> ends in <literal>.log</>, the suffix is
         replaced instead.)
-        In the case of the example above, the CSV
-        file name will be <literal>server_log.1093827753.csv</literal>.
        </para>
        <para>
         This parameter can only be set in the <filename>postgresql.conf</>
@@ -3731,7 +3735,7 @@ local0.*    /var/log/postgresql
      <varlistentry id="guc-syslog-ident" xreflabel="syslog_ident">
       <term><varname>syslog_ident</varname> (<type>string</type>)</term>
       <indexterm>
-       <primary><varname>syslog_identity</> configuration parameter</primary>
+       <primary><varname>syslog_ident</> configuration parameter</primary>
       </indexterm>
        <listitem>
         <para>
@@ -4935,6 +4939,33 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-autovacuum-multixact-freeze-max-age" xreflabel="autovacuum_multixact_freeze_max_age">
+      <term><varname>autovacuum_multixact_freeze_max_age</varname> (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>autovacuum_multixact_freeze_max_age</varname> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Specifies the maximum age (in multixacts) that a table's
+        <structname>pg_class</>.<structfield>relminmxid</> field can
+        attain before a <command>VACUUM</> operation is forced to
+        prevent multixact ID wraparound within the table.
+        Note that the system will launch autovacuum processes to
+        prevent wraparound even when autovacuum is otherwise disabled.
+       </para>
+
+       <para>
+        Vacuuming multixacts also allows removal of old files from the
+        <filename>pg_multixact/members</> and <filename>pg_multixact/offsets</>
+        subdirectories, which is why the default is a relatively low
+        400 million multixacts.
+        This parameter can only be set at server start, but the setting
+        can be reduced for individual tables by changing storage parameters.
+        For more information see <xref linkend="vacuum-for-multixact-wraparound">.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-autovacuum-vacuum-cost-delay" xreflabel="autovacuum_vacuum_cost_delay">
       <term><varname>autovacuum_vacuum_cost_delay</varname> (<type>integer</type>)</term>
       <indexterm>
@@ -5171,9 +5202,11 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
        <para>
         This parameter is normally on. When set to <literal>off</>, it
         disables validation of the function body string during <xref
-        linkend="sql-createfunction">. Disabling validation is
-        occasionally useful to avoid problems such as forward references
-        when restoring function definitions from a dump.
+        linkend="sql-createfunction">.  Disabling validation avoids side
+        effects of the validation process and avoids false positives due
+        to problems such as forward references.  Set this parameter
+        to <literal>off</> before loading functions on behalf of other
+        users; <application>pg_dump</> does so automatically.
        </para>
       </listitem>
      </varlistentry>
@@ -5345,7 +5378,7 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
         <structname>pg_class</>.<structfield>relfrozenxid</> field has reached
         the age specified by this setting.  The default is 150 million
         transactions.  Although users can set this value anywhere from zero to
-        one billion, <command>VACUUM</> will silently limit the effective value
+        two billions, <command>VACUUM</> will silently limit the effective value
         to 95% of <xref linkend="guc-autovacuum-freeze-max-age">, so that a
         periodical manual <command>VACUUM</> has a chance to run before an
         anti-wraparound autovacuum is launched for the table. For more
@@ -5372,6 +5405,47 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
         that there is not an unreasonably short time between forced
         autovacuums.  For more information see <xref
         linkend="vacuum-for-wraparound">.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-vacuum-multixact-freeze-table-age" xreflabel="vacuum_multixact_freeze_table_age">
+      <term><varname>vacuum_multixact_freeze_table_age</varname> (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>vacuum_multixact_freeze_table_age</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        <command>VACUUM</> performs a whole-table scan if the table's
+        <structname>pg_class</>.<structfield>relminmxid</> field has reached
+        the age specified by this setting.  The default is 150 million multixacts.
+        Although users can set this value anywhere from zero to two billions,
+        <command>VACUUM</> will silently limit the effective value to 95% of
+        <xref linkend="guc-autovacuum-multixact-freeze-max-age">, so that a
+        periodical manual <command>VACUUM</> has a chance to run before an
+        anti-wraparound is launched for the table.
+        For more information see <xref linkend="vacuum-for-multixact-wraparound">.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-vacuum-multixact-freeze-min-age" xreflabel="vacuum_multixact_freeze_min_age">
+      <term><varname>vacuum_multixact_freeze_min_age</varname> (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>vacuum_multixact_freeze_min_age</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Specifies the cutoff age (in multixacts) that <command>VACUUM</>
+        should use to decide whether to replace multixact IDs with a newer
+        transaction ID or multixact ID while scanning a table.  The default
+        is 5 million multixacts.
+        Although users can set this value anywhere from zero to one billion,
+        <command>VACUUM</> will silently limit the effective value to half
+        the value of <xref linkend="guc-autovacuum-multixact-freeze-max-age">,
+        so that there is not an unreasonably short time between forced
+        autovacuums.
+        For more information see <xref linkend="vacuum-for-multixact-wraparound">.
        </para>
       </listitem>
      </varlistentry>
@@ -5545,9 +5619,9 @@ SET XML OPTION { DOCUMENT | CONTENT };
         Sets the collection of time zone abbreviations that will be accepted
         by the server for datetime input.  The default is <literal>'Default'</>,
         which is a collection that works in most of the world; there are
-        also <literal>'Australia'</literal> and <literal>'India'</literal>, and other collections can be defined
-        for a particular installation.  See <xref
-        linkend="datetime-appendix"> for more information.
+        also <literal>'Australia'</literal> and <literal>'India'</literal>,
+        and other collections can be defined for a particular installation.
+        See <xref linkend="datetime-config-files"> for more information.
        </para>
       </listitem>
      </varlistentry>
@@ -5813,8 +5887,8 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
         this feature is to allow debugging or performance-measurement
         libraries to be loaded into specific sessions without an explicit
         <command>LOAD</> command being given.  For example, debugging could
-        be enabled for all sessions under a given user name by setting
-        this parameter with <command>ALTER ROLE SET</>.
+        be enabled for a session by setting this parameter via the
+        <envar>PGOPTIONS</envar> environment variable.
        </para>
 
        <para>
@@ -6320,6 +6394,19 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
         variables (such as <xref linkend="guc-shared-buffers">) is
         influenced by <varname>block_size</varname>. See <xref
         linkend="runtime-config-resource"> for information.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-data-checksums" xreflabel="data_checksums">
+      <term><varname>data_checksums</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>data_checksums</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Reports whether data checksums are enabled for this cluster.
+        See <xref linkend="app-initdb-data-checksums"> for more information.
        </para>
       </listitem>
      </varlistentry>

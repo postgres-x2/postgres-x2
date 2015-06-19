@@ -756,6 +756,20 @@ SELECT mleast(VARIADIC ARRAY[10, -1, 5, 4.4]);
     </para>
 
     <para>
+     Specifying <literal>VARIADIC</> in the call is also the only way to
+     pass an empty array to a variadic function, for example:
+
+<screen>
+SELECT mleast(VARIADIC ARRAY[]::numeric[]);
+</screen>
+
+     Simply writing <literal>SELECT mleast()</> does not work because a
+     variadic parameter must match at least one actual argument.
+     (You could define a second function also named <literal>mleast</>,
+     with no parameters, if you wanted to allow such calls.)
+    </para>
+
+    <para>
      The array element parameters generated from a variadic parameter are
      treated as not having any names of their own.  This means it is not
      possible to call a variadic function using named arguments (<xref
@@ -3198,9 +3212,10 @@ CREATE OR REPLACE FUNCTION retcomposite(IN integer, IN integer,
      is zero based.  <function>get_call_result_type</> can also be used
      as an alternative to <function>get_fn_expr_rettype</>.
      There is also <function>get_fn_expr_variadic</>, which can be used to
-     find out whether the call contained an explicit <literal>VARIADIC</>
-     keyword.  This is primarily useful for <literal>VARIADIC "any"</>
-     functions, as described below.
+     find out whether variadic arguments have been merged into an array.
+     This is primarily useful for <literal>VARIADIC "any"</> functions,
+     since such merging will always have occurred for variadic functions
+     taking ordinary array types.
     </para>
 
     <para>

@@ -1,14 +1,14 @@
 <!-- doc/src/sgml/legal.sgml -->
 
-<date>2014</date>
+<date>2015</date>
 
 <copyright>
- <year>1996-2014</year>
+ <year>1996-2015</year>
  <holder>The PostgreSQL Global Development Group</holder>
 </copyright>
 <!## XC>
 <copyright>
- <year>2009-2014</year>
+ <year>2009-2015</year>
  <holder>Postgres-XC Development Group</holder>
 </copyright>
 <!## end>
@@ -21,19 +21,17 @@
   by the PostgreSQL Global Development Group.
  </para>
 
-<!## XC>
- <para>
-  <productname>Postgres-XC</productname> is Copyright &copy; 1996-2014
-  by the PostgreSQL Global Development Group and Copyright &copy;
-  2010-2014 by Postgres-XC Development Group, and is distributed under 
-  the terms of the license of the University of California below.
- </para>
-<!## end>
-
  <para>
   <productname>Postgres95</productname> is Copyright &copy; 1994-5
   by the Regents of the University of California.
  </para>
+
+<!## XC>
+ <para>
+  <productname>Postgres-XC</productname> is Copyright &copy; 2009-2015
+  by the Postgres-XC Development Group.
+ </para>
+<!## end>
 
  <para>
   Permission to use, copy, modify, and distribute this software and
