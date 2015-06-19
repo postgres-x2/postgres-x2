@@ -487,7 +487,6 @@ stop_postmaster(void)
 	}
 }
 
-<<<<<<< HEAD
 #ifdef PGXC
 /*
  * Handy subroutine for setting an environment variable "var" to "val"
@@ -752,23 +751,28 @@ start_node(PGXCNodeTypeNum node, bool is_coord, bool is_main)
 		/* Case of normal nodes, start the node */
 		if (is_main)
 			snprintf(buf, sizeof(buf),
-					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s -c \"listen_addresses=%s\" > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
+					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\" -F %s "
+					 " -c \"listen_addresses=%s\" -k \"%s\" "
+					 "> \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
 					 bindir,
 					 is_coord ? "--coordinator" : "--datanode",
 					 port_number,
 					 temp_install, data_folder,
 					 debug ? " -d 5" : "",
 					 hostname ? hostname : "",
+					 sockdir ? sockdir : "",
 					 outputdir,
 					 node);
 		else
 			snprintf(buf, sizeof(buf),
-					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
+					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\" -F %s -k \"%s\" "
+					 "> \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
 					 bindir,
 					 is_coord ? "--coordinator" : "--datanode",
 					 port_number,
 					 temp_install, data_folder,
 					 debug ? " -d 5" : "",
+					 sockdir ? sockdir : "",
 					 outputdir,
 					 node);
 	}
@@ -1037,7 +1041,6 @@ kill_node(PGXCNodeTypeNum node)
 #endif
 }
 #endif
-=======
 #ifdef HAVE_UNIX_SOCKETS
 /*
  * Remove the socket temporary directory.  pg_regress never waits for a
@@ -1112,7 +1115,6 @@ make_temp_sockdir(void)
 	return temp_sockdir;
 }
 #endif   /* HAVE_UNIX_SOCKETS */
->>>>>>> REL9_2_13
 
 /*
  * Check whether string matches pattern
@@ -3261,7 +3263,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		fclose(pg_conf);
 #endif
 
-<<<<<<< HEAD
 #ifdef PGXC
 		/* Determine port numbers for nodes */
 		calculate_node_port(PGXC_COORD_1, true);
@@ -3269,7 +3270,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		calculate_node_port(PGXC_DATANODE_1, false);
 		calculate_node_port(PGXC_DATANODE_2, false);
 #else
-=======
 #ifdef ENABLE_SSPI
 
 		/*
@@ -3282,7 +3282,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 #error Platform has no means to secure the test installation.
 #endif
 
->>>>>>> REL9_2_13
 		/*
 		 * Check if there is a postmaster running already.
 		 */

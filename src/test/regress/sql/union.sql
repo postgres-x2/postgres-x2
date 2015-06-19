@@ -213,7 +213,7 @@ create table events (event_id int primary key);
 create table other_events (event_id int primary key);
 create table events_child () inherits (events);
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select event_id
  from (select event_id from events
        union all

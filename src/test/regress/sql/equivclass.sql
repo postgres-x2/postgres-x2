@@ -99,7 +99,8 @@ alter operator family integer_ops using btree add
   function 1 int8alias1cmp (int8, int8alias1);
 
 create table ec0 (ff int8 primary key, f1 int8, f2 int8);
-create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2);
+create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2)
+	DISTRIBUTE BY REPLICATION;
 create table ec2 (xf int8 primary key, x1 int8alias1, x2 int8alias2);
 
 -- for the moment we only want to look at nestloop plans
@@ -112,24 +113,24 @@ set enable_mergejoin = off;
 -- outright incorrect plan.
 --
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec0 where ff = f1 and f1 = '42'::int8;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec0 where ff = f1 and f1 = '42'::int8alias1;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1 where ff = f1 and f1 = '42'::int8alias1;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1 where ff = f1 and f1 = '42'::int8alias2;
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1, ec2 where ff = x1 and ff = '42'::int8;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1, ec2 where ff = x1 and ff = '42'::int8alias1;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1, ec2 where ff = x1 and '42'::int8 = x1;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1, ec2 where ff = x1 and x1 = '42'::int8alias1;
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1, ec2 where ff = x1 and x1 = '42'::int8alias2;
 
 create unique index ec1_expr1 on ec1((ff + 1));
@@ -137,7 +138,7 @@ create unique index ec1_expr2 on ec1((ff + 2 + 1));
 create unique index ec1_expr3 on ec1((ff + 3 + 1));
 create unique index ec1_expr4 on ec1((ff + 4));
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1,
     (select ff + 1 as x from
        (select ff + 2 as ff from ec1
@@ -147,7 +148,7 @@ explain (costs off)
      select ff + 4 as x from ec1) as ss1
   where ss1.x = ec1.f1 and ec1.ff = 42::int8;
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1,
     (select ff + 1 as x from
        (select ff + 2 as ff from ec1
@@ -157,7 +158,7 @@ explain (costs off)
      select ff + 4 as x from ec1) as ss1
   where ss1.x = ec1.f1 and ec1.ff = 42::int8 and ec1.ff = ec1.f1;
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1,
     (select ff + 1 as x from
        (select ff + 2 as ff from ec1
@@ -177,21 +178,22 @@ explain (costs off)
 set enable_mergejoin = on;
 set enable_nestloop = off;
 
-explain (costs off)
-  select * from ec1,
-    (select ff + 1 as x from
-       (select ff + 2 as ff from ec1
-        union all
-        select ff + 3 as ff from ec1) ss0
-     union all
-     select ff + 4 as x from ec1) as ss1,
-    (select ff + 1 as x from
-       (select ff + 2 as ff from ec1
-        union all
-        select ff + 3 as ff from ec1) ss0
-     union all
-     select ff + 4 as x from ec1) as ss2
-  where ss1.x = ec1.f1 and ss1.x = ss2.x and ec1.ff = 42::int8;
+-- The following does not run in XC
+-- explain (costs off, nodes off, num_nodes off)
+--   select * from ec1,
+--     (select ff + 1 as x from
+--        (select ff + 2 as ff from ec1
+--         union all
+--         select ff + 3 as ff from ec1) ss0
+--      union all
+--      select ff + 4 as x from ec1) as ss1,
+--     (select ff + 1 as x from
+--        (select ff + 2 as ff from ec1
+--         union all
+--         select ff + 3 as ff from ec1) ss0
+--      union all
+--      select ff + 4 as x from ec1) as ss2
+--   where ss1.x = ec1.f1 and ss1.x = ss2.x and ec1.ff = 42::int8;
 
 -- check partially indexed scan
 set enable_nestloop = on;
@@ -199,7 +201,7 @@ set enable_mergejoin = off;
 
 drop index ec1_expr3;
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
   select * from ec1,
     (select ff + 1 as x from
        (select ff + 2 as ff from ec1
@@ -213,12 +215,13 @@ explain (costs off)
 set enable_mergejoin = on;
 set enable_nestloop = off;
 
-explain (costs off)
-  select * from ec1,
-    (select ff + 1 as x from
-       (select ff + 2 as ff from ec1
-        union all
-        select ff + 3 as ff from ec1) ss0
-     union all
-     select ff + 4 as x from ec1) as ss1
-  where ss1.x = ec1.f1 and ec1.ff = 42::int8;
+-- The following does not run in XC
+-- explain (costs off, nodes off, num_nodes off)
+--   select * from ec1,
+--     (select ff + 1 as x from
+--        (select ff + 2 as ff from ec1
+--         union all
+--         select ff + 3 as ff from ec1) ss0
+--      union all
+--      select ff + 4 as x from ec1) as ss1
+--   where ss1.x = ec1.f1 and ec1.ff = 42::int8;

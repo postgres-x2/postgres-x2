@@ -487,7 +487,7 @@ WHERE d.f1 IS NULL ORDER BY f1;
 
 create temp table tt4x(c1 int, c2 int, c3 int);
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select * from tt4x t1
 where not exists (
   select 1 from tt4x t2
@@ -727,20 +727,23 @@ create temp table nt1 (
   id int primary key,
   a1 boolean,
   a2 boolean
-);
+)
+DISTRIBUTE BY REPLICATION;
 create temp table nt2 (
   id int primary key,
   nt1_id int,
   b1 boolean,
   b2 boolean,
   foreign key (nt1_id) references nt1(id)
-);
+)
+DISTRIBUTE BY REPLICATION;
 create temp table nt3 (
   id int primary key,
   nt2_id int,
   c1 boolean,
   foreign key (nt2_id) references nt2(id)
-);
+)
+DISTRIBUTE BY REPLICATION;
 
 insert into nt1 values (1,true,true);
 insert into nt1 values (2,true,false);
@@ -752,7 +755,7 @@ insert into nt3 values (1,1,true);
 insert into nt3 values (2,2,false);
 insert into nt3 values (3,3,true);
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select nt3.id
 from nt3 as nt3
   left join
@@ -826,7 +829,7 @@ where thousand = (q1 + q2);
 -- test ability to generate a suitable plan for a star-schema query
 --
 
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select * from
   tenk1, int8_tbl a, int8_tbl b
 where thousand = a.q1 and tenthous = b.q1 and a.q2 = 1 and b.q2 = 2;
@@ -975,7 +978,7 @@ explain (num_nodes off, nodes off, costs off)
 set enable_hashjoin to off;
 set enable_nestloop to off;
 
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select a.q2, b.q1
     from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
     where coalesce(b.q1, 1) > 0;
@@ -1000,14 +1003,14 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 
 -- all three cases should be optimizable into a simple seqscan
-explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
-explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
+explain (verbose true, costs false, nodes false, num_nodes false)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
 
 -- check optimization of outer join within another special join
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
@@ -1021,14 +1024,14 @@ insert into child values (1, 100), (4, 400);
 
 -- this case is optimizable
 select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
   on (p.k = ss.k) order by p.k;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
@@ -1037,7 +1040,7 @@ explain (verbose true, costs false, nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
@@ -1045,7 +1048,7 @@ select p.* from
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;

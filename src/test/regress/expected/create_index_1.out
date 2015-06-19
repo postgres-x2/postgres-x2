@@ -2569,3 +2569,37 @@ ORDER BY thousand;
         1 |     1001
 (2 rows)
 
+SET enable_indexonlyscan = OFF;
+explain (costs off)
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Sort
+   Sort Key: tenk1.thousand
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+         Node/s: dn1, dn2
+(4 rows)
+
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+ thousand | tenthous 
+----------+----------
+        0 |     3000
+        1 |     1001
+(2 rows)
+
+RESET enable_indexscan;
+--
+-- Check elimination of constant-NULL subexpressions
+--
+explain (costs off)
+  select * from tenk1 where (thousand, tenthous) in ((1,1001), (null,null));
+                QUERY PLAN                
+------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Node/s: dn1, dn2
+(2 rows)
+

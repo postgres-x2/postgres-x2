@@ -513,23 +513,22 @@ NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "events_pkey" for
 create table other_events (event_id int primary key);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "other_events_pkey" for table "other_events"
 create table events_child () inherits (events);
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select event_id
  from (select event_id from events
        union all
        select event_id from other_events) ss
  order by event_id;
-                           QUERY PLAN                           
-----------------------------------------------------------------
- Result
-   ->  Merge Append
-         Sort Key: public.events.event_id
-         ->  Index Scan using events_pkey on events
-         ->  Sort
-               Sort Key: public.events.event_id
-               ->  Seq Scan on events_child events
-         ->  Index Scan using other_events_pkey on other_events
-(8 rows)
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Sort
+   Sort Key: public.events.event_id
+   ->  Result
+         ->  Append
+               ->  Data Node Scan on events "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on events_child "_REMOTE_TABLE_QUERY_"
+               ->  Data Node Scan on other_events "_REMOTE_TABLE_QUERY_"
+(7 rows)
 
 drop table events_child, events, other_events;
 reset enable_indexonlyscan;

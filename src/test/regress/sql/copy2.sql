@@ -20,11 +20,11 @@ CREATE FUNCTION fn_x_after () RETURNS TRIGGER AS '
 	END;
 ' LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_x_after AFTER INSERT ON x
-FOR EACH ROW EXECUTE PROCEDURE fn_x_after();
+-- CREATE TRIGGER trg_x_after AFTER INSERT ON x
+-- FOR EACH ROW EXECUTE PROCEDURE fn_x_after();
 
-CREATE TRIGGER trg_x_before BEFORE INSERT ON x
-FOR EACH ROW EXECUTE PROCEDURE fn_x_before();
+-- CREATE TRIGGER trg_x_before BEFORE INSERT ON x
+-- FOR EACH ROW EXECUTE PROCEDURE fn_x_before();
 
 COPY x (a, b, c, d, e) from stdin;
 9999	\N	\\N	\NN	\N

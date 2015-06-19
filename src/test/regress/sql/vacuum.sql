@@ -46,6 +46,7 @@ CREATE TABLE vaccluster (i INT PRIMARY KEY);
 ALTER TABLE vaccluster CLUSTER ON vaccluster_pkey;
 CLUSTER vaccluster;
 
+-- The following causes error in XC.  Leave as is for future extension.
 CREATE FUNCTION do_analyze() RETURNS VOID VOLATILE LANGUAGE SQL
 	AS 'ANALYZE pg_am';
 CREATE FUNCTION wrap_do_analyze(c INT) RETURNS INT IMMUTABLE LANGUAGE SQL

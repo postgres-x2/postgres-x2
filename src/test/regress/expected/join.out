@@ -2319,7 +2319,7 @@ WHERE d.f1 IS NULL ORDER BY f1;
 -- regression test for proper handling of outer joins within antijoins
 --
 create temp table tt4x(c1 int, c2 int, c3 int);
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select * from tt4x t1
 where not exists (
   select 1 from tt4x t2
@@ -2329,33 +2329,26 @@ where not exists (
               ) a1 on t3.c2 = a1.c1
   where t1.c1 = t2.c2
 );
-                       QUERY PLAN                        
----------------------------------------------------------
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  Hash Anti Join
    Hash Cond: (t1.c1 = t2.c2)
-   ->  Seq Scan on tt4x t1
+   ->  Data Node Scan on tt4x "_REMOTE_TABLE_QUERY_"
    ->  Hash
-         ->  Merge Right Join
-               Merge Cond: (t5.c1 = t3.c2)
-               ->  Merge Join
-                     Merge Cond: (t4.c2 = t5.c1)
-                     ->  Sort
-                           Sort Key: t4.c2
-                           ->  Seq Scan on tt4x t4
-                     ->  Sort
-                           Sort Key: t5.c1
-                           ->  Seq Scan on tt4x t5
-               ->  Sort
-                     Sort Key: t3.c2
-                     ->  Merge Left Join
-                           Merge Cond: (t2.c3 = t3.c1)
-                           ->  Sort
-                                 Sort Key: t2.c3
-                                 ->  Seq Scan on tt4x t2
-                           ->  Sort
-                                 Sort Key: t3.c1
-                                 ->  Seq Scan on tt4x t3
-(24 rows)
+         ->  Hash Right Join
+               Hash Cond: (t3.c1 = t2.c3)
+               ->  Hash Right Join
+                     Hash Cond: (t5.c1 = t3.c2)
+                     ->  Hash Join
+                           Hash Cond: (t4.c2 = t5.c1)
+                           ->  Data Node Scan on tt4x "_REMOTE_TABLE_QUERY_"
+                           ->  Hash
+                                 ->  Data Node Scan on tt4x "_REMOTE_TABLE_QUERY_"
+                     ->  Hash
+                           ->  Data Node Scan on tt4x "_REMOTE_TABLE_QUERY_"
+               ->  Hash
+                     ->  Data Node Scan on tt4x "_REMOTE_TABLE_QUERY_"
+(17 rows)
 
 --
 -- regression test for problems of the sort depicted in bug #3494
@@ -2662,7 +2655,8 @@ create temp table nt1 (
   id int primary key,
   a1 boolean,
   a2 boolean
-);
+)
+DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "nt1_pkey" for table "nt1"
 create temp table nt2 (
   id int primary key,
@@ -2670,14 +2664,16 @@ create temp table nt2 (
   b1 boolean,
   b2 boolean,
   foreign key (nt1_id) references nt1(id)
-);
+)
+DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "nt2_pkey" for table "nt2"
 create temp table nt3 (
   id int primary key,
   nt2_id int,
   c1 boolean,
   foreign key (nt2_id) references nt2(id)
-);
+)
+DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "nt3_pkey" for table "nt3"
 insert into nt1 values (1,true,true);
 insert into nt1 values (2,true,false);
@@ -2688,7 +2684,7 @@ insert into nt2 values (3,3,false,false);
 insert into nt3 values (1,1,true);
 insert into nt3 values (2,2,false);
 insert into nt3 values (3,3,true);
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select nt3.id
 from nt3 as nt3
   left join
@@ -2700,18 +2696,10 @@ from nt3 as nt3
     ) as ss2
     on ss2.id = nt3.nt2_id
 where nt3.id = 1 and ss2.b3;
-                  QUERY PLAN                   
------------------------------------------------
- Nested Loop
-   ->  Nested Loop
-         ->  Index Scan using nt3_pkey on nt3
-               Index Cond: (id = 1)
-         ->  Index Scan using nt2_pkey on nt2
-               Index Cond: (id = nt3.nt2_id)
-   ->  Index Only Scan using nt1_pkey on nt1
-         Index Cond: (id = nt2.nt1_id)
-         Filter: (nt2.b1 AND (id IS NOT NULL))
-(9 rows)
+                QUERY PLAN                
+------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+(1 row)
 
 select nt3.id
 from nt3 as nt3
@@ -2872,20 +2860,20 @@ where thousand = (q1 + q2);
 --
 -- test ability to generate a suitable plan for a star-schema query
 --
-explain (costs off)
+explain (costs off, nodes off, num_nodes off)
 select * from
   tenk1, int8_tbl a, int8_tbl b
 where thousand = a.q1 and tenthous = b.q1 and a.q2 = 1 and b.q2 = 2;
                              QUERY PLAN                              
 ---------------------------------------------------------------------
  Nested Loop
-   ->  Seq Scan on int8_tbl b
-         Filter: (q2 = 2)
-   ->  Nested Loop
-         ->  Seq Scan on int8_tbl a
-               Filter: (q2 = 1)
-         ->  Index Scan using tenk1_thous_tenthous on tenk1
-               Index Cond: ((thousand = a.q1) AND (tenthous = b.q1))
+   Join Filter: (tenk1.tenthous = b.q1)
+   ->  Hash Join
+         Hash Cond: (tenk1.thousand = a.q1)
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+         ->  Hash
+               ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
 (8 rows)
 
 --
@@ -3197,12 +3185,12 @@ explain (num_nodes off, nodes off, costs off)
 --
 set enable_hashjoin to off;
 set enable_nestloop to off;
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select a.q2, b.q1
     from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
     where coalesce(b.q1, 1) > 0;
-                      QUERY PLAN                       
--------------------------------------------------------
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
  Merge Left Join
    Output: a.q2, b.q1
    Merge Cond: (a.q2 = (COALESCE(b.q1, 1::bigint)))
@@ -3210,14 +3198,16 @@ explain (verbose, costs off)
    ->  Sort
          Output: a.q2
          Sort Key: a.q2
-         ->  Seq Scan on public.int8_tbl a
+         ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
                Output: a.q2
+               Remote query: SELECT q2 FROM ONLY public.int8_tbl a WHERE true ORDER BY 1
    ->  Sort
          Output: b.q1, (COALESCE(b.q1, 1::bigint))
          Sort Key: (COALESCE(b.q1, 1::bigint))
-         ->  Seq Scan on public.int8_tbl b
+         ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
                Output: b.q1, COALESCE(b.q1, 1::bigint)
-(14 rows)
+               Remote query: SELECT q1 FROM ONLY public.int8_tbl b WHERE true
+(16 rows)
 
 select a.q2, b.q1
   from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
@@ -3252,7 +3242,7 @@ INSERT INTO a VALUES (0, 0), (1, NULL);
 INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 -- all three cases should be optimizable into a simple seqscan
-explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
                        QUERY PLAN                       
 --------------------------------------------------------
  Data Node Scan on a "_REMOTE_TABLE_QUERY_"
@@ -3260,7 +3250,7 @@ explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b O
    Remote query: SELECT id, b_id FROM ONLY a WHERE true
 (3 rows)
 
-explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
+explain (verbose true, costs false, nodes false, num_nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
                        QUERY PLAN                       
 --------------------------------------------------------
  Data Node Scan on b "_REMOTE_TABLE_QUERY_"
@@ -3268,7 +3258,7 @@ explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c O
    Remote query: SELECT id, c_id FROM ONLY b WHERE true
 (3 rows)
 
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
                        QUERY PLAN                       
@@ -3279,7 +3269,7 @@ explain (verbose true, costs false, nodes false)
 (3 rows)
 
 -- check optimization of outer join within another special join
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
@@ -3314,7 +3304,7 @@ select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
  3 | 30
 (3 rows)
 
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
                                    QUERY PLAN                                   
 --------------------------------------------------------------------------------
@@ -3337,7 +3327,7 @@ select p.*, linked from parent p
  3 | 30 | 
 (3 rows)
 
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
@@ -3367,7 +3357,7 @@ select p.* from
 ---+----
 (0 rows)
 
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
@@ -3385,7 +3375,7 @@ select p.* from
 ---+----
 (0 rows)
 
-explain (verbose true, costs false, nodes false)
+explain (verbose true, costs false, nodes false, num_nodes false)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;

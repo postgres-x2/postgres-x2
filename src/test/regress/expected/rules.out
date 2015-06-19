@@ -1339,7 +1339,8 @@ SELECT viewname, definition FROM pg_views WHERE schemaname <> 'information_schem
  shoelace_obsolete               | SELECT shoelace.sl_name, shoelace.sl_avail, shoelace.sl_color, shoelace.sl_len, shoelace.sl_unit, shoelace.sl_len_cm FROM shoelace WHERE (NOT (EXISTS (SELECT shoe.shoename FROM shoe WHERE (shoe.slcolor = shoelace.sl_color))));
  street                          | SELECT r.name, r.thepath, c.cname FROM ONLY road r, real_city c WHERE (c.outline ## r.thepath);
  toyemp                          | SELECT emp.name, emp.age, emp.location, (12 * emp.salary) AS annualsal FROM emp;
-(61 rows)
+ ucview                          | SELECT uctest.f1, uctest.f2 FROM uctest ORDER BY uctest.f1;
+(62 rows)
 
 SELECT tablename, rulename, definition FROM pg_rules
 	ORDER BY tablename, rulename;
@@ -1374,7 +1375,8 @@ SELECT tablename, rulename, definition FROM pg_rules
  shoelace      | shoelace_upd    | CREATE RULE shoelace_upd AS ON UPDATE TO shoelace DO INSTEAD UPDATE shoelace_data SET sl_name = new.sl_name, sl_avail = new.sl_avail, sl_color = new.sl_color, sl_len = new.sl_len, sl_unit = new.sl_unit WHERE (shoelace_data.sl_name = old.sl_name);
  shoelace_data | log_shoelace    | CREATE RULE log_shoelace AS ON UPDATE TO shoelace_data WHERE (new.sl_avail <> old.sl_avail) DO INSERT INTO shoelace_log (sl_name, sl_avail, log_who, log_when) VALUES (new.sl_name, new.sl_avail, 'Al Bundy'::name, 'Thu Jan 01 00:00:00 1970'::timestamp without time zone);
  shoelace_ok   | shoelace_ok_ins | CREATE RULE shoelace_ok_ins AS ON INSERT TO shoelace_ok DO INSTEAD UPDATE shoelace SET sl_avail = (shoelace.sl_avail + new.ok_quant) WHERE (shoelace.sl_name = new.ok_name);
-(29 rows)
+ ucview        | ucrule          | CREATE RULE ucrule AS ON DELETE TO ucview DO INSTEAD DELETE FROM uctest WHERE (uctest.f1 = old.f1);
+(30 rows)
 
 --
 -- CREATE OR REPLACE RULE
