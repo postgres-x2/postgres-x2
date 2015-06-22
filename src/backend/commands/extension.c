@@ -128,7 +128,7 @@ get_extension_oid(const char *extname, bool missing_ok)
 				CStringGetDatum(extname));
 
 	scandesc = systable_beginscan(rel, ExtensionNameIndexId, true,
-								  SnapshotNow, 1, entry);
+								  NULL, 1, entry);
 
 	tuple = systable_getnext(scandesc);
 
@@ -173,7 +173,7 @@ get_extension_name(Oid ext_oid)
 				ObjectIdGetDatum(ext_oid));
 
 	scandesc = systable_beginscan(rel, ExtensionOidIndexId, true,
-								  SnapshotNow, 1, entry);
+								  NULL, 1, entry);
 
 	tuple = systable_getnext(scandesc);
 
@@ -212,7 +212,7 @@ get_extension_schema(Oid ext_oid)
 				ObjectIdGetDatum(ext_oid));
 
 	scandesc = systable_beginscan(rel, ExtensionOidIndexId, true,
-								  SnapshotNow, 1, entry);
+								  NULL, 1, entry);
 
 	tuple = systable_getnext(scandesc);
 
@@ -1616,7 +1616,7 @@ RemoveExtensionById(Oid extId)
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(extId));
 	scandesc = systable_beginscan(rel, ExtensionOidIndexId, true,
-								  SnapshotNow, 1, entry);
+								  NULL, 1, entry);
 
 	tuple = systable_getnext(scandesc);
 
@@ -2114,7 +2114,7 @@ pg_extension_config_dump(PG_FUNCTION_ARGS)
 				ObjectIdGetDatum(CurrentExtensionObject));
 
 	extScan = systable_beginscan(extRel, ExtensionOidIndexId, true,
-								 SnapshotNow, 1, key);
+								 NULL, 1, key);
 
 	extTup = systable_getnext(extScan);
 
@@ -2263,7 +2263,7 @@ extension_config_remove(Oid extensionoid, Oid tableoid)
 				ObjectIdGetDatum(extensionoid));
 
 	extScan = systable_beginscan(extRel, ExtensionOidIndexId, true,
-								 SnapshotNow, 1, key);
+								 NULL, 1, key);
 
 	extTup = systable_getnext(extScan);
 
@@ -2471,7 +2471,7 @@ AlterExtensionNamespace(List *names, const char *newschema)
 				ObjectIdGetDatum(extensionOid));
 
 	extScan = systable_beginscan(extRel, ExtensionOidIndexId, true,
-								 SnapshotNow, 1, key);
+								 NULL, 1, key);
 
 	extTup = systable_getnext(extScan);
 
@@ -2519,7 +2519,7 @@ AlterExtensionNamespace(List *names, const char *newschema)
 				ObjectIdGetDatum(extensionOid));
 
 	depScan = systable_beginscan(depRel, DependReferenceIndexId, true,
-								 SnapshotNow, 2, key);
+								 NULL, 2, key);
 
 	while (HeapTupleIsValid(depTup = systable_getnext(depScan)))
 	{
@@ -2629,7 +2629,7 @@ ExecAlterExtensionStmt(AlterExtensionStmt *stmt)
 				CStringGetDatum(stmt->extname));
 
 	extScan = systable_beginscan(extRel, ExtensionNameIndexId, true,
-								 SnapshotNow, 1, key);
+								 NULL, 1, key);
 
 	extTup = systable_getnext(extScan);
 
@@ -2779,7 +2779,7 @@ ApplyExtensionUpdates(Oid extensionOid,
 					ObjectIdGetDatum(extensionOid));
 
 		extScan = systable_beginscan(extRel, ExtensionOidIndexId, true,
-									 SnapshotNow, 1, key);
+									 NULL, 1, key);
 
 		extTup = systable_getnext(extScan);
 

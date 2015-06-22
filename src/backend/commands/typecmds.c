@@ -71,6 +71,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
+#include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #ifdef PGXC
@@ -2262,9 +2263,11 @@ AlterDomainNotNull(List *names, bool notNull)
 			TupleDesc	tupdesc = RelationGetDescr(testrel);
 			HeapScanDesc scan;
 			HeapTuple	tuple;
+			Snapshot	snapshot;
 
 			/* Scan all tuples in this relation */
-			scan = heap_beginscan(testrel, SnapshotNow, 0, NULL);
+			snapshot = RegisterSnapshot(GetLatestSnapshot());
+			scan = heap_beginscan(testrel, snapshot, 0, NULL);
 			while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 			{
 				int			i;
@@ -2294,6 +2297,7 @@ AlterDomainNotNull(List *names, bool notNull)
 				}
 			}
 			heap_endscan(scan);
+			UnregisterSnapshot(snapshot);
 
 			/* Close each rel after processing, but keep lock */
 			heap_close(testrel, NoLock);
@@ -2362,7 +2366,7 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 				ObjectIdGetDatum(HeapTupleGetOid(tup)));
 
 	conscan = systable_beginscan(conrel, ConstraintTypidIndexId, true,
-								 SnapshotNow, 1, key);
+								 NULL, 1, key);
 
 	/*
 	 * Scan over the result set, removing any matching entries.
@@ -2557,7 +2561,7 @@ AlterDomainValidateConstraint(List *names, char *constrName)
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(domainoid));
 	scan = systable_beginscan(conrel, ConstraintTypidIndexId,
-							  true, SnapshotNow, 1, &key);
+							  true, NULL, 1, &key);
 
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
 	{
@@ -2644,9 +2648,11 @@ validateDomainConstraint(Oid domainoid, char *ccbin)
 		TupleDesc	tupdesc = RelationGetDescr(testrel);
 		HeapScanDesc scan;
 		HeapTuple	tuple;
+		Snapshot	snapshot;
 
 		/* Scan all tuples in this relation */
-		scan = heap_beginscan(testrel, SnapshotNow, 0, NULL);
+		snapshot = RegisterSnapshot(GetLatestSnapshot());
+		scan = heap_beginscan(testrel, snapshot, 0, NULL);
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 		{
 			int			i;
@@ -2690,6 +2696,7 @@ validateDomainConstraint(Oid domainoid, char *ccbin)
 			ResetExprContext(econtext);
 		}
 		heap_endscan(scan);
+		UnregisterSnapshot(snapshot);
 
 		/* Hold relation lock till commit (XXX bad for concurrency) */
 		heap_close(testrel, NoLock);
@@ -2757,7 +2764,7 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
 				ObjectIdGetDatum(domainOid));
 
 	depScan = systable_beginscan(depRel, DependReferenceIndexId, true,
-								 SnapshotNow, 2, key);
+								 NULL, 2, key);
 
 	while (HeapTupleIsValid(depTup = systable_getnext(depScan)))
 	{
@@ -3072,7 +3079,7 @@ GetDomainConstraints(Oid typeOid)
 					ObjectIdGetDatum(typeOid));
 
 		scan = systable_beginscan(conRel, ConstraintTypidIndexId, true,
-								  SnapshotNow, 1, key);
+								  NULL, 1, key);
 
 		while (HeapTupleIsValid(conTup = systable_getnext(scan)))
 		{

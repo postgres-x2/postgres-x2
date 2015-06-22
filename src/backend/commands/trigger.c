@@ -510,7 +510,7 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
 					BTEqualStrategyNumber, F_OIDEQ,
 					ObjectIdGetDatum(RelationGetRelid(rel)));
 		tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-									SnapshotNow, 1, &key);
+									NULL, 1, &key);
 		while (HeapTupleIsValid(tuple = systable_getnext(tgscan)))
 		{
 			Form_pg_trigger pg_trigger = (Form_pg_trigger) GETSTRUCT(tuple);
@@ -1070,7 +1070,7 @@ RemoveTriggerById(Oid trigOid)
 				ObjectIdGetDatum(trigOid));
 
 	tgscan = systable_beginscan(tgrel, TriggerOidIndexId, true,
-								SnapshotNow, 1, skey);
+								NULL, 1, skey);
 
 	tup = systable_getnext(tgscan);
 	if (!HeapTupleIsValid(tup))
@@ -1149,7 +1149,7 @@ get_trigger_oid(Oid relid, const char *trigname, bool missing_ok)
 				CStringGetDatum(trigname));
 
 	tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-								SnapshotNow, 2, skey);
+								NULL, 2, skey);
 
 	tup = systable_getnext(tgscan);
 
@@ -1264,7 +1264,7 @@ renametrig(RenameStmt *stmt)
 				BTEqualStrategyNumber, F_NAMEEQ,
 				PointerGetDatum(stmt->newname));
 	tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-								SnapshotNow, 2, key);
+								NULL, 2, key);
 	if (HeapTupleIsValid(tuple = systable_getnext(tgscan)))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_OBJECT),
@@ -1284,7 +1284,7 @@ renametrig(RenameStmt *stmt)
 				BTEqualStrategyNumber, F_NAMEEQ,
 				PointerGetDatum(stmt->subname));
 	tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-								SnapshotNow, 2, key);
+								NULL, 2, key);
 	if (HeapTupleIsValid(tuple = systable_getnext(tgscan)))
 	{
 		tgoid = HeapTupleGetOid(tuple);
@@ -1381,7 +1381,7 @@ EnableDisableTrigger(Relation rel, const char *tgname,
 		nkeys = 1;
 
 	tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-								SnapshotNow, nkeys, keys);
+								NULL, nkeys, keys);
 
 	found = changed = false;
 
@@ -1490,7 +1490,7 @@ RelationBuildTriggers(Relation relation)
 
 	tgrel = heap_open(TriggerRelationId, AccessShareLock);
 	tgscan = systable_beginscan(tgrel, TriggerRelidNameIndexId, true,
-								SnapshotNow, 1, &skey);
+								NULL, 1, &skey);
 
 	while (HeapTupleIsValid(htup = systable_getnext(tgscan)))
 	{
@@ -4783,7 +4783,7 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 							ObjectIdGetDatum(namespaceId));
 
 				conscan = systable_beginscan(conrel, ConstraintNameNspIndexId,
-											 true, SnapshotNow, 2, skey);
+											 true, NULL, 2, skey);
 
 				while (HeapTupleIsValid(tup = systable_getnext(conscan)))
 				{
@@ -4846,7 +4846,7 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 						ObjectIdGetDatum(conoid));
 
 			tgscan = systable_beginscan(tgrel, TriggerConstraintIndexId, true,
-										SnapshotNow, 1, &skey);
+										NULL, 1, &skey);
 
 			while (HeapTupleIsValid(htup = systable_getnext(tgscan)))
 			{

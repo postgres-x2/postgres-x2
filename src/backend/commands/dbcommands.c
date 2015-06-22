@@ -144,7 +144,6 @@ createdb(const CreatedbStmt *stmt)
 	int			notherbackends;
 	int			npreparedxacts;
 	createdb_failure_params fparms;
-	Snapshot	snapshot;
 
 	/* Extract options from the statement node tree */
 	foreach(option, stmt->options)
@@ -549,29 +548,6 @@ createdb(const CreatedbStmt *stmt)
 	RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
 
 	/*
-	 * Take an MVCC snapshot to use while scanning through pg_tablespace.  For
-	 * safety, register the snapshot (this prevents it from changing if
-	 * something else were to request a snapshot during the loop).
-	 *
-	 * Traversing pg_tablespace with an MVCC snapshot is necessary to provide
-	 * us with a consistent view of the tablespaces that exist.  Using
-	 * SnapshotNow here would risk seeing the same tablespace multiple times,
-	 * or worse not seeing a tablespace at all, if its tuple is moved around
-	 * by a concurrent update (eg an ACL change).
-	 *
-	 * Inconsistency of this sort is inherent to all SnapshotNow scans, unless
-	 * some lock is held to prevent concurrent updates of the rows being
-	 * sought.	There should be a generic fix for that, but in the meantime
-	 * it's worth fixing this case in particular because we are doing very
-	 * heavyweight operations within the scan, so that the elapsed time for
-	 * the scan is vastly longer than for most other catalog scans.  That
-	 * means there's a much wider window for concurrent updates to cause
-	 * trouble here than anywhere else.  XXX this code should be changed
-	 * whenever a generic fix is implemented.
-	 */
-	snapshot = RegisterSnapshot(GetLatestSnapshot());
-
-	/*
 	 * Once we start copying subdirectories, we need to be able to clean 'em
 	 * up if we fail.  Use an ENSURE block to make sure this happens.  (This
 	 * is not a 100% solution, because of the possibility of failure during
@@ -588,7 +564,7 @@ createdb(const CreatedbStmt *stmt)
 		 * each one to the new database.
 		 */
 		rel = heap_open(TableSpaceRelationId, AccessShareLock);
-		scan = heap_beginscan(rel, snapshot, 0, NULL);
+		scan = heap_beginscan_catalog(rel, 0, NULL);
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 		{
 			Oid			srctablespace = HeapTupleGetOid(tuple);
@@ -701,9 +677,6 @@ createdb(const CreatedbStmt *stmt)
 	set_dbcleanup_callback(createdb_xact_callback, &fparms.dest_dboid,
 	                      sizeof(fparms.dest_dboid));
 #endif
-
-	/* Free our snapshot */
-	UnregisterSnapshot(snapshot);
 
 	return dboid;
 }
@@ -1291,7 +1264,7 @@ movedb(const char *dbname, const char *tblspcname)
 					BTEqualStrategyNumber, F_NAMEEQ,
 					NameGetDatum(dbname));
 		sysscan = systable_beginscan(pgdbrel, DatabaseNameIndexId, true,
-									 SnapshotNow, 1, &scankey);
+									 NULL, 1, &scankey);
 		oldtuple = systable_getnext(sysscan);
 		if (!HeapTupleIsValid(oldtuple))		/* shouldn't happen... */
 			ereport(ERROR,
@@ -1540,7 +1513,7 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 				BTEqualStrategyNumber, F_NAMEEQ,
 				NameGetDatum(stmt->dbname));
 	scan = systable_beginscan(rel, DatabaseNameIndexId, true,
-							  SnapshotNow, 1, &scankey);
+							  NULL, 1, &scankey);
 	tuple = systable_getnext(scan);
 	if (!HeapTupleIsValid(tuple))
 		ereport(ERROR,
@@ -1635,7 +1608,7 @@ AlterDatabaseOwner(const char *dbname, Oid newOwnerId)
 				BTEqualStrategyNumber, F_NAMEEQ,
 				NameGetDatum(dbname));
 	scan = systable_beginscan(rel, DatabaseNameIndexId, true,
-							  SnapshotNow, 1, &scankey);
+							  NULL, 1, &scankey);
 	tuple = systable_getnext(scan);
 	if (!HeapTupleIsValid(tuple))
 		ereport(ERROR,
@@ -1774,7 +1747,7 @@ get_db_info(const char *name, LOCKMODE lockmode,
 					NameGetDatum(name));
 
 		scan = systable_beginscan(relation, DatabaseNameIndexId, true,
-								  SnapshotNow, 1, &scanKey);
+								  NULL, 1, &scanKey);
 
 		tuple = systable_getnext(scan);
 
@@ -1888,20 +1861,9 @@ remove_dbtablespaces(Oid db_id)
 	Relation	rel;
 	HeapScanDesc scan;
 	HeapTuple	tuple;
-	Snapshot	snapshot;
-
-	/*
-	 * As in createdb(), we'd better use an MVCC snapshot here, since this
-	 * scan can run for a long time.  Duplicate visits to tablespaces would be
-	 * harmless, but missing a tablespace could result in permanently leaked
-	 * files.
-	 *
-	 * XXX change this when a generic fix for SnapshotNow races is implemented
-	 */
-	snapshot = RegisterSnapshot(GetLatestSnapshot());
 
 	rel = heap_open(TableSpaceRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, snapshot, 0, NULL);
+	scan = heap_beginscan_catalog(rel, 0, NULL);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Oid			dsttablespace = HeapTupleGetOid(tuple);
@@ -1947,7 +1909,6 @@ remove_dbtablespaces(Oid db_id)
 
 	heap_endscan(scan);
 	heap_close(rel, AccessShareLock);
-	UnregisterSnapshot(snapshot);
 }
 
 /*
@@ -1969,19 +1930,9 @@ check_db_file_conflict(Oid db_id)
 	Relation	rel;
 	HeapScanDesc scan;
 	HeapTuple	tuple;
-	Snapshot	snapshot;
-
-	/*
-	 * As in createdb(), we'd better use an MVCC snapshot here; missing a
-	 * tablespace could result in falsely reporting the OID is unique, with
-	 * disastrous future consequences per the comment above.
-	 *
-	 * XXX change this when a generic fix for SnapshotNow races is implemented
-	 */
-	snapshot = RegisterSnapshot(GetLatestSnapshot());
 
 	rel = heap_open(TableSpaceRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, snapshot, 0, NULL);
+	scan = heap_beginscan_catalog(rel, 0, NULL);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Oid			dsttablespace = HeapTupleGetOid(tuple);
@@ -2007,7 +1958,6 @@ check_db_file_conflict(Oid db_id)
 
 	heap_endscan(scan);
 	heap_close(rel, AccessShareLock);
-	UnregisterSnapshot(snapshot);
 
 	return result;
 }
@@ -2064,7 +2014,7 @@ get_database_oid(const char *dbname, bool missing_ok)
 				BTEqualStrategyNumber, F_NAMEEQ,
 				CStringGetDatum(dbname));
 	scan = systable_beginscan(pg_database, DatabaseNameIndexId, true,
-							  SnapshotNow, 1, entry);
+							  NULL, 1, entry);
 
 	dbtuple = systable_getnext(scan);
 
