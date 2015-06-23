@@ -4038,23 +4038,24 @@ PostgresMain(int argc, char *argv[],
 	xc_lockForBackupKey1 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_1);
 	xc_lockForBackupKey1 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_2);
 
-	/* If this postmaster is launched from another Coord, do not initialize handles. skip it */
+	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
 		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
 
 		InitMultinodeExecutor(false);
-
-		pool_handle = GetPoolManagerHandle();
-		if (pool_handle == NULL)
+		if (!IsConnFromCoord())
 		{
-			ereport(ERROR,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("Can not connect to pool manager")));
-			return STATUS_ERROR;
+			pool_handle = GetPoolManagerHandle();
+			if (pool_handle == NULL)
+			{
+				ereport(ERROR,
+					(errcode(ERRCODE_IO_ERROR),
+					 errmsg("Can not connect to pool manager")));
+			}
+			/* Pooler initialization has to be made before ressource is released */
+			PoolManagerConnect(pool_handle, dbname, username, session_options());
 		}
-		/* Pooler initialization has to be made before ressource is released */
-		PoolManagerConnect(pool_handle, dbname, username, session_options());
 
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
