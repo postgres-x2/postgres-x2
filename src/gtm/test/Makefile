@@ -7,19 +7,19 @@
 # src/gtm/test/Makefile
 #
 #-----------------------------------------------------------------------------
-top_build_dir=../..
-include $(top_build_dir)/gtm/Makefile.global
+top_builddir=../../..
+include $(top_builddir)/src/Makefile.global
 
-override CPPFLAGS := -I$(top_build_dir)/gtm/client $(CPPFLAGS)
+override CPPFLAGS := -I$(top_builddir)/gtm/client $(CPPFLAGS)
 
 SRCS=test_serialize.c test_connect.c test_node.c test_node5.c test_txn.c test_txn4.c test_txn5.c test_repli.c test_repli2.c test_seq.c test_seq4.c test_seq5.c test_scenario.c test_startup.c test_standby.c test_common.c
 
 PROGS=test_serialize test_connect test_txn test_txn4 test_txn5 test_repli test_repli2 test_seq test_seq4 test_seq5 test_scenario test_startup test_node test_node5 test_standby
 
 OBJS=$(SRCS:.c=.o)
-LIBS=$(top_build_dir)/gtm/client/libgtmclient.a \
-  $(top_build_dir)/gtm/common/libgtm.a \
-  $(top_build_dir)/gtm/libpq/libpqcomm.a
+LIBS=$(top_builddir)/src/gtm/client/libgtmclient.a \
+  $(top_builddir)/src/gtm/common/libgtmcommon.a \
+  $(top_builddir)/src/gtm/libpq/libgtmpq.a
 
 LOADLIBES=-lpthread
 CFLAGS=-g -O0
