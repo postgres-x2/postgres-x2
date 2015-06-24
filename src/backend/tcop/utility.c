@@ -4243,16 +4243,41 @@ GetCommandLogLevel(Node *parsetree)
 		case T_CleanConnStmt:
 			lev = LOGSTMT_DDL;
 			break;
+        case T_BarrierStmt:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_ExecDirectStmt:
+            lev = LOGSTMT_DDL;
+            break;            
+        case T_ExecNodes:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_RemoteQuery:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_PGXCNodeHandle:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_AlterNodeStmt:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_CreateNodeStmt:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_DropNodeStmt:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_CreateGroupStmt:
+            lev = LOGSTMT_DDL;
+            break;
+        case T_DropGroupStmt:
+            lev = LOGSTMT_DDL;
+            break;
 #endif
 
 		default:
-#ifdef PGXC
-            elog(INFO, "unrecognized node type: %d",
-                 (int) nodeTag(parsetree));   /*default use LOGSTMT_ALL, No warring*/
-#else
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
-#endif
 			lev = LOGSTMT_ALL;
 			break;
 	}
