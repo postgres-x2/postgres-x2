@@ -419,7 +419,15 @@ CopySnapshot(Snapshot snapshot)
 	if (snapshot->subxcnt > 0)
 		size += snapshot->subxcnt * sizeof(TransactionId);
 
+#ifdef PGXC
+	/*
+	 * In Postgres-XC, we need to copy the snapshot even vefore TopTransactionContext is not available,
+	 * for example, in PgxcNodeListAndCount().  In such a case, we copy the snapshot into CurrentMemoryContext.
+	 */
+	newsnap = (Snapshot) MemoryContextAlloc(TopTransactionContext ? TopTransactionContext : CurrentMemoryContext, size);
+#else
 	newsnap = (Snapshot) MemoryContextAlloc(TopTransactionContext, size);
+#endif /* PGXC */
 	memcpy(newsnap, snapshot, sizeof(SnapshotData));
 
 	newsnap->regd_count = 0;

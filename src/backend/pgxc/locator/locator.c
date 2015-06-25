@@ -670,7 +670,7 @@ RelationBuildLocator(Relation rel)
 
 	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
 	pcscan = systable_beginscan(pcrel, PgxcClassPgxcRelIdIndexId, true,
-								SnapshotNow, 1, &skey);
+								NULL, 1, &skey);
 	htup = systable_getnext(pcscan);
 
 	if (!HeapTupleIsValid(htup))

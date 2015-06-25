@@ -320,7 +320,7 @@ PgxcNodeListAndCount(void)
 	 * 3) Complete primary/preferred node information
 	 */
 	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+	scan = heap_beginscan_catalog(rel, 0, NULL);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
