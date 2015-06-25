@@ -4419,6 +4419,8 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 					astate->args = (List *) ExecInitExpr((Expr *) aggref->args,
 														 parent);
+					astate->aggfilter = ExecInitExpr(aggref->aggfilter,
+													 parent);
 
 					/*
 					 * Complain if the aggregate's arguments contain any
@@ -4457,6 +4459,8 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 					wfstate->args = (List *) ExecInitExpr((Expr *) wfunc->args,
 														  parent);
+					wfstate->aggfilter = ExecInitExpr(wfunc->aggfilter,
+													  parent);
 
 					/*
 					 * Complain if the windowfunc's arguments contain any

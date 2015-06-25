@@ -213,6 +213,7 @@ _readQuery(void)
 	READ_NODE_FIELD(rtable);
 	READ_NODE_FIELD(jointree);
 	READ_NODE_FIELD(targetList);
+	READ_NODE_FIELD(withCheckOptions);
 	READ_NODE_FIELD(returningList);
 	READ_NODE_FIELD(groupClause);
 	READ_NODE_FIELD(havingQual);
@@ -253,6 +254,21 @@ _readDeclareCursorStmt(void)
 	READ_STRING_FIELD(portalname);
 	READ_INT_FIELD(options);
 	READ_NODE_FIELD(query);
+
+	READ_DONE();
+}
+
+/*
+ * _readWithCheckOption
+ */
+static WithCheckOption *
+_readWithCheckOption(void)
+{
+	READ_LOCALS(WithCheckOption);
+
+	READ_STRING_FIELD(viewname);
+	READ_NODE_FIELD(qual);
+	READ_BOOL_FIELD(cascaded);
 
 	READ_DONE();
 }
@@ -486,6 +502,7 @@ _readAggref(void)
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(aggorder);
 	READ_NODE_FIELD(aggdistinct);
+	READ_NODE_FIELD(aggfilter);
 	READ_BOOL_FIELD(aggstar);
 	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
@@ -506,6 +523,7 @@ _readWindowFunc(void)
 	READ_OID_FIELD(wincollid);
 	READ_OID_FIELD(inputcollid);
 	READ_NODE_FIELD(args);
+	READ_NODE_FIELD(aggfilter);
 	READ_UINT_FIELD(winref);
 	READ_BOOL_FIELD(winstar);
 	READ_BOOL_FIELD(winagg);
@@ -1273,6 +1291,8 @@ parseNodeString(void)
 
 	if (MATCH("QUERY", 5))
 		return_value = _readQuery();
+	else if (MATCH("WITHCHECKOPTION", 15))
+		return_value = _readWithCheckOption();
 	else if (MATCH("SORTGROUPCLAUSE", 15))
 		return_value = _readSortGroupClause();
 	else if (MATCH("WINDOWCLAUSE", 12))

@@ -390,6 +390,7 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 			HeapTupleData loctup;
 			bool		valid;
 
+			loctup.t_tableOid = RelationGetRelid(scan->rs_rd);
 			loctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 			loctup.t_len = ItemIdGetLength(lpp);
 			ItemPointerSet(&(loctup.t_self), page, lineoff);
@@ -1725,7 +1726,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 
 		heapTuple->t_data = (HeapTupleHeader) PageGetItem(dp, lp);
 		heapTuple->t_len = ItemIdGetLength(lp);
-		heapTuple->t_tableOid = relation->rd_id;
+		heapTuple->t_tableOid = RelationGetRelid(relation);
 #ifdef PGXC
 		heapTuple->t_xc_node_id = PGXCNodeIdentifier;
 #endif
@@ -1776,7 +1777,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		 * transactions.
 		 */
 		if (all_dead && *all_dead &&
-			!HeapTupleIsSurelyDead(heapTuple->t_data, RecentGlobalXmin))
+			!HeapTupleIsSurelyDead(heapTuple, RecentGlobalXmin))
 			*all_dead = false;
 
 		/*
@@ -1906,6 +1907,7 @@ heap_get_latest_tid(Relation relation,
 		tp.t_self = ctid;
 		tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 		tp.t_len = ItemIdGetLength(lp);
+		tp.t_tableOid = RelationGetRelid(relation);
 
 		/*
 		 * After following a t_ctid link, we might arrive at an unrelated
@@ -2607,12 +2609,13 @@ heap_delete(Relation relation, ItemPointer tid,
 	lp = PageGetItemId(page, ItemPointerGetOffsetNumber(tid));
 	Assert(ItemIdIsNormal(lp));
 
+	tp.t_tableOid = RelationGetRelid(relation);
 	tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tp.t_len = ItemIdGetLength(lp);
 	tp.t_self = *tid;
 
 l1:
-	result = HeapTupleSatisfiesUpdate(tp.t_data, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(&tp, cid, buffer);
 
 	if (result == HeapTupleInvisible)
 	{
@@ -3086,7 +3089,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 l2:
 	checked_lockers = false;
 	locker_remains = false;
-	result = HeapTupleSatisfiesUpdate(oldtup.t_data, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(&oldtup, cid, buffer);
 
 	/* see below about the "no wait" case */
 	Assert(result != HeapTupleBeingUpdated || wait);
@@ -3966,7 +3969,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 #endif
 
 l3:
-	result = HeapTupleSatisfiesUpdate(tuple->t_data, cid, *buffer);
+	result = HeapTupleSatisfiesUpdate(tuple, cid, *buffer);
 
 	if (result == HeapTupleInvisible)
 	{

@@ -3389,6 +3389,7 @@ create_xlog_symlink(void)
 		fprintf(stderr, _("%s: symlinks are not supported on this platform"));
 		exit_nicely();
 #endif
+		free(linkloc);
 	}
 }
 

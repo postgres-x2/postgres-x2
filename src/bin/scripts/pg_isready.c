@@ -135,7 +135,7 @@ main(int argc, char **argv)
 		opts = PQconninfoParse(pgdbname, &errmsg);
 		if (opts == NULL)
 		{
-			fprintf(stderr, _("%s: %s\n"), progname, errmsg);
+			fprintf(stderr, _("%s: %s"), progname, errmsg);
 			exit(PQPING_NO_ATTEMPT);
 		}
 	}
@@ -143,7 +143,7 @@ main(int argc, char **argv)
 	defs = PQconndefaults();
 	if (defs == NULL)
 	{
-		fprintf(stderr, _("%s: cannot fetch default options\n"), progname);
+		fprintf(stderr, _("%s: could not fetch default options\n"), progname);
 		exit(PQPING_NO_ATTEMPT);
 	}
 
@@ -220,6 +220,6 @@ help(const char *progname)
 	printf(_("  -h, --host=HOSTNAME      database server host or socket directory\n"));
 	printf(_("  -p, --port=PORT          database server port\n"));
 	printf(_("  -t, --timeout=SECS       seconds to wait when attempting connection, 0 disables (default: %s)\n"), DEFAULT_CONNECT_TIMEOUT);
-	printf(_("  -U, --username=USERNAME  database username\n"));
+	printf(_("  -U, --username=USERNAME  user name to connect as\n"));
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
 }

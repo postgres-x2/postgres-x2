@@ -484,7 +484,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <list>	constraints_set_list
 %type <boolean> constraints_set_mode
 %type <str>		OptTableSpace OptConsTableSpace OptTableSpaceOwner
-%type <list>	opt_check_option
+%type <ival>	opt_check_option
 
 %type <str>		opt_provider security_label
 
@@ -513,6 +513,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 /* PGXC_END */
 
 %type <boolean> opt_if_not_exists
+%type <node>    filter_clause
 
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
@@ -563,8 +564,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	EXCLUDE EXCLUDING EXCLUSIVE EXECUTE EXISTS EXPLAIN
 	EXTENSION EXTERNAL EXTRACT
 
-	FALSE_P FAMILY FETCH FIRST_P FLOAT_P FOLLOWING FOR FORCE FOREIGN FORWARD
-	FREEZE FROM FULL FUNCTION FUNCTIONS
+	FALSE_P FAMILY FETCH FILTER FIRST_P FLOAT_P FOLLOWING FOR
+	FORCE FOREIGN FORWARD FREEZE FROM FULL FUNCTION FUNCTIONS
 
 	GLOBAL GRANT GRANTED GREATEST GROUP_P
 
@@ -3495,11 +3496,12 @@ OptNoLog:	UNLOGGED					{ $$ = RELPERSISTENCE_UNLOGGED; }
  *****************************************************************************/
 
 RefreshMatViewStmt:
-			REFRESH MATERIALIZED VIEW qualified_name opt_with_data
+			REFRESH MATERIALIZED VIEW opt_concurrently qualified_name opt_with_data
 				{
 					RefreshMatViewStmt *n = makeNode(RefreshMatViewStmt);
-					n->relation = $4;
-					n->skipData = !($5);
+					n->concurrent = $4;
+					n->relation = $5;
+					n->skipData = !($6);
 					$$ = (Node *) n;
 				}
 		;
@@ -8193,6 +8195,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 					n->query = $8;
 					n->replace = false;
 					n->options = $6;
+					n->withCheckOption = $9;
 					$$ = (Node *) n;
 				}
 		| CREATE OR REPLACE OptTemp VIEW qualified_name opt_column_list opt_reloptions
@@ -8205,10 +8208,11 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 					n->query = $10;
 					n->replace = true;
 					n->options = $8;
+					n->withCheckOption = $11;
 					$$ = (Node *) n;
 				}
 		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
-				AS SelectStmt
+				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
 					n->view = $5;
@@ -8217,10 +8221,16 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 					n->query = makeRecursiveViewSelect(n->view->relname, n->aliases, $11);
 					n->replace = false;
 					n->options = $9;
+					n->withCheckOption = $12;
+					if (n->withCheckOption != NO_CHECK_OPTION)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("WITH CHECK OPTION not supported on recursive views"),
+								 parser_errposition(@12)));
 					$$ = (Node *) n;
 				}
 		| CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
-				AS SelectStmt
+				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
 					n->view = $7;
@@ -8229,30 +8239,21 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 					n->query = makeRecursiveViewSelect(n->view->relname, n->aliases, $13);
 					n->replace = true;
 					n->options = $11;
+					n->withCheckOption = $14;
+					if (n->withCheckOption != NO_CHECK_OPTION)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("WITH CHECK OPTION not supported on recursive views"),
+								 parser_errposition(@14)));
 					$$ = (Node *) n;
 				}
 		;
 
 opt_check_option:
-		WITH CHECK OPTION
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("WITH CHECK OPTION is not implemented")));
-				}
-		| WITH CASCADED CHECK OPTION
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("WITH CHECK OPTION is not implemented")));
-				}
-		| WITH LOCAL CHECK OPTION
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("WITH CHECK OPTION is not implemented")));
-				}
-		| /* EMPTY */							{ $$ = NIL; }
+		WITH CHECK OPTION				{ $$ = CASCADED_CHECK_OPTION; }
+		| WITH CASCADED CHECK OPTION	{ $$ = CASCADED_CHECK_OPTION; }
+		| WITH LOCAL CHECK OPTION		{ $$ = LOCAL_CHECK_OPTION; }
+		| /* EMPTY */					{ $$ = NO_CHECK_OPTION; }
 		;
 
 /*****************************************************************************
@@ -11524,10 +11525,11 @@ func_application: func_name '(' ')'
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr: func_application over_clause 
+func_expr: func_application filter_clause over_clause 
 				{
               		FuncCall *n = (FuncCall*)$1;
-					n->over = $2;
+					n->agg_filter = $2;
+					n->over = $3;
 					$$ = (Node*)n;
 				} 
 			| func_expr_common_subexpr
@@ -11937,6 +11939,11 @@ window_definition:
 					$$ = n;
 				}
 		;
+
+filter_clause:
+             FILTER '(' WHERE a_expr ')'            { $$ = $4; }
+             | /*EMPTY*/                            { $$ = NULL; }
+         ;
 
 over_clause: OVER window_specification
 				{ $$ = $2; }
@@ -12922,6 +12929,7 @@ unreserved_keyword:
 			| EXTENSION
 			| EXTERNAL
 			| FAMILY
+			| FILTER
 			| FIRST_P
 			| FOLLOWING
 			| FORCE

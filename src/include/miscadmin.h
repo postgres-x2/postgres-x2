@@ -141,6 +141,7 @@ extern PGDLLIMPORT char *DataDir;
 extern PGDLLIMPORT int NBuffers;
 extern int	MaxBackends;
 extern int	MaxConnections;
+extern int	max_worker_processes;
 
 extern PGDLLIMPORT int MyProcPid;
 extern PGDLLIMPORT pg_time_t MyStartTime;
@@ -409,6 +410,7 @@ extern void BaseInit(void);
 /* in utils/init/miscinit.c */
 extern bool IgnoreSystemIndexes;
 extern PGDLLIMPORT bool process_shared_preload_libraries_in_progress;
+extern char *session_preload_libraries_string;
 extern char *shared_preload_libraries_string;
 extern char *local_preload_libraries_string;
 
@@ -444,7 +446,7 @@ extern void TouchSocketLockFiles(void);
 extern void AddToDataDirLockFile(int target_line, const char *str);
 extern void ValidatePgVersion(const char *path);
 extern void process_shared_preload_libraries(void);
-extern void process_local_preload_libraries(void);
+extern void process_session_preload_libraries(void);
 extern void pg_bindtextdomain(const char *domain);
 extern bool has_rolreplication(Oid roleid);
 

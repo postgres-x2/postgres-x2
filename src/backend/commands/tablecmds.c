@@ -3800,7 +3800,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			heap_close(OldHeap, NoLock);
 
 			/* Create transient table that will receive the modified data */
-			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace);
+			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace, false,
+									   AccessExclusiveLock);
 
 			/*
 			 * Copy the heap data into the new table with the desired
@@ -9069,6 +9070,42 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 			break;
 	}
 
+	/* Special-case validation of view options */
+	if (rel->rd_rel->relkind == RELKIND_VIEW)
+	{
+		Query	   *view_query = get_view_query(rel);
+		List	   *view_options = untransformRelOptions(newOptions);
+		ListCell   *cell;
+		bool		check_option = false;
+		bool		security_barrier = false;
+
+		foreach(cell, view_options)
+		{
+			DefElem    *defel = (DefElem *) lfirst(cell);
+
+			if (pg_strcasecmp(defel->defname, "check_option") == 0)
+				check_option = true;
+			if (pg_strcasecmp(defel->defname, "security_barrier") == 0)
+				security_barrier = defGetBoolean(defel);
+		}
+
+		/*
+		 * If the check option is specified, look to see if the view is
+		 * actually auto-updatable or not.
+		 */
+		if (check_option)
+		{   
+			const char *view_updatable_error =
+				view_query_is_auto_updatable(view_query, security_barrier);
+
+			if (view_updatable_error)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("WITH CHECK OPTION is supported only on auto-updatable views"),
+						errhint("%s", view_updatable_error)));
+		}
+	}
+
 	/*
 	 * All we need do here is update the pg_class row; the new options will be
 	 * propagated into relcaches during post-commit cache inval.
@@ -9174,7 +9211,6 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 	Relation	rel;
 	Oid			oldTableSpace;
 	Oid			reltoastrelid;
-	Oid			reltoastidxid;
 	Oid			newrelfilenode;
 	RelFileNode newrnode;
 	SMgrRelation dstrel;
@@ -9182,6 +9218,8 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 	HeapTuple	tuple;
 	Form_pg_class rd_rel;
 	ForkNumber	forkNum;
+	List	   *reltoastidxids = NIL;
+	ListCell   *lc;
 
 	/*
 	 * Need lock here in case we are recursing to toast table or index
@@ -9228,7 +9266,13 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 				 errmsg("cannot move temporary tables of other sessions")));
 
 	reltoastrelid = rel->rd_rel->reltoastrelid;
-	reltoastidxid = rel->rd_rel->reltoastidxid;
+	/* Fetch the list of indexes on toast relation if necessary */
+	if (OidIsValid(reltoastrelid))
+	{
+		Relation toastRel = relation_open(reltoastrelid, lockmode);
+		reltoastidxids = RelationGetIndexList(toastRel);
+		relation_close(toastRel, lockmode);
+	}
 
 	/* Get a modifiable copy of the relation's pg_class row */
 	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
@@ -9306,11 +9350,14 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 	/* Make sure the reltablespace change is visible */
 	CommandCounterIncrement();
 
-	/* Move associated toast relation and/or index, too */
+	/* Move associated toast relation and/or indexes, too */
 	if (OidIsValid(reltoastrelid))
 		ATExecSetTableSpace(reltoastrelid, newTableSpace, lockmode);
-	if (OidIsValid(reltoastidxid))
-		ATExecSetTableSpace(reltoastidxid, newTableSpace, lockmode);
+	foreach(lc, reltoastidxids)
+		ATExecSetTableSpace(lfirst_oid(lc), newTableSpace, lockmode);
+
+	/* Clean up */
+	list_free(reltoastidxids);
 }
 
 /*
@@ -11485,7 +11532,7 @@ RangeVarCallbackForAlterRelation(const RangeVar *rv, Oid relid, Oid oldrelid,
 		relkind != RELKIND_FOREIGN_TABLE)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-			errmsg("\"%s\" is not a table, view, sequence, or foreign table",
+			errmsg("\"%s\" is not a table, view, materialized view, sequence, or foreign table",
 				   rv->relname)));
 
 	ReleaseSysCache(tuple);

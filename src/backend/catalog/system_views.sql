@@ -405,6 +405,7 @@ CREATE VIEW pg_stat_all_tables AS
             pg_stat_get_tuples_hot_updated(C.oid) AS n_tup_hot_upd,
             pg_stat_get_live_tuples(C.oid) AS n_live_tup,
             pg_stat_get_dead_tuples(C.oid) AS n_dead_tup,
+            pg_stat_get_mod_since_analyze(C.oid) AS n_mod_since_analyze,
             pg_stat_get_last_vacuum_time(C.oid) as last_vacuum,
             pg_stat_get_last_autovacuum_time(C.oid) as last_autovacuum,
             pg_stat_get_last_analyze_time(C.oid) as last_analyze,
@@ -473,16 +474,16 @@ CREATE VIEW pg_statio_all_tables AS
             pg_stat_get_blocks_fetched(T.oid) -
                     pg_stat_get_blocks_hit(T.oid) AS toast_blks_read,
             pg_stat_get_blocks_hit(T.oid) AS toast_blks_hit,
-            pg_stat_get_blocks_fetched(X.oid) -
-                    pg_stat_get_blocks_hit(X.oid) AS tidx_blks_read,
-            pg_stat_get_blocks_hit(X.oid) AS tidx_blks_hit
+            sum(pg_stat_get_blocks_fetched(X.indexrelid) -
+                    pg_stat_get_blocks_hit(X.indexrelid))::bigint AS tidx_blks_read,
+            sum(pg_stat_get_blocks_hit(X.indexrelid))::bigint AS tidx_blks_hit
     FROM pg_class C LEFT JOIN
             pg_index I ON C.oid = I.indrelid LEFT JOIN
             pg_class T ON C.reltoastrelid = T.oid LEFT JOIN
-            pg_class X ON T.reltoastidxid = X.oid
+            pg_index X ON T.oid = X.indrelid
             LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE C.relkind IN ('r', 't', 'm')
-    GROUP BY C.oid, N.nspname, C.relname, T.oid, X.oid;
+    GROUP BY C.oid, N.nspname, C.relname, T.oid, X.indrelid;
 
 CREATE VIEW pg_statio_sys_tables AS
     SELECT * FROM pg_statio_all_tables

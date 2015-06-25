@@ -3061,11 +3061,22 @@ psql_completion(char *text, int start, int end)
 	else if (pg_strcasecmp(prev3_wd, "REFRESH") == 0 &&
 			 pg_strcasecmp(prev2_wd, "MATERIALIZED") == 0 &&
 			 pg_strcasecmp(prev_wd, "VIEW") == 0)
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_matviews,
+								   " UNION SELECT 'CONCURRENTLY'");
+	else if (pg_strcasecmp(prev4_wd, "REFRESH") == 0 &&
+			 pg_strcasecmp(prev3_wd, "MATERIALIZED") == 0 &&
+			 pg_strcasecmp(prev2_wd, "VIEW") == 0 &&
+			 pg_strcasecmp(prev_wd, "CONCURRENTLY") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_matviews, NULL);
 	else if (pg_strcasecmp(prev4_wd, "REFRESH") == 0 &&
 			 pg_strcasecmp(prev3_wd, "MATERIALIZED") == 0 &&
 			 pg_strcasecmp(prev2_wd, "VIEW") == 0)
 		COMPLETE_WITH_CONST("WITH");
+	else if (pg_strcasecmp(prev5_wd, "REFRESH") == 0 &&
+			 pg_strcasecmp(prev4_wd, "MATERIALIZED") == 0 &&
+			 pg_strcasecmp(prev3_wd, "VIEW") == 0 &&
+			 pg_strcasecmp(prev2_wd, "CONCURRENTLY") == 0)
+		COMPLETE_WITH_CONST("WITH DATA");
 	else if (pg_strcasecmp(prev5_wd, "REFRESH") == 0 &&
 			 pg_strcasecmp(prev4_wd, "MATERIALIZED") == 0 &&
 			 pg_strcasecmp(prev3_wd, "VIEW") == 0 &&
@@ -3076,6 +3087,12 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_WITH_DATA);
 	}
+	else if (pg_strcasecmp(prev6_wd, "REFRESH") == 0 &&
+			 pg_strcasecmp(prev5_wd, "MATERIALIZED") == 0 &&
+			 pg_strcasecmp(prev4_wd, "VIEW") == 0 &&
+			 pg_strcasecmp(prev3_wd, "CONCURRENTLY") == 0 &&
+			 pg_strcasecmp(prev_wd, "WITH") == 0)
+		COMPLETE_WITH_CONST("DATA");
 	else if (pg_strcasecmp(prev6_wd, "REFRESH") == 0 &&
 			 pg_strcasecmp(prev5_wd, "MATERIALIZED") == 0 &&
 			 pg_strcasecmp(prev4_wd, "VIEW") == 0 &&
@@ -3552,7 +3569,8 @@ psql_completion(char *text, int start, int end)
 			 strcmp(prev_wd, "\\ir") == 0 || strcmp(prev_wd, "\\include_relative") == 0 ||
 			 strcmp(prev_wd, "\\o") == 0 || strcmp(prev_wd, "\\out") == 0 ||
 			 strcmp(prev_wd, "\\s") == 0 ||
-			 strcmp(prev_wd, "\\w") == 0 || strcmp(prev_wd, "\\write") == 0
+			 strcmp(prev_wd, "\\w") == 0 || strcmp(prev_wd, "\\write") == 0 ||
+			 strcmp(prev_wd, "\\lo_import") == 0
 		)
 	{
 		completion_charp = "\\";

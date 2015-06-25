@@ -518,6 +518,7 @@ GuessControlValues(void)
 
 	ControlFile.wal_level = WAL_LEVEL_MINIMAL;
 	ControlFile.MaxConnections = 100;
+	ControlFile.max_worker_processes = 8;
 	ControlFile.max_prepared_xacts = 0;
 	ControlFile.max_locks_per_xact = 64;
 
@@ -664,6 +665,7 @@ RewriteControlFile(void)
 	 */
 	ControlFile.wal_level = WAL_LEVEL_MINIMAL;
 	ControlFile.MaxConnections = 100;
+	ControlFile.max_worker_processes = 8;
 	ControlFile.max_prepared_xacts = 0;
 	ControlFile.max_locks_per_xact = 64;
 
@@ -1036,7 +1038,7 @@ usage(void)
 	printf(_("  -e XIDEPOCH      set next transaction ID epoch\n"));
 	printf(_("  -f               force update to be done\n"));
 	printf(_("  -l XLOGFILE      force minimum WAL starting location for new transaction log\n"));
-	printf(_("  -m XID,XID       set next and oldest multitransaction ID\n"));
+	printf(_("  -m MXID,MXID     set next and oldest multitransaction ID\n"));
 	printf(_("  -n               no update, just show extracted control values (for testing)\n"));
 	printf(_("  -o OID           set next OID\n"));
 	printf(_("  -O OFFSET        set next multitransaction offset\n"));

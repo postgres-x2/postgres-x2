@@ -310,6 +310,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	int			num_old_subplans = list_length(glob->subplans);
 	PlannerInfo *root;
 	Plan	   *plan;
+	List	   *newWithCheckOptions;
 	List	   *newHaving;
 	bool		hasOuterJoins;
 	ListCell   *l;
@@ -459,6 +460,18 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		preprocess_expression(root, (Node *) parse->targetList,
 							  EXPRKIND_TARGET);
 
+	newWithCheckOptions = NIL;
+	foreach(l, parse->withCheckOptions)
+	{
+		WithCheckOption *wco = (WithCheckOption *) lfirst(l);
+
+		wco->qual = preprocess_expression(root, wco->qual,
+										  EXPRKIND_QUAL);
+		if (wco->qual != NULL)
+			newWithCheckOptions = lappend(newWithCheckOptions, wco);
+	}
+	parse->withCheckOptions = newWithCheckOptions;
+
 	parse->returningList = (List *)
 		preprocess_expression(root, (Node *) parse->returningList,
 							  EXPRKIND_TARGET);
@@ -597,12 +610,19 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		/* If it's not SELECT, we need a ModifyTable node */
 		if (parse->commandType != CMD_SELECT)
 		{
+			List	   *withCheckOptionLists;
 			List	   *returningLists;
 			List	   *rowMarks;
 
 			/*
-			 * Set up the RETURNING list-of-lists, if needed.
+			 * Set up the WITH CHECK OPTION and RETURNING lists-of-lists, if
+			 * needed.
 			 */
+			if (parse->withCheckOptions)
+				withCheckOptionLists = list_make1(parse->withCheckOptions);
+			else
+				withCheckOptionLists = NIL;
+
 			if (parse->returningList)
 				returningLists = list_make1(parse->returningList);
 			else
@@ -623,6 +643,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 											 parse->canSetTag,
 									   list_make1_int(parse->resultRelation),
 											 list_make1(plan),
+											 withCheckOptionLists,
 											 returningLists,
 											 rowMarks,
 											 SS_assign_special_param(root));
@@ -811,6 +832,7 @@ inheritance_planner(PlannerInfo *root)
 	RelOptInfo **save_rel_array = NULL;
 	List	   *subplans = NIL;
 	List	   *resultRelations = NIL;
+	List	   *withCheckOptionLists = NIL;
 	List	   *returningLists = NIL;
 	List	   *rowMarks;
 	ListCell   *lc;
@@ -974,7 +996,10 @@ inheritance_planner(PlannerInfo *root)
 		/* Build list of target-relation RT indexes */
 		resultRelations = lappend_int(resultRelations, appinfo->child_relid);
 
-		/* Build list of per-relation RETURNING targetlists */
+		/* Build lists of per-relation WCO and RETURNING targetlists */
+		if (parse->withCheckOptions)
+			withCheckOptionLists = lappend(withCheckOptionLists,
+										   subroot.parse->withCheckOptions);
 		if (parse->returningList)
 			returningLists = lappend(returningLists,
 									 subroot.parse->returningList);
@@ -1028,6 +1053,7 @@ inheritance_planner(PlannerInfo *root)
 									 parse->canSetTag,
 									 resultRelations,
 									 subplans,
+									 withCheckOptionLists,
 									 returningLists,
 									 rowMarks,
 									 SS_assign_special_param(root));

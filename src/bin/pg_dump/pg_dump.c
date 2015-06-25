@@ -2786,19 +2786,19 @@ binary_upgrade_set_pg_class_oids(Archive *fout,
 	PQExpBuffer upgrade_query = createPQExpBuffer();
 	PGresult   *upgrade_res;
 	Oid			pg_class_reltoastrelid;
-	Oid			pg_class_reltoastidxid;
+	Oid			pg_index_indexrelid;
 
 	appendPQExpBuffer(upgrade_query,
-					  "SELECT c.reltoastrelid, t.reltoastidxid "
+					  "SELECT c.reltoastrelid, i.indexrelid "
 					  "FROM pg_catalog.pg_class c LEFT JOIN "
-					  "pg_catalog.pg_class t ON (c.reltoastrelid = t.oid) "
+					  "pg_catalog.pg_index i ON (c.reltoastrelid = i.indrelid AND i.indisvalid) "
 					  "WHERE c.oid = '%u'::pg_catalog.oid;",
 					  pg_class_oid);
 
 	upgrade_res = ExecuteSqlQueryForSingleRow(fout, upgrade_query->data);
 
 	pg_class_reltoastrelid = atooid(PQgetvalue(upgrade_res, 0, PQfnumber(upgrade_res, "reltoastrelid")));
-	pg_class_reltoastidxid = atooid(PQgetvalue(upgrade_res, 0, PQfnumber(upgrade_res, "reltoastidxid")));
+	pg_index_indexrelid = atooid(PQgetvalue(upgrade_res, 0, PQfnumber(upgrade_res, "indexrelid")));
 
 	appendPQExpBuffer(upgrade_buffer,
 				   "\n-- For binary upgrade, must preserve pg_class oids\n");
@@ -2827,7 +2827,7 @@ binary_upgrade_set_pg_class_oids(Archive *fout,
 			/* every toast table has an index */
 			appendPQExpBuffer(upgrade_buffer,
 							  "SELECT binary_upgrade.set_next_index_pg_class_oid('%u'::pg_catalog.oid);\n",
-							  pg_class_reltoastidxid);
+							  pg_index_indexrelid);
 		}
 	}
 	else
@@ -4237,6 +4237,7 @@ getTables(Archive *fout, int *numTables)
 #endif
 	int			i_reltablespace;
 	int			i_reloptions;
+	int			i_checkoption;
 	int			i_toastreloptions;
 	int			i_reloftype;
 	int			i_relpages;
@@ -4289,7 +4290,9 @@ getTables(Archive *fout, int *numTables)
 						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
 						  "(SELECT string_agg(node_name,',') AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
-						"array_to_string(c.reloptions, ', ') AS reloptions, "
+						"array_to_string(array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded'), ', ') AS reloptions, "
+						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
+							   "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
 						  "array_to_string(array(SELECT 'toast.' || x FROM unnest(tc.reloptions) x), ', ') AS toast_reloptions "
 						  "FROM pg_class c "
 						  "LEFT JOIN pg_depend d ON "
@@ -4660,6 +4663,7 @@ getTables(Archive *fout, int *numTables)
 #endif
 	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_reloptions = PQfnumber(res, "reloptions");
+	i_checkoption = PQfnumber(res, "checkoption");
 	i_toastreloptions = PQfnumber(res, "toast_reloptions");
 	i_reloftype = PQfnumber(res, "reloftype");
 
@@ -4733,6 +4737,10 @@ getTables(Archive *fout, int *numTables)
 #endif
 		tblinfo[i].reltablespace = pg_strdup(PQgetvalue(res, i, i_reltablespace));
 		tblinfo[i].reloptions = pg_strdup(PQgetvalue(res, i, i_reloptions));
+		if (i_checkoption == -1 || PQgetisnull(res, i, i_checkoption))
+			tblinfo[i].checkoption = NULL;
+		else
+			tblinfo[i].checkoption = pg_strdup(PQgetvalue(res, i, i_checkoption));
 		tblinfo[i].toast_reloptions = pg_strdup(PQgetvalue(res, i, i_toastreloptions));
 
 		/* other fields were zeroed above */
@@ -5785,7 +5793,7 @@ EventTriggerInfo *
 getEventTriggers(Archive *fout, int *numEventTriggers)
 {
 	int			i;
-	PQExpBuffer query = createPQExpBuffer();
+	PQExpBuffer query;
 	PGresult   *res;
 	EventTriggerInfo *evtinfo;
 	int			i_tableoid,
@@ -5804,6 +5812,8 @@ getEventTriggers(Archive *fout, int *numEventTriggers)
 		*numEventTriggers = 0;
 		return NULL;
 	}
+
+	query = createPQExpBuffer();
 
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, "pg_catalog");
@@ -12872,8 +12882,12 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		if (tbinfo->reloptions && strlen(tbinfo->reloptions) > 0)
 			appendPQExpBuffer(q, " WITH (%s)", tbinfo->reloptions);
 		result = createViewAsClause(fout, tbinfo);
-		appendPQExpBuffer(q, " AS\n%s;\n", result->data);
+		appendPQExpBuffer(q, " AS\n%s", result->data);
 		destroyPQExpBuffer(result);
+
+		if (tbinfo->checkoption != NULL)
+			appendPQExpBuffer(q, "\n  WITH %s CHECK OPTION", tbinfo->checkoption);
+		appendPQExpBuffer(q, ";\n");
 
 		appendPQExpBuffer(labelq, "VIEW %s",
 						  fmtId(tbinfo->dobj.name));
@@ -13200,7 +13214,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		 * attislocal correctly, plus fix up any inherited CHECK constraints.
 		 * Analogously, we set up typed tables using ALTER TABLE / OF here.
 		 */
-		if (binary_upgrade && (tbinfo->relkind == RELKIND_RELATION || 
+		if (binary_upgrade && (tbinfo->relkind == RELKIND_RELATION ||
 							   tbinfo->relkind == RELKIND_FOREIGN_TABLE) )
 		{
 			for (j = 0; j < tbinfo->numatts; j++)
@@ -13225,7 +13239,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 					else
 						appendPQExpBuffer(q, "ALTER FOREIGN TABLE %s ",
 										  fmtId(tbinfo->dobj.name));
-						
+
 					appendPQExpBuffer(q, "DROP COLUMN %s;\n",
 									  fmtId(tbinfo->attnames[j]));
 				}

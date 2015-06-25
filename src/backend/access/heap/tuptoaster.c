@@ -44,9 +44,6 @@
 
 #undef TOAST_DEBUG
 
-/* Size of an EXTERNAL datum that contains a standard TOAST pointer */
-#define TOAST_POINTER_SIZE (VARHDRSZ_EXTERNAL + sizeof(struct varatt_external))
-
 /*
  * Testing whether an externally-stored value is compressed now requires
  * comparing extsize (the actual length of the external data) to rawsize
@@ -81,17 +78,23 @@ static bool toastid_valueid_exists(Oid toastrelid, Oid valueid);
 static struct varlena *toast_fetch_datum(struct varlena * attr);
 static struct varlena *toast_fetch_datum_slice(struct varlena * attr,
 						int32 sliceoffset, int32 length);
+static int toast_open_indexes(Relation toastrel,
+							  LOCKMODE lock,
+							  Relation **toastidxs,
+							  int *num_indexes);
+static void toast_close_indexes(Relation *toastidxs, int num_indexes,
+								LOCKMODE lock);
 
 
 /* ----------
  * heap_tuple_fetch_attr -
  *
  *	Public entry point to get back a toasted value from
- *	external storage (possibly still in compressed format).
+ *	external source (possibly still in compressed format).
  *
  * This will return a datum that contains all the data internally, ie, not
- * relying on external storage, but it can still be compressed or have a short
- * header.
+ * relying on external storage or memory, but it can still be compressed or
+ * have a short header.
  ----------
  */
 struct varlena *
@@ -99,12 +102,34 @@ heap_tuple_fetch_attr(struct varlena * attr)
 {
 	struct varlena *result;
 
-	if (VARATT_IS_EXTERNAL(attr))
+	if (VARATT_IS_EXTERNAL_ONDISK(attr))
 	{
 		/*
 		 * This is an external stored plain value
 		 */
 		result = toast_fetch_datum(attr);
+	}
+	else if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+	{
+		/*
+		 * copy into the caller's memory context. That's not required in all
+		 * cases but sufficient for now since this is mainly used when we need
+		 * to persist a Datum for unusually long time, like in a HOLD cursor.
+		 */
+		struct varatt_indirect redirect;
+		VARATT_EXTERNAL_GET_POINTER(redirect, attr);
+		attr = (struct varlena *)redirect.pointer;
+
+		/* nested indirect Datums aren't allowed */
+		Assert(!VARATT_IS_EXTERNAL_INDIRECT(attr));
+
+		/* doesn't make much sense, but better handle it */
+		if (VARATT_IS_EXTERNAL_ONDISK(attr))
+			return heap_tuple_fetch_attr(attr);
+
+		/* copy datum verbatim */
+		result = (struct varlena *) palloc(VARSIZE_ANY(attr));
+		memcpy(result, attr, VARSIZE_ANY(attr));
 	}
 	else
 	{
@@ -128,7 +153,7 @@ heap_tuple_fetch_attr(struct varlena * attr)
 struct varlena *
 heap_tuple_untoast_attr(struct varlena * attr)
 {
-	if (VARATT_IS_EXTERNAL(attr))
+	if (VARATT_IS_EXTERNAL_ONDISK(attr))
 	{
 		/*
 		 * This is an externally stored datum --- fetch it back from there
@@ -144,6 +169,17 @@ heap_tuple_untoast_attr(struct varlena * attr)
 			pglz_decompress(tmp, VARDATA(attr));
 			pfree(tmp);
 		}
+	}
+	else if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+	{
+		struct varatt_indirect redirect;
+		VARATT_EXTERNAL_GET_POINTER(redirect, attr);
+		attr = (struct varlena *)redirect.pointer;
+
+		/* nested indirect Datums aren't allowed */
+		Assert(!VARATT_IS_EXTERNAL_INDIRECT(attr));
+
+		attr = heap_tuple_untoast_attr(attr);
 	}
 	else if (VARATT_IS_COMPRESSED(attr))
 	{
@@ -191,7 +227,7 @@ heap_tuple_untoast_attr_slice(struct varlena * attr,
 	char	   *attrdata;
 	int32		attrsize;
 
-	if (VARATT_IS_EXTERNAL(attr))
+	if (VARATT_IS_EXTERNAL_ONDISK(attr))
 	{
 		struct varatt_external toast_pointer;
 
@@ -203,6 +239,17 @@ heap_tuple_untoast_attr_slice(struct varlena * attr,
 
 		/* fetch it back (compressed marker will get set automatically) */
 		preslice = toast_fetch_datum(attr);
+	}
+	else if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+	{
+		struct varatt_indirect redirect;
+		VARATT_EXTERNAL_GET_POINTER(redirect, attr);
+
+		/* nested indirect Datums aren't allowed */
+		Assert(!VARATT_IS_EXTERNAL_INDIRECT(redirect.pointer));
+
+		return heap_tuple_untoast_attr_slice(redirect.pointer,
+											 sliceoffset, slicelength);
 	}
 	else
 		preslice = attr;
@@ -267,13 +314,23 @@ toast_raw_datum_size(Datum value)
 	struct varlena *attr = (struct varlena *) DatumGetPointer(value);
 	Size		result;
 
-	if (VARATT_IS_EXTERNAL(attr))
+	if (VARATT_IS_EXTERNAL_ONDISK(attr))
 	{
 		/* va_rawsize is the size of the original datum -- including header */
 		struct varatt_external toast_pointer;
 
 		VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
 		result = toast_pointer.va_rawsize;
+	}
+	else if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+	{
+		struct varatt_indirect toast_pointer;
+		VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
+
+		/* nested indirect Datums aren't allowed */
+		Assert(!VARATT_IS_EXTERNAL_INDIRECT(toast_pointer.pointer));
+
+		return toast_raw_datum_size(PointerGetDatum(toast_pointer.pointer));
 	}
 	else if (VARATT_IS_COMPRESSED(attr))
 	{
@@ -308,7 +365,7 @@ toast_datum_size(Datum value)
 	struct varlena *attr = (struct varlena *) DatumGetPointer(value);
 	Size		result;
 
-	if (VARATT_IS_EXTERNAL(attr))
+	if (VARATT_IS_EXTERNAL_ONDISK(attr))
 	{
 		/*
 		 * Attribute is stored externally - return the extsize whether
@@ -319,6 +376,16 @@ toast_datum_size(Datum value)
 
 		VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
 		result = toast_pointer.va_extsize;
+	}
+	else if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+	{
+		struct varatt_indirect toast_pointer;
+		VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
+
+		/* nested indirect Datums aren't allowed */
+		Assert(!VARATT_IS_EXTERNAL_INDIRECT(attr));
+
+		return toast_datum_size(PointerGetDatum(toast_pointer.pointer));
 	}
 	else if (VARATT_IS_SHORT(attr))
 	{
@@ -387,8 +454,12 @@ toast_delete(Relation rel, HeapTuple oldtup)
 		{
 			Datum		value = toast_values[i];
 
-			if (!toast_isnull[i] && VARATT_IS_EXTERNAL(PointerGetDatum(value)))
+			if (toast_isnull[i])
+				continue;
+			else if (VARATT_IS_EXTERNAL_ONDISK(PointerGetDatum(value)))
 				toast_delete_datum(rel, value);
+			else if (VARATT_IS_EXTERNAL_INDIRECT(PointerGetDatum(value)))
+				elog(ERROR, "attempt to delete tuple containing indirect datums");
 		}
 	}
 }
@@ -441,8 +512,8 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 	bool		toast_delold[MaxHeapAttributeNumber];
 
 	/*
-	 * We should only ever be called for tuples of plain relations ---
-	 * recursing on a toast rel is bad news.
+	 * We should only ever be called for tuples of plain relations or
+	 * materialized views --- recursing on a toast rel is bad news.
 	 */
 	Assert(rel->rd_rel->relkind == RELKIND_RELATION ||
 		   rel->rd_rel->relkind == RELKIND_MATVIEW);
@@ -490,13 +561,13 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 			new_value = (struct varlena *) DatumGetPointer(toast_values[i]);
 
 			/*
-			 * If the old value is an external stored one, check if it has
-			 * changed so we have to delete it later.
+			 * If the old value is stored on disk, check if it has changed so
+			 * we have to delete it later.
 			 */
 			if (att[i]->attlen == -1 && !toast_oldisnull[i] &&
-				VARATT_IS_EXTERNAL(old_value))
+				VARATT_IS_EXTERNAL_ONDISK(old_value))
 			{
-				if (toast_isnull[i] || !VARATT_IS_EXTERNAL(new_value) ||
+				if (toast_isnull[i] || !VARATT_IS_EXTERNAL_ONDISK(new_value) ||
 					memcmp((char *) old_value, (char *) new_value,
 						   VARSIZE_EXTERNAL(old_value)) != 0)
 				{
@@ -1229,6 +1300,39 @@ toast_compress_datum(Datum value)
 
 
 /* ----------
+ * toast_get_valid_index
+ *
+ *	Get OID of valid index associated to given toast relation. A toast
+ *	relation can have only one valid index at the same time.
+ */
+Oid
+toast_get_valid_index(Oid toastoid, LOCKMODE lock)
+{
+	int			num_indexes;
+	int			validIndex;
+	Oid			validIndexOid;
+	Relation   *toastidxs;
+	Relation	toastrel;
+
+	/* Open the toast relation */
+	toastrel = heap_open(toastoid, lock);
+
+	/* Look for the valid index of the toast relation */
+	validIndex = toast_open_indexes(toastrel,
+									lock,
+									&toastidxs,
+									&num_indexes);
+	validIndexOid = RelationGetRelid(toastidxs[validIndex]);
+
+	/* Close the toast relation and all its indexes */
+	toast_close_indexes(toastidxs, num_indexes, lock);
+	heap_close(toastrel, lock);
+
+	return validIndexOid;
+}
+
+
+/* ----------
  * toast_save_datum -
  *
  *	Save one single datum into the secondary relation and return
@@ -1245,7 +1349,7 @@ toast_save_datum(Relation rel, Datum value,
 				 struct varlena * oldexternal, int options)
 {
 	Relation	toastrel;
-	Relation	toastidx;
+	Relation   *toastidxs;
 	HeapTuple	toasttup;
 	TupleDesc	toasttupDesc;
 	Datum		t_values[3];
@@ -1264,15 +1368,24 @@ toast_save_datum(Relation rel, Datum value,
 	char	   *data_p;
 	int32		data_todo;
 	Pointer		dval = DatumGetPointer(value);
+	int			num_indexes;
+	int			validIndex;
+
+	Assert(!VARATT_IS_EXTERNAL(value));
 
 	/*
-	 * Open the toast relation and its index.  We can use the index to check
+	 * Open the toast relation and its indexes.  We can use the index to check
 	 * uniqueness of the OID we assign to the toasted item, even though it has
 	 * additional columns besides OID.
 	 */
 	toastrel = heap_open(rel->rd_rel->reltoastrelid, RowExclusiveLock);
 	toasttupDesc = toastrel->rd_att;
-	toastidx = index_open(toastrel->rd_rel->reltoastidxid, RowExclusiveLock);
+
+	/* Open all the toast indexes and look for the valid one */
+	validIndex = toast_open_indexes(toastrel,
+									RowExclusiveLock,
+									&toastidxs,
+									&num_indexes);
 
 	/*
 	 * Get the data pointer and length, and compute va_rawsize and va_extsize.
@@ -1337,7 +1450,7 @@ toast_save_datum(Relation rel, Datum value,
 		/* normal case: just choose an unused OID */
 		toast_pointer.va_valueid =
 			GetNewOidWithIndex(toastrel,
-							   RelationGetRelid(toastidx),
+							   RelationGetRelid(toastidxs[validIndex]),
 							   (AttrNumber) 1);
 	}
 	else
@@ -1348,7 +1461,7 @@ toast_save_datum(Relation rel, Datum value,
 		{
 			struct varatt_external old_toast_pointer;
 
-			Assert(VARATT_IS_EXTERNAL(oldexternal));
+			Assert(VARATT_IS_EXTERNAL_ONDISK(oldexternal));
 			/* Must copy to access aligned fields */
 			VARATT_EXTERNAL_GET_POINTER(old_toast_pointer, oldexternal);
 			if (old_toast_pointer.va_toastrelid == rel->rd_toastoid)
@@ -1391,7 +1504,7 @@ toast_save_datum(Relation rel, Datum value,
 			{
 				toast_pointer.va_valueid =
 					GetNewOidWithIndex(toastrel,
-									   RelationGetRelid(toastidx),
+									   RelationGetRelid(toastidxs[validIndex]),
 									   (AttrNumber) 1);
 			} while (toastid_valueid_exists(rel->rd_toastoid,
 											toast_pointer.va_valueid));
@@ -1412,6 +1525,8 @@ toast_save_datum(Relation rel, Datum value,
 	 */
 	while (data_todo > 0)
 	{
+		int i;
+
 		/*
 		 * Calculate the size of this chunk
 		 */
@@ -1430,16 +1545,22 @@ toast_save_datum(Relation rel, Datum value,
 		/*
 		 * Create the index entry.	We cheat a little here by not using
 		 * FormIndexDatum: this relies on the knowledge that the index columns
-		 * are the same as the initial columns of the table.
+		 * are the same as the initial columns of the table for all the
+		 * indexes.
 		 *
 		 * Note also that there had better not be any user-created index on
 		 * the TOAST table, since we don't bother to update anything else.
 		 */
-		index_insert(toastidx, t_values, t_isnull,
-					 &(toasttup->t_self),
-					 toastrel,
-					 toastidx->rd_index->indisunique ?
-					 UNIQUE_CHECK_YES : UNIQUE_CHECK_NO);
+		for (i = 0; i < num_indexes; i++)
+		{
+			/* Only index relations marked as ready can be updated */
+			if (IndexIsReady(toastidxs[i]->rd_index))
+				index_insert(toastidxs[i], t_values, t_isnull,
+							 &(toasttup->t_self),
+							 toastrel,
+							 toastidxs[i]->rd_index->indisunique ?
+							 UNIQUE_CHECK_YES : UNIQUE_CHECK_NO);
+		}
 
 		/*
 		 * Free memory
@@ -1454,16 +1575,16 @@ toast_save_datum(Relation rel, Datum value,
 	}
 
 	/*
-	 * Done - close toast relation
+	 * Done - close toast relation and its indexes
 	 */
-	index_close(toastidx, RowExclusiveLock);
+	toast_close_indexes(toastidxs, num_indexes, RowExclusiveLock);
 	heap_close(toastrel, RowExclusiveLock);
 
 	/*
 	 * Create the TOAST pointer value that we'll return
 	 */
 	result = (struct varlena *) palloc(TOAST_POINTER_SIZE);
-	SET_VARSIZE_EXTERNAL(result, TOAST_POINTER_SIZE);
+	SET_VARTAG_EXTERNAL(result, VARTAG_ONDISK);
 	memcpy(VARDATA_EXTERNAL(result), &toast_pointer, sizeof(toast_pointer));
 
 	return PointerGetDatum(result);
@@ -1482,22 +1603,29 @@ toast_delete_datum(Relation rel, Datum value)
 	struct varlena *attr = (struct varlena *) DatumGetPointer(value);
 	struct varatt_external toast_pointer;
 	Relation	toastrel;
-	Relation	toastidx;
+	Relation   *toastidxs;
 	ScanKeyData toastkey;
 	SysScanDesc toastscan;
 	HeapTuple	toasttup;
+	int			num_indexes;
+	int			validIndex;
 
-	if (!VARATT_IS_EXTERNAL(attr))
+	if (!VARATT_IS_EXTERNAL_ONDISK(attr))
 		return;
 
 	/* Must copy to access aligned fields */
 	VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
 
 	/*
-	 * Open the toast relation and its index
+	 * Open the toast relation and its indexes
 	 */
 	toastrel = heap_open(toast_pointer.va_toastrelid, RowExclusiveLock);
-	toastidx = index_open(toastrel->rd_rel->reltoastidxid, RowExclusiveLock);
+
+	/* Fetch valid relation used for process */
+	validIndex = toast_open_indexes(toastrel,
+									RowExclusiveLock,
+									&toastidxs,
+									&num_indexes);
 
 	/*
 	 * Setup a scan key to find chunks with matching va_valueid
@@ -1512,7 +1640,7 @@ toast_delete_datum(Relation rel, Datum value)
 	 * sequence or not, but since we've already locked the index we might as
 	 * well use systable_beginscan_ordered.)
 	 */
-	toastscan = systable_beginscan_ordered(toastrel, toastidx,
+	toastscan = systable_beginscan_ordered(toastrel, toastidxs[validIndex],
 										   SnapshotToast, 1, &toastkey);
 	while ((toasttup = systable_getnext_ordered(toastscan, ForwardScanDirection)) != NULL)
 	{
@@ -1526,7 +1654,7 @@ toast_delete_datum(Relation rel, Datum value)
 	 * End scan and close relations
 	 */
 	systable_endscan_ordered(toastscan);
-	index_close(toastidx, RowExclusiveLock);
+	toast_close_indexes(toastidxs, num_indexes, RowExclusiveLock);
 	heap_close(toastrel, RowExclusiveLock);
 }
 
@@ -1543,6 +1671,15 @@ toastrel_valueid_exists(Relation toastrel, Oid valueid)
 	bool		result = false;
 	ScanKeyData toastkey;
 	SysScanDesc toastscan;
+	int			num_indexes;
+	int			validIndex;
+	Relation   *toastidxs;
+
+	/* Fetch a valid index relation */
+	validIndex = toast_open_indexes(toastrel,
+									RowExclusiveLock,
+									&toastidxs,
+									&num_indexes);
 
 	/*
 	 * Setup a scan key to find chunks with matching va_valueid
@@ -1555,13 +1692,17 @@ toastrel_valueid_exists(Relation toastrel, Oid valueid)
 	/*
 	 * Is there any such chunk?
 	 */
-	toastscan = systable_beginscan(toastrel, toastrel->rd_rel->reltoastidxid,
-								   true, SnapshotToast, 1, &toastkey);
+	toastscan = systable_beginscan(toastrel,
+						   RelationGetRelid(toastidxs[validIndex]),
+						   true, SnapshotToast, 1, &toastkey);
 
 	if (systable_getnext(toastscan) != NULL)
 		result = true;
 
 	systable_endscan(toastscan);
+
+	/* Clean up */
+	toast_close_indexes(toastidxs, num_indexes, RowExclusiveLock);
 
 	return result;
 }
@@ -1599,7 +1740,7 @@ static struct varlena *
 toast_fetch_datum(struct varlena * attr)
 {
 	Relation	toastrel;
-	Relation	toastidx;
+	Relation   *toastidxs;
 	ScanKeyData toastkey;
 	SysScanDesc toastscan;
 	HeapTuple	ttup;
@@ -1614,6 +1755,11 @@ toast_fetch_datum(struct varlena * attr)
 	bool		isnull;
 	char	   *chunkdata;
 	int32		chunksize;
+	int			num_indexes;
+	int			validIndex;
+
+	if (VARATT_IS_EXTERNAL_INDIRECT(attr))
+		elog(ERROR, "shouldn't be called for indirect tuples");
 
 	/* Must copy to access aligned fields */
 	VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
@@ -1629,11 +1775,16 @@ toast_fetch_datum(struct varlena * attr)
 		SET_VARSIZE(result, ressize + VARHDRSZ);
 
 	/*
-	 * Open the toast relation and its index
+	 * Open the toast relation and its indexes
 	 */
 	toastrel = heap_open(toast_pointer.va_toastrelid, AccessShareLock);
 	toasttupDesc = toastrel->rd_att;
-	toastidx = index_open(toastrel->rd_rel->reltoastidxid, AccessShareLock);
+
+	/* Look for the valid index of the toast relation */
+	validIndex = toast_open_indexes(toastrel,
+									AccessShareLock,
+									&toastidxs,
+									&num_indexes);
 
 	/*
 	 * Setup a scan key to fetch from the index by va_valueid
@@ -1652,7 +1803,7 @@ toast_fetch_datum(struct varlena * attr)
 	 */
 	nextidx = 0;
 
-	toastscan = systable_beginscan_ordered(toastrel, toastidx,
+	toastscan = systable_beginscan_ordered(toastrel, toastidxs[validIndex],
 										   SnapshotToast, 1, &toastkey);
 	while ((ttup = systable_getnext_ordered(toastscan, ForwardScanDirection)) != NULL)
 	{
@@ -1741,7 +1892,7 @@ toast_fetch_datum(struct varlena * attr)
 	 * End scan and close relations
 	 */
 	systable_endscan_ordered(toastscan);
-	index_close(toastidx, AccessShareLock);
+	toast_close_indexes(toastidxs, num_indexes, AccessShareLock);
 	heap_close(toastrel, AccessShareLock);
 
 	return result;
@@ -1758,7 +1909,7 @@ static struct varlena *
 toast_fetch_datum_slice(struct varlena * attr, int32 sliceoffset, int32 length)
 {
 	Relation	toastrel;
-	Relation	toastidx;
+	Relation   *toastidxs;
 	ScanKeyData toastkey[3];
 	int			nscankeys;
 	SysScanDesc toastscan;
@@ -1781,8 +1932,10 @@ toast_fetch_datum_slice(struct varlena * attr, int32 sliceoffset, int32 length)
 	int32		chunksize;
 	int32		chcpystrt;
 	int32		chcpyend;
+	int			num_indexes;
+	int			validIndex;
 
-	Assert(VARATT_IS_EXTERNAL(attr));
+	Assert(VARATT_IS_EXTERNAL_ONDISK(attr));
 
 	/* Must copy to access aligned fields */
 	VARATT_EXTERNAL_GET_POINTER(toast_pointer, attr);
@@ -1823,11 +1976,16 @@ toast_fetch_datum_slice(struct varlena * attr, int32 sliceoffset, int32 length)
 	endoffset = (sliceoffset + length - 1) % TOAST_MAX_CHUNK_SIZE;
 
 	/*
-	 * Open the toast relation and its index
+	 * Open the toast relation and its indexes
 	 */
 	toastrel = heap_open(toast_pointer.va_toastrelid, AccessShareLock);
 	toasttupDesc = toastrel->rd_att;
-	toastidx = index_open(toastrel->rd_rel->reltoastidxid, AccessShareLock);
+
+	/* Look for the valid index of toast relation */
+	validIndex = toast_open_indexes(toastrel,
+									AccessShareLock,
+									&toastidxs,
+									&num_indexes);
 
 	/*
 	 * Setup a scan key to fetch from the index. This is either two keys or
@@ -1868,7 +2026,7 @@ toast_fetch_datum_slice(struct varlena * attr, int32 sliceoffset, int32 length)
 	 * The index is on (valueid, chunkidx) so they will come in order
 	 */
 	nextidx = startchunk;
-	toastscan = systable_beginscan_ordered(toastrel, toastidx,
+	toastscan = systable_beginscan_ordered(toastrel, toastidxs[validIndex],
 										 SnapshotToast, nscankeys, toastkey);
 	while ((ttup = systable_getnext_ordered(toastscan, ForwardScanDirection)) != NULL)
 	{
@@ -1965,8 +2123,85 @@ toast_fetch_datum_slice(struct varlena * attr, int32 sliceoffset, int32 length)
 	 * End scan and close relations
 	 */
 	systable_endscan_ordered(toastscan);
-	index_close(toastidx, AccessShareLock);
+	toast_close_indexes(toastidxs, num_indexes, AccessShareLock);
 	heap_close(toastrel, AccessShareLock);
 
 	return result;
+}
+
+/* ----------
+ * toast_open_indexes
+ *
+ *	Get an array of the indexes associated to the given toast relation
+ *	and return as well the position of the valid index used by the toast
+ *	relation in this array. It is the responsibility of the caller of this
+ *	function to close the indexes as well as free them.
+ */
+static int
+toast_open_indexes(Relation toastrel,
+				   LOCKMODE lock,
+				   Relation **toastidxs,
+				   int *num_indexes)
+{
+	int			i = 0;
+	int			res = 0;
+	bool		found = false;
+	List	   *indexlist;
+	ListCell   *lc;
+
+	/* Get index list of the toast relation */
+	indexlist = RelationGetIndexList(toastrel);
+	Assert(indexlist != NIL);
+
+	*num_indexes = list_length(indexlist);
+
+	/* Open all the index relations */
+	*toastidxs = (Relation *) palloc(*num_indexes * sizeof(Relation));
+	foreach(lc, indexlist)
+		(*toastidxs)[i++] = index_open(lfirst_oid(lc), lock);
+
+	/* Fetch the first valid index in list */
+	for (i = 0; i < *num_indexes; i++)
+	{
+		Relation toastidx = *toastidxs[i];
+		if (toastidx->rd_index->indisvalid)
+		{
+			res = i;
+			found = true;
+			break;
+		}
+	}
+
+	/*
+	 * Free index list, not necessary anymore as relations are opened
+	 * and a valid index has been found.
+	 */
+	list_free(indexlist);
+
+	/*
+	 * The toast relation should have one valid index, so something is
+	 * going wrong if there is nothing.
+	 */
+	if (!found)
+		elog(ERROR, "no valid index found for toast relation with Oid %d",
+			 RelationGetRelid(toastrel));
+
+	return res;
+}
+
+/* ----------
+ * toast_close_indexes
+ *
+ *	Close an array of indexes for a toast relation and free it. This should
+ *	be called for a set of indexes opened previously with toast_open_indexes.
+ */
+static void
+toast_close_indexes(Relation *toastidxs, int num_indexes, LOCKMODE lock)
+{
+	int i;
+
+	/* Close relations and clean up things */
+	for (i = 0; i < num_indexes; i++)
+		index_close(toastidxs[i], lock);
+	pfree(toastidxs);
 }

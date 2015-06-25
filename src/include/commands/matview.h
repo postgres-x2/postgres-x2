@@ -32,4 +32,6 @@ extern void pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata,
 										int operation, TupleDesc tupdesc);
 #endif /* PGXC */
 
+extern bool MatViewIncrementalMaintenanceIsEnabled(void);
+
 #endif   /* MATVIEW_H */

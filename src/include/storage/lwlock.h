@@ -53,7 +53,7 @@ typedef enum LWLockId
 	ProcArrayLock,
 	SInvalReadLock,
 	SInvalWriteLock,
-	WALInsertLock,
+	WALBufMappingLock,
 	WALWriteLock,
 	ControlFileLock,
 	CheckpointLock,
@@ -83,6 +83,7 @@ typedef enum LWLockId
 	SerializablePredicateLockListLock,
 	OldSerXidLock,
 	SyncRepLock,
+	BackgroundWorkerLock,
 	/* Individual lock IDs end here */
 	FirstBufMappingLock,
 	FirstLockMgrLock = FirstBufMappingLock + NUM_BUFFER_PARTITIONS,

@@ -258,6 +258,8 @@ DefineQueryRewrite(char *rulename,
 
 	/*
 	 * Verify relation is of a type that rules can sensibly be applied to.
+	 * Internal callers can target materialized views, but transformRuleStmt()
+	 * blocks them for users.  Don't mention them in the error message.
 	 */
 	if (event_relation->rd_rel->relkind != RELKIND_RELATION &&
 		event_relation->rd_rel->relkind != RELKIND_MATVIEW &&
@@ -579,8 +581,8 @@ DefineQueryRewrite(char *rulename,
 
 		/*
 		 * Fix pg_class entry to look like a normal view's, including setting
-		 * the correct relkind and removal of reltoastrelid/reltoastidxid of
-		 * the toast table we potentially removed above.
+		 * the correct relkind and removal of reltoastrelid of the toast table
+		 * we potentially removed above.
 		 */
 		classTup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(event_relid));
 		if (!HeapTupleIsValid(classTup))
@@ -592,7 +594,6 @@ DefineQueryRewrite(char *rulename,
 		classForm->reltuples = 0;
 		classForm->relallvisible = 0;
 		classForm->reltoastrelid = InvalidOid;
-		classForm->reltoastidxid = InvalidOid;
 		classForm->relhasindex = false;
 		classForm->relkind = RELKIND_VIEW;
 		classForm->relhasoids = false;

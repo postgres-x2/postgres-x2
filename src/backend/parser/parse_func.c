@@ -56,13 +56,13 @@ static Node *ParseComplexProjection(ParseState *pstate, char *funcname,
  *	Also, when is_column is true, we return NULL on failure rather than
  *	reporting a no-such-function error.
  *
- *	The argument expressions (in fargs) must have been transformed already.
- *	But the agg_order expressions, if any, have not been.
+ *	The argument expressions (in fargs) and filter must have been transformed
+ *	already.  But the agg_order expressions, if any, have not been.
  */
 Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
-				  List *agg_order, bool agg_star, bool agg_distinct,
-				  bool func_variadic,
+				  List *agg_order, Expr *agg_filter,
+				  bool agg_star, bool agg_distinct, bool func_variadic,
 				  WindowDef *over, bool is_column, int location)
 {
 	Oid			rettype;
@@ -79,6 +79,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	Node	   *retval;
 	bool		retset;
 	int			nvargs;
+	Oid			vatype;
 	FuncDetailCode fdresult;
 
 	/*
@@ -174,8 +175,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	 * the "function call" could be a projection.  We also check that there
 	 * wasn't any aggregate or variadic decoration, nor an argument name.
 	 */
-	if (nargs == 1 && agg_order == NIL && !agg_star && !agg_distinct &&
-		over == NULL && !func_variadic && argnames == NIL &&
+	if (nargs == 1 && agg_order == NIL && agg_filter == NULL && !agg_star &&
+		!agg_distinct && over == NULL && !func_variadic && argnames == NIL &&
 		list_length(funcname) == 1)
 	{
 		Oid			argtype = actual_arg_types[0];
@@ -214,7 +215,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	fdresult = func_get_detail(funcname, fargs, argnames, nargs,
 							   actual_arg_types,
 							   !func_variadic, true,
-							   &funcid, &rettype, &retset, &nvargs,
+							   &funcid, &rettype, &retset,
+							   &nvargs, &vatype,
 							   &declared_arg_types, &argdefaults);
 	if (fdresult == FUNCDETAIL_COERCION)
 	{
@@ -250,6 +252,12 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 			errmsg("ORDER BY specified, but %s is not an aggregate function",
 				   NameListToString(funcname)),
+					 parser_errposition(pstate, location)));
+		if (agg_filter)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+			  errmsg("FILTER specified, but %s is not an aggregate function",
+					 NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 		if (over)
 			ereport(ERROR,
@@ -376,6 +384,22 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		fargs = lappend(fargs, newa);
 	}
 
+	/*
+	 * When function is called an explicit VARIADIC labeled parameter,
+	 * and the declared_arg_type is "any", then sanity check the actual
+	 * parameter type now - it must be an array.
+	 */
+	if (nargs > 0 && vatype == ANYOID && func_variadic)
+	{
+		Oid		va_arr_typid = actual_arg_types[nargs - 1];
+
+		if (!OidIsValid(get_element_type(va_arr_typid)))
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("VARIADIC argument must be an array"),
+			  parser_errposition(pstate, exprLocation((Node *) llast(fargs)))));
+	}
+
 	/* build the appropriate output structure */
 	if (fdresult == FUNCDETAIL_NORMAL)
 	{
@@ -402,6 +426,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* aggcollid and inputcollid will be set by parse_collate.c */
 		/* args, aggorder, aggdistinct will be set by transformAggregateCall */
 		aggref->aggstar = agg_star;
+		aggref->aggfilter = agg_filter;
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
 
@@ -460,6 +485,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* winref will be set by transformWindowFuncCall */
 		wfunc->winstar = agg_star;
 		wfunc->winagg = (fdresult == FUNCDETAIL_AGGREGATE);
+		wfunc->aggfilter = agg_filter;
 		wfunc->location = location;
 
 		/*
@@ -480,6 +506,16 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("%s(*) must be used to call a parameterless aggregate function",
 							NameListToString(funcname)),
+					 parser_errposition(pstate, location)));
+
+		/*
+		 * Reject window functions which are not aggregates in the case of
+		 * FILTER.
+		 */
+		if (!wfunc->winagg && agg_filter)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("FILTER is not implemented in non-aggregate window functions"),
 					 parser_errposition(pstate, location)));
 
 		/*
@@ -1015,6 +1051,7 @@ func_get_detail(List *funcname,
 				Oid *rettype,	/* return value */
 				bool *retset,	/* return value */
 				int *nvargs,	/* return value */
+				Oid *vatype,	/* return value */
 				Oid **true_typeids,		/* return value */
 				List **argdefaults)		/* optional return value */
 {
@@ -1233,6 +1270,7 @@ func_get_detail(List *funcname,
 		pform = (Form_pg_proc) GETSTRUCT(ftup);
 		*rettype = pform->prorettype;
 		*retset = pform->proretset;
+		*vatype = pform->provariadic;
 		/* fetch default args if caller wants 'em */
 		if (argdefaults && best_candidate->ndargs > 0)
 		{

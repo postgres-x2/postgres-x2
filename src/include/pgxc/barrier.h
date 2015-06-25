@@ -13,8 +13,8 @@
  *-------------------------------------------------------------------------
  */
 
-#ifndef BARRIER_H
-#define BARRIER_H
+#ifndef PGXC_BARRIER_H
+#define PGXC_BARRIER_H
 
 #include "access/xlog.h"
 #include "access/xlogdefs.h"

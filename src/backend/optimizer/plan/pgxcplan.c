@@ -2263,6 +2263,7 @@ get_fn_oid(char *fn_name, Oid *p_rettype)
 	int		nvargs;
 	Oid		*true_typeids;
 	Oid		func_oid;
+	Oid		va_type;
 
 	fn_nm = makeString(fn_name);
 	fn_name_list = list_make1(fn_nm);
@@ -2278,6 +2279,7 @@ get_fn_oid(char *fn_name, Oid *p_rettype)
 				p_rettype,		/* function return type - returned detail */
 				&retset,		/*  - returned detail*/
 				&nvargs,		/*  - returned detail*/
+				&va_type,		/*  - returned detail */
 				&true_typeids,		/*  - returned detail */
 				NULL			/* arguemnt defaults returned*/
 				);

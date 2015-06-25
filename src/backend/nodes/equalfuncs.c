@@ -201,6 +201,7 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(aggorder);
 	COMPARE_NODE_FIELD(aggdistinct);
+	COMPARE_NODE_FIELD(aggfilter);
 	COMPARE_SCALAR_FIELD(aggstar);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
@@ -216,6 +217,7 @@ _equalWindowFunc(const WindowFunc *a, const WindowFunc *b)
 	COMPARE_SCALAR_FIELD(wincollid);
 	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
+	COMPARE_NODE_FIELD(aggfilter);
 	COMPARE_SCALAR_FIELD(winref);
 	COMPARE_SCALAR_FIELD(winstar);
 	COMPARE_SCALAR_FIELD(winagg);
@@ -856,6 +858,7 @@ _equalQuery(const Query *a, const Query *b)
 	COMPARE_NODE_FIELD(rtable);
 	COMPARE_NODE_FIELD(jointree);
 	COMPARE_NODE_FIELD(targetList);
+	COMPARE_NODE_FIELD(withCheckOptions);
 	COMPARE_NODE_FIELD(returningList);
 	COMPARE_NODE_FIELD(groupClause);
 	COMPARE_NODE_FIELD(havingQual);
@@ -1393,6 +1396,7 @@ _equalViewStmt(const ViewStmt *a, const ViewStmt *b)
 	COMPARE_NODE_FIELD(query);
 	COMPARE_SCALAR_FIELD(replace);
 	COMPARE_NODE_FIELD(options);
+	COMPARE_SCALAR_FIELD(withCheckOption);
 
 	return true;
 }
@@ -1534,6 +1538,7 @@ _equalCreateTableAsStmt(const CreateTableAsStmt *a, const CreateTableAsStmt *b)
 static bool
 _equalRefreshMatViewStmt(const RefreshMatViewStmt *a, const RefreshMatViewStmt *b)
 {
+	COMPARE_SCALAR_FIELD(concurrent);
 	COMPARE_SCALAR_FIELD(skipData);
 	COMPARE_NODE_FIELD(relation);
 
@@ -2005,6 +2010,7 @@ _equalFuncCall(const FuncCall *a, const FuncCall *b)
 	COMPARE_NODE_FIELD(funcname);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(agg_order);
+	COMPARE_NODE_FIELD(agg_filter);
 	COMPARE_SCALAR_FIELD(agg_star);
 	COMPARE_SCALAR_FIELD(agg_distinct);
 	COMPARE_SCALAR_FIELD(func_variadic);
@@ -2258,6 +2264,16 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_SCALAR_FIELD(checkAsUser);
 	COMPARE_BITMAPSET_FIELD(selectedCols);
 	COMPARE_BITMAPSET_FIELD(modifiedCols);
+
+	return true;
+}
+
+static bool
+_equalWithCheckOption(const WithCheckOption *a, const WithCheckOption *b)
+{
+	COMPARE_STRING_FIELD(viewname);
+	COMPARE_NODE_FIELD(qual);
+	COMPARE_SCALAR_FIELD(cascaded);
 
 	return true;
 }
@@ -3092,6 +3108,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_RangeTblEntry:
 			retval = _equalRangeTblEntry(a, b);
+			break;
+		case T_WithCheckOption:
+			retval = _equalWithCheckOption(a, b);
 			break;
 		case T_SortGroupClause:
 			retval = _equalSortGroupClause(a, b);

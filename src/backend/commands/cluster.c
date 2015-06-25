@@ -21,6 +21,7 @@
 #include "access/relscan.h"
 #include "access/rewriteheap.h"
 #include "access/transam.h"
+#include "access/tuptoaster.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
@@ -588,7 +589,8 @@ rebuild_relation(Relation OldHeap, Oid indexOid,
 	heap_close(OldHeap, NoLock);
 
 	/* Create the transient table that will receive the re-ordered data */
-	OIDNewHeap = make_new_heap(tableOid, tableSpace);
+	OIDNewHeap = make_new_heap(tableOid, tableSpace, false,
+							   AccessExclusiveLock);
 
 	/* Copy the heap data into the new table in the desired order */
 	copy_heap_data(OIDNewHeap, tableOid, indexOid,
@@ -615,7 +617,8 @@ rebuild_relation(Relation OldHeap, Oid indexOid,
  * data, then call finish_heap_swap to complete the operation.
  */
 Oid
-make_new_heap(Oid OIDOldHeap, Oid NewTableSpace)
+make_new_heap(Oid OIDOldHeap, Oid NewTableSpace, bool forcetemp,
+			  LOCKMODE lockmode)
 {
 	TupleDesc	OldHeapDesc;
 	char		NewHeapName[NAMEDATALEN];
@@ -625,8 +628,10 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace)
 	HeapTuple	tuple;
 	Datum		reloptions;
 	bool		isNull;
+	Oid			namespaceid;
+	char		relpersistence;
 
-	OldHeap = heap_open(OIDOldHeap, AccessExclusiveLock);
+	OldHeap = heap_open(OIDOldHeap, lockmode);
 	OldHeapDesc = RelationGetDescr(OldHeap);
 
 	/*
@@ -647,6 +652,17 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace)
 	if (isNull)
 		reloptions = (Datum) 0;
 
+	if (forcetemp)
+	{
+		namespaceid = LookupCreationNamespace("pg_temp");
+		relpersistence = RELPERSISTENCE_TEMP;
+	}
+	else
+	{
+		namespaceid = RelationGetNamespace(OldHeap);
+		relpersistence = OldHeap->rd_rel->relpersistence;
+	}
+
 	/*
 	 * Create the new heap, using a temporary name in the same namespace as
 	 * the existing table.	NOTE: there is some risk of collision with user
@@ -662,7 +678,7 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace)
 	snprintf(NewHeapName, sizeof(NewHeapName), "pg_temp_%u", OIDOldHeap);
 
 	OIDNewHeap = heap_create_with_catalog(NewHeapName,
-										  RelationGetNamespace(OldHeap),
+										  namespaceid,
 										  NewTableSpace,
 										  InvalidOid,
 										  InvalidOid,
@@ -670,8 +686,8 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace)
 										  OldHeap->rd_rel->relowner,
 										  OldHeapDesc,
 										  NIL,
-										  OldHeap->rd_rel->relkind,
-										  OldHeap->rd_rel->relpersistence,
+										  RELKIND_RELATION,
+										  relpersistence,
 										  false,
 										  RelationIsMapped(OldHeap),
 										  true,
@@ -963,7 +979,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex,
 
 		LockBuffer(buf, BUFFER_LOCK_SHARE);
 
-		switch (HeapTupleSatisfiesVacuum(tuple->t_data, OldestXmin, buf))
+		switch (HeapTupleSatisfiesVacuum(tuple, OldestXmin, buf))
 		{
 			case HEAPTUPLE_DEAD:
 				/* Definitely dead */
@@ -1177,8 +1193,6 @@ swap_relation_files(Oid r1, Oid r2, bool target_is_pg_class,
 			swaptemp = relform1->reltoastrelid;
 			relform1->reltoastrelid = relform2->reltoastrelid;
 			relform2->reltoastrelid = swaptemp;
-
-			/* we should NOT swap reltoastidxid */
 		}
 	}
 	else
@@ -1398,18 +1412,30 @@ swap_relation_files(Oid r1, Oid r2, bool target_is_pg_class,
 
 	/*
 	 * If we're swapping two toast tables by content, do the same for their
-	 * indexes.
+	 * valid index. The swap can actually be safely done only if the relations
+	 * have indexes.
 	 */
 	if (swap_toast_by_content &&
-		relform1->reltoastidxid && relform2->reltoastidxid)
-		swap_relation_files(relform1->reltoastidxid,
-							relform2->reltoastidxid,
+		relform1->relkind == RELKIND_TOASTVALUE &&
+		relform2->relkind == RELKIND_TOASTVALUE)
+	{
+		Oid			toastIndex1, toastIndex2;
+
+		/* Get valid index for each relation */
+		toastIndex1 = toast_get_valid_index(r1,
+											AccessExclusiveLock);
+		toastIndex2 = toast_get_valid_index(r2,
+											AccessExclusiveLock);
+
+		swap_relation_files(toastIndex1,
+							toastIndex2,
 							target_is_pg_class,
 							swap_toast_by_content,
 							is_internal,
 							InvalidTransactionId,
 							InvalidMultiXactId,
 							mapped_tables);
+	}
 
 	/* Clean up. */
 	heap_freetuple(reltup1);
@@ -1533,14 +1559,12 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 		newrel = heap_open(OIDOldHeap, NoLock);
 		if (OidIsValid(newrel->rd_rel->reltoastrelid))
 		{
-			Relation	toastrel;
 			Oid			toastidx;
 			char		NewToastName[NAMEDATALEN];
 
-			toastrel = relation_open(newrel->rd_rel->reltoastrelid,
-									 AccessShareLock);
-			toastidx = toastrel->rd_rel->reltoastidxid;
-			relation_close(toastrel, AccessShareLock);
+			/* Get the associated valid index to be renamed */
+			toastidx = toast_get_valid_index(newrel->rd_rel->reltoastrelid,
+											 AccessShareLock);
 
 			/* rename the toast table ... */
 			snprintf(NewToastName, NAMEDATALEN, "pg_toast_%u",
@@ -1548,9 +1572,10 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 			RenameRelationInternal(newrel->rd_rel->reltoastrelid,
 								   NewToastName, true);
 
-			/* ... and its index too */
+			/* ... and its valid index too. */
 			snprintf(NewToastName, NAMEDATALEN, "pg_toast_%u_index",
 					 OIDOldHeap);
+
 			RenameRelationInternal(toastidx,
 								   NewToastName, true);
 		}

@@ -212,7 +212,7 @@ explain (num_nodes off, nodes off, costs off)
  WHERE t = 2;
 
 -- Test that we push quals into UNION sub-selects only when it's safe
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 SELECT * FROM
   (SELECT 1 AS t, 2 AS x
    UNION
@@ -225,7 +225,7 @@ SELECT * FROM
    SELECT 2 AS t, 4 AS x) ss
 WHERE x < 4;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 SELECT * FROM
   (SELECT 1 AS t, generate_series(1,10) AS x
    UNION
@@ -240,7 +240,7 @@ SELECT * FROM
 WHERE x < 4
 ORDER BY x;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 SELECT * FROM
   (SELECT 1 AS t, (random()*3)::int AS x
    UNION
@@ -252,3 +252,24 @@ SELECT * FROM
    UNION
    SELECT 2 AS t, 4 AS x) ss
 WHERE x > 3;
+
+-- Test proper handling of parameterized appendrel paths when the
+-- potential join qual is expensive
+create function expensivefunc(int) returns int
+language plpgsql immutable strict cost 10000
+as $$begin return $1; end$$;
+
+create temp table t3 as select generate_series(-1000,1000) as x;
+create index t3i on t3 (expensivefunc(x));
+analyze t3;
+
+explain (num_nodes off, nodes off, costs off)
+select * from
+  (select * from t3 a union all select * from t3 b) ss
+  join int4_tbl on f1 = expensivefunc(x);
+select * from
+  (select * from t3 a union all select * from t3 b) ss
+  join int4_tbl on f1 = expensivefunc(x);
+
+drop table t3;
+drop function expensivefunc(int);

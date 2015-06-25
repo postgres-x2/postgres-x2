@@ -1556,6 +1556,8 @@ expression_tree_walker(Node *node,
 		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
 			break;
+		case T_WithCheckOption:
+			return walker(((WithCheckOption *) node)->qual, context);
 		case T_Aggref:
 			{
 				Aggref	   *expr = (Aggref *) node;
@@ -1570,6 +1572,8 @@ expression_tree_walker(Node *node,
 				if (expression_tree_walker((Node *) expr->aggdistinct,
 										   walker, context))
 					return true;
+				if (walker((Node *) expr->aggfilter, context))
+					return true;
 			}
 			break;
 		case T_WindowFunc:
@@ -1579,6 +1583,8 @@ expression_tree_walker(Node *node,
 				/* recurse directly on List */
 				if (expression_tree_walker((Node *) expr->args,
 										   walker, context))
+					return true;
+				if (walker((Node *) expr->aggfilter, context))
 					return true;
 			}
 			break;
@@ -1869,6 +1875,8 @@ query_tree_walker(Query *query,
 
 	if (walker((Node *) query->targetList, context))
 		return true;
+	if (walker((Node *) query->withCheckOptions, context))
+		return true;
 	if (walker((Node *) query->returningList, context))
 		return true;
 	if (walker((Node *) query->jointree, context))
@@ -2075,6 +2083,15 @@ expression_tree_mutator(Node *node,
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
+		case T_WithCheckOption:
+			{
+				WithCheckOption	   *wco = (WithCheckOption *) node;
+				WithCheckOption	   *newnode;
+
+				FLATCOPY(newnode, wco, WithCheckOption);
+				MUTATE(newnode->qual, wco->qual, Node *);
+				return (Node *) newnode;
+			}
 		case T_Aggref:
 			{
 				Aggref	   *aggref = (Aggref *) node;
@@ -2084,6 +2101,7 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->args, aggref->args, List *);
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
+				MUTATE(newnode->aggfilter, aggref->aggfilter, Expr *);
 				return (Node *) newnode;
 			}
 			break;
@@ -2094,6 +2112,7 @@ expression_tree_mutator(Node *node,
 
 				FLATCOPY(newnode, wfunc, WindowFunc);
 				MUTATE(newnode->args, wfunc->args, List *);
+				MUTATE(newnode->aggfilter, wfunc->aggfilter, Expr *);
 				return (Node *) newnode;
 			}
 			break;
@@ -2588,6 +2607,7 @@ query_tree_mutator(Query *query,
 	}
 
 	MUTATE(query->targetList, query->targetList, List *);
+	MUTATE(query->withCheckOptions, query->withCheckOptions, List *);
 	MUTATE(query->returningList, query->returningList, List *);
 	MUTATE(query->jointree, query->jointree, FromExpr *);
 	MUTATE(query->setOperations, query->setOperations, Node *);
@@ -2958,6 +2978,8 @@ raw_expression_tree_walker(Node *node,
 				if (walker(fcall->args, context))
 					return true;
 				if (walker(fcall->agg_order, context))
+					return true;
+				if (walker(fcall->agg_filter, context))
 					return true;
 				if (walker(fcall->over, context))
 					return true;

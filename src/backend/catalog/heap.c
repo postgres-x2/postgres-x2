@@ -808,7 +808,6 @@ InsertPgClassTuple(Relation pg_class_desc,
 	values[Anum_pg_class_reltuples - 1] = Float4GetDatum(rd_rel->reltuples);
 	values[Anum_pg_class_relallvisible - 1] = Int32GetDatum(rd_rel->relallvisible);
 	values[Anum_pg_class_reltoastrelid - 1] = ObjectIdGetDatum(rd_rel->reltoastrelid);
-	values[Anum_pg_class_reltoastidxid - 1] = ObjectIdGetDatum(rd_rel->reltoastidxid);
 	values[Anum_pg_class_relhasindex - 1] = BoolGetDatum(rd_rel->relhasindex);
 	values[Anum_pg_class_relisshared - 1] = BoolGetDatum(rd_rel->relisshared);
 	values[Anum_pg_class_relpersistence - 1] = CharGetDatum(rd_rel->relpersistence);
@@ -1533,9 +1532,8 @@ heap_create_with_catalog(const char *relname,
 	/*
 	 * Decide whether to create an array type over the relation's rowtype. We
 	 * do not create any array types for system catalogs (ie, those made
-	 * during initdb).	We create array types for regular relations, views,
-	 * composite types and foreign tables ... but not, eg, for toast tables or
-	 * sequences.
+	 * during initdb). We do not create them where the use of a relation as
+	 * such is an implementation detail: toast tables, sequences and indexes.
 	 */
 	if (IsUnderPostmaster && (relkind == RELKIND_RELATION ||
 							  relkind == RELKIND_VIEW ||

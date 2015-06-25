@@ -8114,6 +8114,13 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		appendStringInfoString(buf, " ORDER BY ");
 		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
+
+	if (aggref->aggfilter != NULL)
+	{
+		appendStringInfoString(buf, ") FILTER (WHERE ");
+		get_rule_expr((Node *) aggref->aggfilter, context, false);
+	}
+
 	appendStringInfoChar(buf, ')');
 
 #ifdef PGXC
@@ -8156,6 +8163,13 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 		appendStringInfoChar(buf, '*');
 	else
 		get_rule_expr((Node *) wfunc->args, context, true);
+
+	if (wfunc->aggfilter != NULL)
+	{
+		appendStringInfoString(buf, ") FILTER (WHERE ");
+		get_rule_expr((Node *) wfunc->aggfilter, context, false);
+	}
+
 	appendStringInfoString(buf, ") OVER ");
 
 	foreach(l, context->windowClause)
@@ -9287,6 +9301,7 @@ generate_function_name(Oid funcid, int nargs, List *argnames, Oid *argtypes,
 	Oid			p_rettype;
 	bool		p_retset;
 	int			p_nvargs;
+	Oid			p_vatype;
 	Oid		   *p_true_typeids;
 
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
@@ -9337,7 +9352,8 @@ generate_function_name(Oid funcid, int nargs, List *argnames, Oid *argtypes,
 							   NIL, argnames, nargs, argtypes,
 							   !use_variadic, true,
 							   &p_funcid, &p_rettype,
-							   &p_retset, &p_nvargs, &p_true_typeids, NULL);
+							   &p_retset, &p_nvargs, &p_vatype,
+							   &p_true_typeids, NULL);
 	if ((p_result == FUNCDETAIL_NORMAL ||
 		 p_result == FUNCDETAIL_AGGREGATE ||
 		 p_result == FUNCDETAIL_WINDOWFUNC) &&

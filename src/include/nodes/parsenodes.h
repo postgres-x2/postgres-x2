@@ -133,6 +133,8 @@ typedef struct Query
 
 	List	   *targetList;		/* target list (of TargetEntry) */
 
+	List	   *withCheckOptions; /* a list of WithCheckOption's */
+
 	List	   *returningList;	/* return-values list (of TargetEntry) */
 
 	List	   *groupClause;	/* a list of SortGroupClause's */
@@ -299,8 +301,8 @@ typedef struct CollateClause
  * agg_star indicates we saw a 'foo(*)' construct, while agg_distinct
  * indicates we saw 'foo(DISTINCT ...)'.  In any of these cases, the
  * construct *must* be an aggregate call.  Otherwise, it might be either an
- * aggregate or some other kind of function.  However, if OVER is present
- * it had better be an aggregate or window function.
+ * aggregate or some other kind of function.  However, if FILTER or OVER is
+ * present it had better be an aggregate or window function.
  *
  * Normally, you'd initialize this via makeFuncCall() and then only
  * change the parts of the struct its defaults don't match afterwards
@@ -313,6 +315,7 @@ typedef struct FuncCall
 	List	   *funcname;		/* qualified name of function */
 	List	   *args;			/* the arguments (list of exprs) */
 	List	   *agg_order;		/* ORDER BY (list of SortBy) */
+	Node	   *agg_filter;		/* FILTER clause, if any */
 	bool		agg_star;		/* argument was really '*' */
 	bool		agg_distinct;	/* arguments were labeled DISTINCT */
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
@@ -804,6 +807,19 @@ typedef struct RangeTblEntry
 	Bitmapset  *selectedCols;	/* columns needing SELECT permission */
 	Bitmapset  *modifiedCols;	/* columns needing INSERT/UPDATE permission */
 } RangeTblEntry;
+
+/*
+ * WithCheckOption -
+ *		representation of WITH CHECK OPTION checks to be applied to new tuples
+ *		when inserting/updating an auto-updatable view.
+ */
+typedef struct WithCheckOption
+{
+	NodeTag		type;
+	char	   *viewname;	/* name of view that specified the WCO */
+	Node	   *qual;		/* constraint qual to check */
+	bool		cascaded;	/* true = WITH CASCADED CHECK OPTION */
+} WithCheckOption;
 
 /*
  * SortGroupClause -
@@ -2371,6 +2387,13 @@ typedef struct AlterEnumStmt
  *		Create View Statement
  * ----------------------
  */
+typedef enum ViewCheckOption
+{
+	NO_CHECK_OPTION,
+	LOCAL_CHECK_OPTION,
+	CASCADED_CHECK_OPTION
+} ViewCheckOption;
+
 typedef struct ViewStmt
 {
 	NodeTag		type;
@@ -2379,6 +2402,7 @@ typedef struct ViewStmt
 	Node	   *query;			/* the SELECT query */
 	bool		replace;		/* replace an existing view? */
 	List	   *options;		/* options from WITH clause */
+	ViewCheckOption	withCheckOption; /* WITH CHECK OPTION */
 } ViewStmt;
 
 /* ----------------------
@@ -2582,6 +2606,7 @@ typedef struct CreateTableAsStmt
 typedef struct RefreshMatViewStmt
 {
 	NodeTag		type;
+	bool		concurrent;		/* allow concurrent access? */
 	bool		skipData;		/* true for WITH NO DATA */
 	RangeVar   *relation;		/* relation to insert into */
 } RefreshMatViewStmt;
