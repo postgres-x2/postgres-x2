@@ -47,7 +47,6 @@
 #endif
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/clauses.h"
 #include "optimizer/tlist.h"
 #include "parser/keywords.h"
 #include "parser/parse_func.h"
@@ -189,10 +188,10 @@ typedef struct
  * since they just inherit column names from their input RTEs, and we can't
  * rename the columns at the join level.  Most of the time this isn't an issue
  * because we don't need to reference the join's output columns as such; we
- * can reference the input columns instead.  That approach fails for merged
- * FULL JOIN USING columns, however, so when we have one of those in an
- * unnamed join, we have to make that column's alias globally unique across
- * the whole query to ensure it can be referenced unambiguously.
+ * can reference the input columns instead.  That approach can fail for merged
+ * JOIN USING columns, however, so when we have one of those in an unnamed
+ * join, we have to make that column's alias globally unique across the whole
+ * query to ensure it can be referenced unambiguously.
  *
  * Another problem is that a JOIN USING clause requires the columns to be
  * merged to have the same aliases in both input RTEs.	To handle that, we do
@@ -260,6 +259,7 @@ typedef struct
 	 * child RTE's attno and rightattnos[i] is zero; and conversely for a
 	 * column of the right child.  But for merged columns produced by JOIN
 	 * USING/NATURAL JOIN, both leftattnos[i] and rightattnos[i] are nonzero.
+	 * Also, if the column has been dropped, both are zero.
 	 *
 	 * If it's a JOIN USING, usingNames holds the alias names selected for the
 	 * merged columns (these might be different from the original USING list,
@@ -325,7 +325,7 @@ static bool refname_is_unique(char *refname, deparse_namespace *dpns,
 static void set_deparse_for_query(deparse_namespace *dpns, Query *query,
 					  List *parent_namespaces);
 static void set_simple_column_names(deparse_namespace *dpns);
-static bool has_unnamed_full_join_using(Node *jtnode);
+static bool has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode);
 static void set_using_names(deparse_namespace *dpns, Node *jtnode);
 static void set_relation_column_names(deparse_namespace *dpns,
 						  RangeTblEntry *rte,
@@ -2762,7 +2762,7 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 	{
 		/* Detect whether global uniqueness of USING names is needed */
 		dpns->unique_using =
-			has_unnamed_full_join_using((Node *) query->jointree);
+			has_dangerous_join_using(dpns, (Node *) query->jointree);
 
 		/*
 		 * Select names for columns merged by USING, via a recursive pass over
@@ -2822,25 +2822,26 @@ set_simple_column_names(deparse_namespace *dpns)
 }
 
 /*
- * has_unnamed_full_join_using: search jointree for unnamed FULL JOIN USING
+ * has_dangerous_join_using: search jointree for unnamed JOIN USING
  *
- * Merged columns of a FULL JOIN USING act differently from either of the
- * input columns, so they have to be referenced as columns of the JOIN not
- * as columns of either input.	And this is problematic if the join is
- * unnamed (alias-less): we cannot qualify the column's name with an RTE
- * name, since there is none.  (Forcibly assigning an alias to the join is
- * not a solution, since that will prevent legal references to tables below
- * the join.)  To ensure that every column in the query is unambiguously
- * referenceable, we must assign such merged columns names that are globally
- * unique across the whole query, aliasing other columns out of the way as
- * necessary.
+ * Merged columns of a JOIN USING may act differently from either of the input
+ * columns, either because they are merged with COALESCE (in a FULL JOIN) or
+ * because an implicit coercion of the underlying input column is required.
+ * In such a case the column must be referenced as a column of the JOIN not as
+ * a column of either input.  And this is problematic if the join is unnamed
+ * (alias-less): we cannot qualify the column's name with an RTE name, since
+ * there is none.  (Forcibly assigning an alias to the join is not a solution,
+ * since that will prevent legal references to tables below the join.)
+ * To ensure that every column in the query is unambiguously referenceable,
+ * we must assign such merged columns names that are globally unique across
+ * the whole query, aliasing other columns out of the way as necessary.
  *
  * Because the ensuing re-aliasing is fairly damaging to the readability of
  * the query, we don't do this unless we have to.  So, we must pre-scan
  * the join tree to see if we have to, before starting set_using_names().
  */
 static bool
-has_unnamed_full_join_using(Node *jtnode)
+has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode)
 {
 	if (IsA(jtnode, RangeTblRef))
 	{
@@ -2853,7 +2854,7 @@ has_unnamed_full_join_using(Node *jtnode)
 
 		foreach(lc, f->fromlist)
 		{
-			if (has_unnamed_full_join_using((Node *) lfirst(lc)))
+			if (has_dangerous_join_using(dpns, (Node *) lfirst(lc)))
 				return true;
 		}
 	}
@@ -2861,16 +2862,30 @@ has_unnamed_full_join_using(Node *jtnode)
 	{
 		JoinExpr   *j = (JoinExpr *) jtnode;
 
-		/* Is it an unnamed FULL JOIN with USING? */
-		if (j->alias == NULL &&
-			j->jointype == JOIN_FULL &&
-			j->usingClause)
-			return true;
+		/* Is it an unnamed JOIN with USING? */
+		if (j->alias == NULL && j->usingClause)
+		{
+			/*
+			 * Yes, so check each join alias var to see if any of them are not
+			 * simple references to underlying columns.  If so, we have a
+			 * dangerous situation and must pick unique aliases.
+			 */
+			RangeTblEntry *jrte = rt_fetch(j->rtindex, dpns->rtable);
+			ListCell   *lc;
+
+			foreach(lc, jrte->joinaliasvars)
+			{
+				Var		   *aliasvar = (Var *) lfirst(lc);
+
+				if (aliasvar != NULL && !IsA(aliasvar, Var))
+					return true;
+			}
+		}
 
 		/* Nope, but inspect children */
-		if (has_unnamed_full_join_using(j->larg))
+		if (has_dangerous_join_using(dpns, j->larg))
 			return true;
-		if (has_unnamed_full_join_using(j->rarg))
+		if (has_dangerous_join_using(dpns, j->rarg))
 			return true;
 	}
 	else
@@ -2960,16 +2975,16 @@ set_using_names(deparse_namespace *dpns, Node *jtnode)
 		 *
 		 * If dpns->unique_using is TRUE, we force all USING names to be
 		 * unique across the whole query level.  In principle we'd only need
-		 * the names of USING columns in unnamed full joins to be globally
-		 * unique, but to safely assign all USING names in a single pass, we
-		 * have to enforce the same uniqueness rule for all of them.  However,
-		 * if a USING column's name has been pushed down from the parent, we
-		 * should use it as-is rather than making a uniqueness adjustment.
-		 * This is necessary when we're at an unnamed join, and it creates no
-		 * risk of ambiguity.  Also, if there's a user-written output alias
-		 * for a merged column, we prefer to use that rather than the input
-		 * name; this simplifies the logic and seems likely to lead to less
-		 * aliasing overall.
+		 * the names of dangerous USING columns to be globally unique, but to
+		 * safely assign all USING names in a single pass, we have to enforce
+		 * the same uniqueness rule for all of them.  However, if a USING
+		 * column's name has been pushed down from the parent, we should use
+		 * it as-is rather than making a uniqueness adjustment.  This is
+		 * necessary when we're at an unnamed join, and it creates no risk of
+		 * ambiguity.  Also, if there's a user-written output alias for a
+		 * merged column, we prefer to use that rather than the input name;
+		 * this simplifies the logic and seems likely to lead to less aliasing
+		 * overall.
 		 *
 		 * If dpns->unique_using is FALSE, we only need USING names to be
 		 * unique within their own join RTE.  We still need to honor
@@ -3246,6 +3261,13 @@ set_join_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
 		char	   *colname = colinfo->colnames[i];
 		char	   *real_colname;
 
+		/* Ignore dropped column (only possible for non-merged column) */
+		if (colinfo->leftattnos[i] == 0 && colinfo->rightattnos[i] == 0)
+		{
+			Assert(colname == NULL);
+			continue;
+		}
+
 		/* Get the child column name */
 		if (colinfo->leftattnos[i] > 0)
 			real_colname = leftcolinfo->colnames[colinfo->leftattnos[i] - 1];
@@ -3254,15 +3276,9 @@ set_join_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
 		else
 		{
 			/* We're joining system columns --- use eref name */
-			real_colname = (char *) list_nth(rte->eref->colnames, i);
+			real_colname = strVal(list_nth(rte->eref->colnames, i));
 		}
-
-		/* Ignore dropped columns (only possible for non-merged column) */
-		if (real_colname == NULL)
-		{
-			Assert(colname == NULL);
-			continue;
-		}
+		Assert(real_colname != NULL);
 
 		/* In an unnamed join, just report child column names as-is */
 		if (rte->alias == NULL)
@@ -3595,7 +3611,14 @@ identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
 	{
 		Var		   *aliasvar = (Var *) lfirst(lc);
 
-		if (IsA(aliasvar, Var))
+		/* get rid of any implicit coercion above the Var */
+		aliasvar = (Var *) strip_implicit_coercions((Node *) aliasvar);
+
+		if (aliasvar == NULL)
+		{
+			/* It's a dropped column; nothing to do here */
+		}
+		else if (IsA(aliasvar, Var))
 		{
 			Assert(aliasvar->varlevelsup == 0);
 			Assert(aliasvar->varattno != 0);
@@ -3615,15 +3638,8 @@ identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
 			 */
 		}
 		else
-		{
-			/*
-			 * Although NULL constants can appear in joinaliasvars lists
-			 * during planning, we shouldn't see any here, since the Query
-			 * tree hasn't been through AcquireRewriteLocks().
-			 */
 			elog(ERROR, "unrecognized node type in join alias vars: %d",
 				 (int) nodeTag(aliasvar));
-		}
 
 		i++;
 	}
@@ -4007,7 +4023,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	char	   *rulename;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -4033,11 +4048,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
 	Assert(!isnull);
 	ev_class = DatumGetObjectId(dat);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
-	Assert(!isnull);
-	ev_attr = DatumGetInt16(dat);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -4093,10 +4103,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	/* The relation the rule is fired on */
 	appendStringInfo(buf, " TO %s", generate_relation_name(ev_class, NIL));
-	if (ev_attr > 0)
-		appendStringInfo(buf, ".%s",
-						 quote_identifier(get_relid_attribute_name(ev_class,
-																   ev_attr)));
 
 	/* If the rule has an event qualification, add it */
 	if (ev_qual == NULL)
@@ -4209,7 +4215,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	Query	   *query;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -4226,9 +4231,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	fno = SPI_fnumber(rulettc, "ev_class");
 	ev_class = (Oid) SPI_getbinval(ruletup, rulettc, fno, &isnull);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	ev_attr = (int16) SPI_getbinval(ruletup, rulettc, fno, &isnull);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	is_instead = (bool) SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -4249,7 +4251,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	query = (Query *) linitial(actions);
 
-	if (ev_type != '1' || ev_attr >= 0 || !is_instead ||
+	if (ev_type != '1' || !is_instead ||
 		strcmp(ev_qual, "<>") != 0 || query->commandType != CMD_SELECT)
 	{
 		appendStringInfo(buf, "Not a view");
@@ -5995,9 +5997,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	 * If it's a simple reference to one of the input vars, then recursively
 	 * print the name of that var instead.	When it's not a simple reference,
 	 * we have to just print the unqualified join column name.	(This can only
-	 * happen with columns that were merged by USING or NATURAL clauses in a
-	 * FULL JOIN; we took pains previously to make the unqualified column name
-	 * unique in such cases.)
+	 * happen with "dangerous" merged columns in a JOIN USING; we took pains
+	 * previously to make the unqualified column name unique in such cases.)
 	 *
 	 * This wouldn't work in decompiling plan trees, because we don't store
 	 * joinaliasvars lists after planning; but a plan tree should never
@@ -6012,7 +6013,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 			Var		   *aliasvar;
 
 			aliasvar = (Var *) list_nth(rte->joinaliasvars, attnum - 1);
-			if (IsA(aliasvar, Var))
+			/* we intentionally don't strip implicit coercions here */
+			if (aliasvar && IsA(aliasvar, Var))
 			{
 				return get_variable(aliasvar, var->varlevelsup + levelsup,
 									istoplevel, context);
@@ -6323,6 +6325,8 @@ get_name_for_var_field(Var *var, int fieldno,
 				elog(ERROR, "cannot decompile join alias var in plan tree");
 			Assert(attnum > 0 && attnum <= list_length(rte->joinaliasvars));
 			expr = (Node *) list_nth(rte->joinaliasvars, attnum - 1);
+			Assert(expr != NULL);
+			/* we intentionally don't strip implicit coercions here */
 			if (IsA(expr, Var))
 				return get_name_for_var_field((Var *) expr, fieldno,
 											  var->varlevelsup + levelsup,
@@ -8045,6 +8049,7 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	Oid			argtypes[FUNC_MAX_ARGS];
 	List	   *arglist;
 	int			nargs;
+	bool		use_variadic;
 	ListCell   *l;
 #ifdef PGXC
 	bool		added_finalfn = false;
@@ -8102,13 +8107,26 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	appendStringInfo(buf, "%s(%s",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes,
-											false, NULL),
+											aggref->aggvariadic,
+											&use_variadic),
 					 (aggref->aggdistinct != NIL) ? "DISTINCT " : "");
+
 	/* aggstar can be set only in zero-argument aggregates */
 	if (aggref->aggstar)
 		appendStringInfoChar(buf, '*');
 	else
-		get_rule_expr((Node *) arglist, context, true);
+	{
+		nargs = 0;
+		foreach(l, arglist)
+		{
+			if (nargs++ > 0)
+				appendStringInfoString(buf, ", ");
+			if (use_variadic && lnext(l) == NULL)
+				appendStringInfoString(buf, "VARIADIC ");
+			get_rule_expr((Node *) lfirst(l), context, true);
+		}
+	}
+
 	if (aggref->aggorder != NIL)
 	{
 		appendStringInfoString(buf, " ORDER BY ");
@@ -8689,6 +8707,8 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			case RTE_FUNCTION:
 				/* Function RTE */
 				get_rule_expr(rte->funcexpr, context, true);
+				if (rte->funcordinality)
+					appendStringInfoString(buf, " WITH ORDINALITY");
 				break;
 			case RTE_VALUES:
 				/* Values list RTE */
@@ -9278,7 +9298,7 @@ generate_relation_name(Oid relid, List *namespaces)
  *		types.	(Those matter because of ambiguous-function resolution rules.)
  *
  * If we're dealing with a potentially variadic function (in practice, this
- * means a FuncExpr and not some other way of calling the function), then
+ * means a FuncExpr or Aggref, not some other way of calling a function), then
  * was_variadic must specify whether VARIADIC appeared in the original call,
  * and *use_variadic_p will be set to indicate whether to print VARIADIC in
  * the output.	For non-FuncExpr cases, was_variadic should be FALSE and

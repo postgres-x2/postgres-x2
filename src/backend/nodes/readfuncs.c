@@ -504,6 +504,7 @@ _readAggref(void)
 	READ_NODE_FIELD(aggdistinct);
 	READ_NODE_FIELD(aggfilter);
 	READ_BOOL_FIELD(aggstar);
+	READ_BOOL_FIELD(aggvariadic);
 	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
 
@@ -1233,6 +1234,7 @@ _readRangeTblEntry(void)
 			READ_NODE_FIELD(funccoltypes);
 			READ_NODE_FIELD(funccoltypmods);
 			READ_NODE_FIELD(funccolcollations);
+			READ_BOOL_FIELD(funcordinality);
 			break;
 		case RTE_VALUES:
 			READ_NODE_FIELD(values_lists);

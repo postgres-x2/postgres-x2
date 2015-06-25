@@ -68,7 +68,7 @@ static BufferAccessStrategy vac_strategy;
 
 /* non-export function prototypes */
 static List *get_rel_oids(Oid relid, const RangeVar *vacrel);
-static void vac_truncate_clog(TransactionId frozenXID, MultiXactId frozenMulti);
+static void vac_truncate_clog(TransactionId frozenXID, MultiXactId minMulti);
 static bool vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast,
 		   bool for_wraparound);
 
@@ -388,7 +388,7 @@ vacuum_set_xid_limits(int freeze_min_age,
 					  TransactionId *oldestXmin,
 					  TransactionId *freezeLimit,
 					  TransactionId *freezeTableLimit,
-					  MultiXactId *multiXactFrzLimit)
+					  MultiXactId *multiXactCutoff)
 {
 	int			freezemin;
 	TransactionId limit;
@@ -473,7 +473,7 @@ vacuum_set_xid_limits(int freeze_min_age,
 		*freezeTableLimit = limit;
 	}
 
-	if (multiXactFrzLimit != NULL)
+	if (multiXactCutoff != NULL)
 	{
 		MultiXactId mxLimit;
 
@@ -485,7 +485,7 @@ vacuum_set_xid_limits(int freeze_min_age,
 		if (mxLimit < FirstMultiXactId)
 			mxLimit = FirstMultiXactId;
 
-		*multiXactFrzLimit = mxLimit;
+		*multiXactCutoff = mxLimit;
 	}
 }
 
@@ -699,8 +699,8 @@ vac_update_relstats(Relation relation,
  *		Update pg_database's datfrozenxid entry for our database to be the
  *		minimum of the pg_class.relfrozenxid values.
  *
- *		Similarly, update our datfrozenmulti to be the minimum of the
- *		pg_class.relfrozenmulti values.
+ *		Similarly, update our datminmxid to be the minimum of the
+ *		pg_class.relminmxid values.
  *
  *		If we are able to advance either pg_database value, also try to
  *		truncate pg_clog and pg_multixact.
@@ -720,7 +720,7 @@ vac_update_datfrozenxid(void)
 	SysScanDesc scan;
 	HeapTuple	classTup;
 	TransactionId newFrozenXid;
-	MultiXactId newFrozenMulti;
+	MultiXactId newMinMulti;
 	bool		dirty = false;
 
 	/*
@@ -735,7 +735,7 @@ vac_update_datfrozenxid(void)
 	 * Similarly, initialize the MultiXact "min" with the value that would be
 	 * used on pg_class for new tables.  See AddNewRelationTuple().
 	 */
-	newFrozenMulti = GetOldestMultiXactId();
+	newMinMulti = GetOldestMultiXactId();
 
 	/*
 	 * We must seqscan pg_class to find the minimum Xid, because there is no
@@ -765,8 +765,8 @@ vac_update_datfrozenxid(void)
 		if (TransactionIdPrecedes(classForm->relfrozenxid, newFrozenXid))
 			newFrozenXid = classForm->relfrozenxid;
 
-		if (MultiXactIdPrecedes(classForm->relminmxid, newFrozenMulti))
-			newFrozenMulti = classForm->relminmxid;
+		if (MultiXactIdPrecedes(classForm->relminmxid, newMinMulti))
+			newMinMulti = classForm->relminmxid;
 	}
 
 	/* we're done with pg_class */
@@ -774,7 +774,7 @@ vac_update_datfrozenxid(void)
 	heap_close(relation, AccessShareLock);
 
 	Assert(TransactionIdIsNormal(newFrozenXid));
-	Assert(MultiXactIdIsValid(newFrozenMulti));
+	Assert(MultiXactIdIsValid(newMinMulti));
 
 	/* Now fetch the pg_database tuple we need to update. */
 	relation = heap_open(DatabaseRelationId, RowExclusiveLock);
@@ -800,9 +800,9 @@ vac_update_datfrozenxid(void)
 	}
 
 	/* ditto */
-	if (MultiXactIdPrecedes(dbform->datminmxid, newFrozenMulti))
+	if (MultiXactIdPrecedes(dbform->datminmxid, newMinMulti))
 	{
-		dbform->datminmxid = newFrozenMulti;
+		dbform->datminmxid = newMinMulti;
 		dirty = true;
 	}
 
@@ -818,19 +818,7 @@ vac_update_datfrozenxid(void)
 	 * this action will update that too.
 	 */
 	if (dirty || ForceTransactionIdLimitUpdate())
-		/*
-		 * vac_truncate_clog needs a transaction id to detect wrap-arounds. For
-		 * a autovacuum, this would require the Datanode to contact the GTM or
-		 * the Coordinator and acquire GXID for the vacuum operation.
-		 *
-		 * To avoid this complexity, we disable the CLOG truncation. This is
-		 * perfectly fine for the prototype because we are not handling GXID
-		 * wrap-around in the prototype anyways. In future, this should be
-		 * fixed either by acquiring GXID for the vacuum operation or by
-		 * modifying the wrap-around check logic such that it does not need a
-		 * GXID
-		 */
-		vac_truncate_clog(newFrozenXid, newFrozenMulti);
+		vac_truncate_clog(newFrozenXid, newMinMulti);
 }
 
 
@@ -849,19 +837,19 @@ vac_update_datfrozenxid(void)
  *		info is stale.
  */
 static void
-vac_truncate_clog(TransactionId frozenXID, MultiXactId frozenMulti)
+vac_truncate_clog(TransactionId frozenXID, MultiXactId minMulti)
 {
 	TransactionId myXID = GetCurrentTransactionId();
 	Relation	relation;
 	HeapScanDesc scan;
 	HeapTuple	tuple;
 	Oid			oldestxid_datoid;
-	Oid			oldestmulti_datoid;
+	Oid			minmulti_datoid;
 	bool		frozenAlreadyWrapped = false;
 
 	/* init oldest datoids to sync with my frozen values */
 	oldestxid_datoid = MyDatabaseId;
-	oldestmulti_datoid = MyDatabaseId;
+	minmulti_datoid = MyDatabaseId;
 
 	/*
 	 * Scan pg_database to compute the minimum datfrozenxid
@@ -894,10 +882,10 @@ vac_truncate_clog(TransactionId frozenXID, MultiXactId frozenMulti)
 			oldestxid_datoid = HeapTupleGetOid(tuple);
 		}
 
-		if (MultiXactIdPrecedes(dbform->datminmxid, frozenMulti))
+		if (MultiXactIdPrecedes(dbform->datminmxid, minMulti))
 		{
-			frozenMulti = dbform->datminmxid;
-			oldestmulti_datoid = HeapTupleGetOid(tuple);
+			minMulti = dbform->datminmxid;
+			minmulti_datoid = HeapTupleGetOid(tuple);
 		}
 	}
 
@@ -927,7 +915,7 @@ vac_truncate_clog(TransactionId frozenXID, MultiXactId frozenMulti)
 #endif
 	/* Truncate CLOG and Multi to the oldest computed value */
 	TruncateCLOG(frozenXID);
-	TruncateMultiXact(frozenMulti);
+	TruncateMultiXact(minMulti);
 
 	/*
 	 * Update the wrap limit for GetNewTransactionId and creation of new
@@ -936,7 +924,7 @@ vac_truncate_clog(TransactionId frozenXID, MultiXactId frozenMulti)
 	 * signalling twice?
 	 */
 	SetTransactionIdLimit(frozenXID, oldestxid_datoid);
-	MultiXactAdvanceOldest(frozenMulti, oldestmulti_datoid);
+	MultiXactAdvanceOldest(minMulti, minmulti_datoid);
 }
 
 

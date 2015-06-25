@@ -1239,7 +1239,7 @@ json_populate_record(PG_FUNCTION_ARGS)
 	if (!type_is_rowtype(argtype))
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("first argument must be a rowtype")));
+				 errmsg("first argument of json_populate_record must be a row type")));
 
 	if (PG_ARGISNULL(0))
 	{
@@ -1581,7 +1581,7 @@ json_populate_recordset(PG_FUNCTION_ARGS)
 	if (!type_is_rowtype(argtype))
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("first argument must be a rowtype")));
+				 errmsg("first argument of json_populate_recordset must be a row type")));
 
 	rsi = (ReturnSetInfo *) fcinfo->resultinfo;
 
@@ -1836,7 +1836,7 @@ populate_recordset_array_element_start(void *state, bool isnull)
 		_state->lex->token_type != JSON_TOKEN_OBJECT_START)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("must call populate_recordset on an array of objects")));
+			 errmsg("must call json_populate_recordset on an array of objects")));
 }
 
 static void

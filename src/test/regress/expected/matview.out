@@ -301,6 +301,13 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY tvmm WITH NO DATA;
 ERROR:  PGXC does not support concurrent refresh yet
 DETAIL:  The feature is not currently supported
 REFRESH MATERIALIZED VIEW tvmm;
+-- no tuple locks on materialized views
+SELECT * FROM tvvm FOR SHARE;
+ grandtot 
+----------
+       41
+(1 row)
+
 -- test join of mv and view
 SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM tm m LEFT JOIN tv v USING (type) ORDER BY type;
  type | mtot | vtot 

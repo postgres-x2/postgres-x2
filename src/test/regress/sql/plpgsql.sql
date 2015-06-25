@@ -3883,3 +3883,106 @@ select testoa(1,2,1); -- fail at update
 
 drop function arrayassign1();
 drop function testoa(x1 int, x2 int, x3 int);
+
+-- access to call stack
+create function inner_func(int)
+returns int as $$
+declare _context text;
+begin
+  get diagnostics _context = pg_context;
+  raise notice '***%***', _context;
+  -- lets do it again, just for fun..
+  get diagnostics _context = pg_context;
+  raise notice '***%***', _context;
+  raise notice 'lets make sure we didnt break anything';
+  return 2 * $1;
+end;
+$$ language plpgsql;
+
+create or replace function outer_func(int)
+returns int as $$
+declare
+  myresult int;
+begin
+  raise notice 'calling down into inner_func()';
+  myresult := inner_func($1);
+  raise notice 'inner_func() done';
+  return myresult;
+end;
+$$ language plpgsql;
+
+create or replace function outer_outer_func(int)
+returns int as $$
+declare
+  myresult int;
+begin
+  raise notice 'calling down into outer_func()';
+  myresult := outer_func($1);
+  raise notice 'outer_func() done';
+  return myresult;
+end;
+$$ language plpgsql;
+
+select outer_outer_func(10);
+-- repeated call should to work
+select outer_outer_func(20);
+
+drop function outer_outer_func(int);
+drop function outer_func(int);
+drop function inner_func(int);
+
+-- access to call stack from exception
+create function inner_func(int)
+returns int as $$
+declare
+  _context text;
+  sx int := 5;
+begin
+  begin
+    perform sx / 0;
+  exception
+    when division_by_zero then
+      get diagnostics _context = pg_context;
+      raise notice '***%***', _context;
+  end;
+
+  -- lets do it again, just for fun..
+  get diagnostics _context = pg_context;
+  raise notice '***%***', _context;
+  raise notice 'lets make sure we didnt break anything';
+  return 2 * $1;
+end;
+$$ language plpgsql;
+
+create or replace function outer_func(int)
+returns int as $$
+declare
+  myresult int;
+begin
+  raise notice 'calling down into inner_func()';
+  myresult := inner_func($1);
+  raise notice 'inner_func() done';
+  return myresult;
+end;
+$$ language plpgsql;
+
+create or replace function outer_outer_func(int)
+returns int as $$
+declare
+  myresult int;
+begin
+  raise notice 'calling down into outer_func()';
+  myresult := outer_func($1);
+  raise notice 'outer_func() done';
+  return myresult;
+end;
+$$ language plpgsql;
+
+select outer_outer_func(10);
+-- repeated call should to work
+select outer_outer_func(20);
+
+drop function outer_outer_func(int);
+drop function outer_func(int);
+drop function inner_func(int);
+

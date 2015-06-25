@@ -69,8 +69,8 @@ extern uint32 bootstrap_data_checksum_version;
 /* File path names (all relative to $PGDATA) */
 #define RECOVERY_COMMAND_FILE	"recovery.conf"
 #define RECOVERY_COMMAND_DONE	"recovery.done"
-#define PROMOTE_SIGNAL_FILE "promote"
-#define FAST_PROMOTE_SIGNAL_FILE "fast_promote"
+#define PROMOTE_SIGNAL_FILE		"promote"
+#define FALLBACK_PROMOTE_SIGNAL_FILE "fallback_promote"
 
 
 /* User-settable parameters */
@@ -412,7 +412,7 @@ typedef struct
 typedef union XLogInsertSlotPadded
 {
 	XLogInsertSlot slot;
-	char		pad[64];
+	char		pad[CACHE_LINE_SIZE];
 } XLogInsertSlotPadded;
 
 /*
@@ -432,8 +432,14 @@ typedef struct XLogCtlInsert
 	uint64		CurrBytePos;
 	uint64		PrevBytePos;
 
-	/* insertion slots, see above for details */
-	XLogInsertSlotPadded *insertSlots;
+	/*
+	 * Make sure the above heavily-contended spinlock and byte positions are
+	 * on their own cache line. In particular, the RedoRecPtr and full page
+	 * write variables below should be on a different cache line. They are
+	 * read on every WAL insertion, but updated rarely, and we don't want
+	 * those reads to steal the cache line containing Curr/PrevBytePos.
+	 */
+	char		pad[CACHE_LINE_SIZE];
 
 	/*
 	 * fullPageWrites is the master copy used by all backends to determine
@@ -459,6 +465,9 @@ typedef struct XLogCtlInsert
 	bool		exclusiveBackup;
 	int			nonExclusiveBackups;
 	XLogRecPtr	lastBackupStart;
+
+	/* insertion slots, see XLogInsertSlot struct above for details */
+	XLogInsertSlotPadded *insertSlots;
 } XLogCtlInsert;
 
 /*
@@ -3348,10 +3357,11 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 {
 	char		path[MAXPGPATH];
 	char		tmppath[MAXPGPATH];
+	char	   *zbuffer;
 	XLogSegNo	installed_segno;
 	int			max_advance;
 	int			fd;
-	bool		zero_fill = true;
+	int			nbytes;
 
 	XLogFilePath(path, ThisTimeLineID, logsegno);
 
@@ -3385,6 +3395,16 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 
 	unlink(tmppath);
 
+	/*
+	 * Allocate a buffer full of zeros. This is done before opening the file
+	 * so that we don't leak the file descriptor if palloc fails.
+	 *
+	 * Note: palloc zbuffer, instead of just using a local char array, to
+	 * ensure it is reasonably well-aligned; this may save a few cycles
+	 * transferring data to the kernel.
+	 */
+	zbuffer = (char *) palloc0(XLOG_BLCKSZ);
+
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY,
 					   S_IRUSR | S_IWUSR);
@@ -3393,66 +3413,38 @@ XLogFileInit(XLogSegNo logsegno, bool *use_existent, bool use_lock)
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", tmppath)));
 
-#ifdef HAVE_POSIX_FALLOCATE
 	/*
-	 * If posix_fallocate() is available and succeeds, then the file is
-	 * properly allocated and we don't need to zero-fill it (which is less
-	 * efficient).  In case of an error, fall back to writing zeros, because on
-	 * some platforms posix_fallocate() is available but will not always
-	 * succeed in cases where zero-filling will.
+	 * Zero-fill the file.	We have to do this the hard way to ensure that all
+	 * the file space has really been allocated --- on platforms that allow
+	 * "holes" in files, just seeking to the end doesn't allocate intermediate
+	 * space.  This way, we know that we have all the space and (after the
+	 * fsync below) that all the indirect blocks are down on disk.	Therefore,
+	 * fdatasync(2) or O_DSYNC will be sufficient to sync future writes to the
+	 * log file.
 	 */
-	if (posix_fallocate(fd, 0, XLogSegSize) == 0)
-		zero_fill = false;
-#endif /* HAVE_POSIX_FALLOCATE */
-
-	if (zero_fill)
+	for (nbytes = 0; nbytes < XLogSegSize; nbytes += XLOG_BLCKSZ)
 	{
-		/*
-		 * Allocate a buffer full of zeros. This is done before opening the
-		 * file so that we don't leak the file descriptor if palloc fails.
-		 *
-		 * Note: palloc zbuffer, instead of just using a local char array, to
-		 * ensure it is reasonably well-aligned; this may save a few cycles
-		 * transferring data to the kernel.
-		 */
-
-		char	*zbuffer = (char *) palloc0(XLOG_BLCKSZ);
-		int		 nbytes;
-
-		/*
-		 * Zero-fill the file. We have to do this the hard way to ensure that
-		 * all the file space has really been allocated --- on platforms that
-		 * allow "holes" in files, just seeking to the end doesn't allocate
-		 * intermediate space.  This way, we know that we have all the space
-		 * and (after the fsync below) that all the indirect blocks are down on
-		 * disk. Therefore, fdatasync(2) or O_DSYNC will be sufficient to sync
-		 * future writes to the log file.
-		 */
-		for (nbytes = 0; nbytes < XLogSegSize; nbytes += XLOG_BLCKSZ)
+		errno = 0;
+		if ((int) write(fd, zbuffer, XLOG_BLCKSZ) != (int) XLOG_BLCKSZ)
 		{
-			errno = 0;
-			if ((int) write(fd, zbuffer, XLOG_BLCKSZ) != (int) XLOG_BLCKSZ)
-			{
-				int			save_errno = errno;
+			int			save_errno = errno;
 
-				/*
-				 * If we fail to make the file, delete it to release disk space
-				 */
-				unlink(tmppath);
+			/*
+			 * If we fail to make the file, delete it to release disk space
+			 */
+			unlink(tmppath);
 
-				close(fd);
+			close(fd);
 
-				/* if write didn't set errno, assume no disk space */
-				errno = save_errno ? save_errno : ENOSPC;
+			/* if write didn't set errno, assume problem is no disk space */
+			errno = save_errno ? save_errno : ENOSPC;
 
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not write to file \"%s\": %m",
-								tmppath)));
-			}
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not write to file \"%s\": %m", tmppath)));
 		}
-		pfree(zbuffer);
 	}
+	pfree(zbuffer);
 
 	if (pg_fsync(fd) != 0)
 	{
@@ -3725,7 +3717,7 @@ XLogFileOpen(XLogSegNo segno)
 	if (fd < 0)
 		ereport(PANIC,
 				(errcode_for_file_access(),
-				 errmsg("could not open xlog file \"%s\": %m", path)));
+				 errmsg("could not open transaction log file \"%s\": %m", path)));
 
 	return fd;
 }
@@ -4856,6 +4848,10 @@ ReadControlFile(void)
 				  " but the server was compiled without USE_FLOAT8_BYVAL."),
 				 errhint("It looks like you need to recompile or initdb.")));
 #endif
+
+	/* Make the fixed  settings visible as GUC variables, too */
+	SetConfigOption("data_checksums", DataChecksumsEnabled() ? "yes" : "no",
+					PGC_INTERNAL, PGC_S_OVERRIDE);
 }
 
 void
@@ -6213,7 +6209,7 @@ StartupXLOG(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory"),
-			errdetail("Failed while allocating an XLog reading processor")));
+			errdetail("Failed while allocating an XLog reading processor.")));
 	xlogreader->system_identifier = ControlFile->system_identifier;
 
 	if (read_backup_label(&checkPointLoc, &backupEndRequired,
@@ -6356,7 +6352,7 @@ StartupXLOG(void)
 		ereport(FATAL,
 				(errmsg("requested timeline %u is not a child of this server's history",
 						recoveryTargetTLI),
-				 errdetail("Latest checkpoint is at %X/%X on timeline %u, but in the history of the requested timeline, the server forked off from that timeline at %X/%X",
+				 errdetail("Latest checkpoint is at %X/%X on timeline %u, but in the history of the requested timeline, the server forked off from that timeline at %X/%X.",
 						   (uint32) (ControlFile->checkPoint >> 32),
 						   (uint32) ControlFile->checkPoint,
 						   ControlFile->checkPointCopy.ThisTimeLineID,
@@ -9102,7 +9098,7 @@ checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI, TimeLineID prevTLI)
 	/* Check that the record agrees on what the current (old) timeline is */
 	if (prevTLI != ThisTimeLineID)
 		ereport(PANIC,
-				(errmsg("unexpected prev timeline ID %u (current timeline ID %u) in checkpoint record",
+				(errmsg("unexpected previous timeline ID %u (current timeline ID %u) in checkpoint record",
 						prevTLI, ThisTimeLineID)));
 
 	/*
@@ -11157,19 +11153,20 @@ CheckForStandbyTrigger(void)
 	{
 		/*
 		 * In 9.1 and 9.2 the postmaster unlinked the promote file inside the
-		 * signal handler. We now leave the file in place and let the Startup
-		 * process do the unlink. This allows Startup to know whether we're
-		 * doing fast or normal promotion. Fast promotion takes precedence.
+		 * signal handler. It now leaves the file in place and lets the
+		 * Startup process do the unlink. This allows Startup to know whether
+		 * it should create a full checkpoint before starting up (fallback
+		 * mode). Fast promotion takes precedence.
 		 */
-		if (stat(FAST_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		{
-			unlink(FAST_PROMOTE_SIGNAL_FILE);
 			unlink(PROMOTE_SIGNAL_FILE);
+			unlink(FALLBACK_PROMOTE_SIGNAL_FILE);
 			fast_promote = true;
 		}
-		else if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		else if (stat(FALLBACK_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		{
-			unlink(PROMOTE_SIGNAL_FILE);
+			unlink(FALLBACK_PROMOTE_SIGNAL_FILE);
 			fast_promote = false;
 		}
 
@@ -11205,7 +11202,7 @@ CheckPromoteSignal(void)
 	struct stat stat_buf;
 
 	if (stat(PROMOTE_SIGNAL_FILE, &stat_buf) == 0 ||
-		stat(FAST_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
+		stat(FALLBACK_PROMOTE_SIGNAL_FILE, &stat_buf) == 0)
 		return true;
 
 	return false;

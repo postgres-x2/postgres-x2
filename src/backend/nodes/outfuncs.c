@@ -580,6 +580,7 @@ _outFunctionScan(StringInfo str, const FunctionScan *node)
 	WRITE_NODE_FIELD(funccoltypes);
 	WRITE_NODE_FIELD(funccoltypmods);
 	WRITE_NODE_FIELD(funccolcollations);
+	WRITE_BOOL_FIELD(funcordinality);
 }
 
 static void
@@ -1024,6 +1025,7 @@ _outAggref(StringInfo str, const Aggref *node)
 	WRITE_NODE_FIELD(aggdistinct);
 	WRITE_NODE_FIELD(aggfilter);
 	WRITE_BOOL_FIELD(aggstar);
+	WRITE_BOOL_FIELD(aggvariadic);
 	WRITE_UINT_FIELD(agglevelsup);
 	WRITE_LOCATION_FIELD(location);
 }
@@ -1822,6 +1824,7 @@ _outRelOptInfo(StringInfo str, const RelOptInfo *node)
 	WRITE_INT_FIELD(max_attr);
 	WRITE_NODE_FIELD(lateral_vars);
 	WRITE_BITMAPSET_FIELD(lateral_relids);
+	WRITE_BITMAPSET_FIELD(lateral_referencers);
 	WRITE_NODE_FIELD(indexlist);
 	WRITE_UINT_FIELD(pages);
 	WRITE_FLOAT_FIELD(tuples, "%.0f");
@@ -1979,8 +1982,8 @@ _outLateralJoinInfo(StringInfo str, const LateralJoinInfo *node)
 {
 	WRITE_NODE_TYPE("LATERALJOININFO");
 
-	WRITE_UINT_FIELD(lateral_rhs);
 	WRITE_BITMAPSET_FIELD(lateral_lhs);
+	WRITE_BITMAPSET_FIELD(lateral_rhs);
 }
 
 static void
@@ -2004,8 +2007,8 @@ _outPlaceHolderInfo(StringInfo str, const PlaceHolderInfo *node)
 	WRITE_UINT_FIELD(phid);
 	WRITE_NODE_FIELD(ph_var);
 	WRITE_BITMAPSET_FIELD(ph_eval_at);
+	WRITE_BITMAPSET_FIELD(ph_lateral);
 	WRITE_BITMAPSET_FIELD(ph_needed);
-	WRITE_BITMAPSET_FIELD(ph_may_need);
 	WRITE_INT_FIELD(ph_width);
 }
 
@@ -2452,6 +2455,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 			WRITE_NODE_FIELD(funccoltypes);
 			WRITE_NODE_FIELD(funccoltypmods);
 			WRITE_NODE_FIELD(funccolcollations);
+			WRITE_BOOL_FIELD(funcordinality);
 			break;
 		case RTE_VALUES:
 			WRITE_NODE_FIELD(values_lists);
@@ -2689,6 +2693,7 @@ _outRangeFunction(StringInfo str, const RangeFunction *node)
 {
 	WRITE_NODE_TYPE("RANGEFUNCTION");
 
+	WRITE_BOOL_FIELD(ordinality);
 	WRITE_BOOL_FIELD(lateral);
 	WRITE_NODE_FIELD(funccallnode);
 	WRITE_NODE_FIELD(alias);

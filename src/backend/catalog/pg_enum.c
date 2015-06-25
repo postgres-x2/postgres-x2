@@ -464,28 +464,20 @@ restart:
  * We avoid doing this unless absolutely necessary; in most installations
  * it will never happen.  The reason is that updating existing pg_enum
  * entries creates hazards for other backends that are concurrently reading
- * pg_enum with SnapshotNow semantics.	A concurrent SnapshotNow scan could
- * see both old and new versions of an updated row as valid, or neither of
- * them, if the commit happens between scanning the two versions.  It's
- * also quite likely for a concurrent scan to see an inconsistent set of
- * rows (some members updated, some not).
+ * pg_enum.	 Although system catalog scans now use MVCC semantics, the
+ * syscache machinery might read different pg_enum entries under different
+ * snapshots, so some other backend might get confused about the proper
+ * ordering if a concurrent renumbering occurs.
  *
- * We can avoid these risks by reading pg_enum with an MVCC snapshot
- * instead of SnapshotNow, but that forecloses use of the syscaches.
  * We therefore make the following choices:
  *
  * 1. Any code that is interested in the enumsortorder values MUST read
- * pg_enum with an MVCC snapshot, or else acquire lock on the enum type
- * to prevent concurrent execution of AddEnumLabel().  The risk of
- * seeing inconsistent values of enumsortorder is too high otherwise.
+ * all the relevant pg_enum entries with a single MVCC snapshot, or else
+ * acquire lock on the enum type to prevent concurrent execution of
+ * AddEnumLabel().
  *
  * 2. Code that is not examining enumsortorder can use a syscache
- * (for example, enum_in and enum_out do so).  The worst that can happen
- * is a transient failure to find any valid value of the row.  This is
- * judged acceptable in view of the infrequency of use of RenumberEnumType.
- *
- * XXX. Now that we have MVCC catalog scans, the above reasoning is no longer
- * correct.  Should we revisit any decisions here?
+ * (for example, enum_in and enum_out do so).
  */
 static void
 RenumberEnumType(Relation pg_enum, HeapTuple *existing, int nelems)

@@ -78,7 +78,14 @@ describeAggregates(const char *pattern, bool verbose, bool showSystem)
 					  gettext_noop("Name"),
 					  gettext_noop("Result data type"));
 
-	if (pset.sversion >= 80200)
+	if (pset.sversion >= 80400)
+		appendPQExpBuffer(&buf,
+						  "  CASE WHEN p.pronargs = 0\n"
+						  "    THEN CAST('*' AS pg_catalog.text)\n"
+					 "    ELSE pg_catalog.pg_get_function_arguments(p.oid)\n"
+						  "  END AS \"%s\",\n",
+						  gettext_noop("Argument data types"));
+	else if (pset.sversion >= 80200)
 		appendPQExpBuffer(&buf,
 						  "  CASE WHEN p.pronargs = 0\n"
 						  "    THEN CAST('*' AS pg_catalog.text)\n"
@@ -2429,10 +2436,9 @@ add_tablespace_footer(printTableContent *const cont, char relkind,
 					/* Append the tablespace to the latest footer */
 					printfPQExpBuffer(&buf, "%s", cont->footer->data);
 
-					/*
-					 * translator: before this string there's an index
-					 * description like '"foo_pkey" PRIMARY KEY, btree (a)'
-					 */
+					/*-------
+					   translator: before this string there's an index description like
+					   '"foo_pkey" PRIMARY KEY, btree (a)' */
 					appendPQExpBuffer(&buf, _(", tablespace \"%s\""),
 									  PQgetvalue(result, 0, 0));
 					printTableSetFooter(cont, buf.data);

@@ -203,6 +203,7 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_NODE_FIELD(aggdistinct);
 	COMPARE_NODE_FIELD(aggfilter);
 	COMPARE_SCALAR_FIELD(aggstar);
+	COMPARE_SCALAR_FIELD(aggvariadic);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -768,15 +769,19 @@ _equalPlaceHolderVar(const PlaceHolderVar *a, const PlaceHolderVar *b)
 	/*
 	 * We intentionally do not compare phexpr.	Two PlaceHolderVars with the
 	 * same ID and levelsup should be considered equal even if the contained
-	 * expressions have managed to mutate to different states.	One way in
-	 * which that can happen is that initplan sublinks would get replaced by
-	 * differently-numbered Params when sublink folding is done.  (The end
-	 * result of such a situation would be some unreferenced initplans, which
-	 * is annoying but not really a problem.)
+	 * expressions have managed to mutate to different states.	This will
+	 * happen during final plan construction when there are nested PHVs, since
+	 * the inner PHV will get replaced by a Param in some copies of the outer
+	 * PHV.  Another way in which it can happen is that initplan sublinks
+	 * could get replaced by differently-numbered Params when sublink folding
+	 * is done.  (The end result of such a situation would be some
+	 * unreferenced initplans, which is annoying but not really a problem.) On
+	 * the same reasoning, there is no need to examine phrels.
 	 *
 	 * COMPARE_NODE_FIELD(phexpr);
+	 *
+	 * COMPARE_BITMAPSET_FIELD(phrels);
 	 */
-	COMPARE_BITMAPSET_FIELD(phrels);
 	COMPARE_SCALAR_FIELD(phid);
 	COMPARE_SCALAR_FIELD(phlevelsup);
 
@@ -801,8 +806,8 @@ _equalSpecialJoinInfo(const SpecialJoinInfo *a, const SpecialJoinInfo *b)
 static bool
 _equalLateralJoinInfo(const LateralJoinInfo *a, const LateralJoinInfo *b)
 {
-	COMPARE_SCALAR_FIELD(lateral_rhs);
 	COMPARE_BITMAPSET_FIELD(lateral_lhs);
+	COMPARE_BITMAPSET_FIELD(lateral_rhs);
 
 	return true;
 }
@@ -824,10 +829,10 @@ static bool
 _equalPlaceHolderInfo(const PlaceHolderInfo *a, const PlaceHolderInfo *b)
 {
 	COMPARE_SCALAR_FIELD(phid);
-	COMPARE_NODE_FIELD(ph_var);
+	COMPARE_NODE_FIELD(ph_var); /* should be redundant */
 	COMPARE_BITMAPSET_FIELD(ph_eval_at);
+	COMPARE_BITMAPSET_FIELD(ph_lateral);
 	COMPARE_BITMAPSET_FIELD(ph_needed);
-	COMPARE_BITMAPSET_FIELD(ph_may_need);
 	COMPARE_SCALAR_FIELD(ph_width);
 
 	return true;
@@ -2139,6 +2144,7 @@ _equalRangeSubselect(const RangeSubselect *a, const RangeSubselect *b)
 static bool
 _equalRangeFunction(const RangeFunction *a, const RangeFunction *b)
 {
+	COMPARE_SCALAR_FIELD(ordinality);
 	COMPARE_SCALAR_FIELD(lateral);
 	COMPARE_NODE_FIELD(funccallnode);
 	COMPARE_NODE_FIELD(alias);
@@ -2247,6 +2253,7 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_NODE_FIELD(funccoltypes);
 	COMPARE_NODE_FIELD(funccoltypmods);
 	COMPARE_NODE_FIELD(funccolcollations);
+	COMPARE_SCALAR_FIELD(funcordinality);
 	COMPARE_NODE_FIELD(values_lists);
 	COMPARE_NODE_FIELD(values_collations);
 	COMPARE_STRING_FIELD(ctename);

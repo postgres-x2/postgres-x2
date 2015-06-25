@@ -36,7 +36,8 @@ extern Query *transformStmt(ParseState *pstate, Node *parseTree);
 
 extern bool analyze_requires_snapshot(Node *parseTree);
 
-extern void CheckSelectLocking(Query *qry);
+extern char *LCS_asString(LockClauseStrength strength);
+extern void CheckSelectLocking(Query *qry, LockClauseStrength strength);
 extern void applyLockingClause(Query *qry, Index rtindex,
 				   LockClauseStrength strength, bool noWait, bool pushedDown);
 

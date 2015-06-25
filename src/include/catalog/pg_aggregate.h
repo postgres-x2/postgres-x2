@@ -464,8 +464,12 @@ DATA(insert ( 3175	json_agg_transfn	-	json_agg_finalfn		0	2281	_null_ _null_ ));
  */
 extern Oid AggregateCreate(const char *aggName,
 				Oid aggNamespace,
-				Oid *aggArgTypes,
 				int numArgs,
+				oidvector *parameterTypes,
+				Datum allParameterTypes,
+				Datum parameterModes,
+				Datum parameterNames,
+				List *parameterDefaults,
 				List *aggtransfnName,
 #ifdef PGXC
 				List *aggcollectfnName,

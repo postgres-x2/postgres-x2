@@ -45,10 +45,12 @@
  *
  * "oldstyle" signals the old (pre-8.2) style where the aggregate input type
  * is specified by a BASETYPE element in the parameters.  Otherwise,
- * "args" defines the input type(s).
+ * "args" is a list of FunctionParameter structs defining the agg's arguments.
+ * "parameters" is a list of DefElem representing the agg's definition clauses.
  */
 Oid
-DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
+DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
+				const char *queryString)
 {
 	char	   *aggName;
 	Oid			aggNamespace;
@@ -63,8 +65,12 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	List	   *collectfuncName = NIL;
 	char	   *initcollect = NULL;
 #endif
-	Oid		   *aggArgTypes;
 	int			numArgs;
+	oidvector  *parameterTypes;
+	ArrayType  *allParameterTypes;
+	ArrayType  *parameterModes;
+	ArrayType  *parameterNames;
+	List	   *parameterDefaults;
 	Oid			transTypeId;
 	char		transTypeType;
 	ListCell   *pl;
@@ -141,6 +147,8 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		 * Historically we allowed the command to look like basetype = 'ANY'
 		 * so we must do a case-insensitive comparison for the name ANY. Ugh.
 		 */
+		Oid			aggArgTypes[1];
+
 		if (baseType == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
@@ -149,22 +157,26 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		if (pg_strcasecmp(TypeNameToString(baseType), "ANY") == 0)
 		{
 			numArgs = 0;
-			aggArgTypes = NULL;
+			aggArgTypes[0] = InvalidOid;
 		}
 		else
 		{
 			numArgs = 1;
-			aggArgTypes = (Oid *) palloc(sizeof(Oid));
 			aggArgTypes[0] = typenameTypeId(NULL, baseType);
 		}
+		parameterTypes = buildoidvector(aggArgTypes, numArgs);
+		allParameterTypes = NULL;
+		parameterModes = NULL;
+		parameterNames = NULL;
+		parameterDefaults = NIL;
 	}
 	else
 	{
 		/*
-		 * New style: args is a list of TypeNames (possibly zero of 'em).
+		 * New style: args is a list of FunctionParameters (possibly zero of
+		 * 'em).  We share functioncmds.c's code for processing them.
 		 */
-		ListCell   *lc;
-		int			i = 0;
+		Oid			requiredResultType;
 
 		if (baseType != NULL)
 			ereport(ERROR,
@@ -172,13 +184,20 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 					 errmsg("basetype is redundant with aggregate input type specification")));
 
 		numArgs = list_length(args);
-		aggArgTypes = (Oid *) palloc(sizeof(Oid) * numArgs);
-		foreach(lc, args)
-		{
-			TypeName   *curTypeName = (TypeName *) lfirst(lc);
-
-			aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
-		}
+		interpret_function_parameter_list(args,
+										  InvalidOid,
+										  true, /* is an aggregate */
+										  queryString,
+										  &parameterTypes,
+										  &allParameterTypes,
+										  &parameterModes,
+										  &parameterNames,
+										  &parameterDefaults,
+										  &requiredResultType);
+		/* Parameter defaults are not currently allowed by the grammar */
+		Assert(parameterDefaults == NIL);
+		/* There shouldn't have been any OUT parameters, either */
+		Assert(requiredResultType == InvalidOid);
 	}
 
 	/*
@@ -229,8 +248,12 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	 */
 	return AggregateCreate(aggName,		/* aggregate name */
 						   aggNamespace,		/* namespace */
-						   aggArgTypes, /* input data type(s) */
 						   numArgs,
+						   parameterTypes,
+						   PointerGetDatum(allParameterTypes),
+						   PointerGetDatum(parameterModes),
+						   PointerGetDatum(parameterNames),
+						   parameterDefaults,
 						   transfuncName,		/* step function name */
 #ifdef PGXC
 						   collectfuncName,	/* collect function name */

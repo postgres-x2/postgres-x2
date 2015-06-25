@@ -116,6 +116,7 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 	/* min_attr, max_attr, attr_needed, attr_widths are set below */
 	rel->lateral_vars = NIL;
 	rel->lateral_relids = NULL;
+	rel->lateral_referencers = NULL;
 	rel->indexlist = NIL;
 	rel->pages = 0;
 	rel->tuples = 0;
@@ -377,6 +378,7 @@ build_join_rel(PlannerInfo *root,
 	joinrel->attr_widths = NULL;
 	joinrel->lateral_vars = NIL;
 	joinrel->lateral_relids = NULL;
+	joinrel->lateral_referencers = NULL;
 	joinrel->indexlist = NIL;
 	joinrel->pages = 0;
 	joinrel->tuples = 0;
@@ -676,6 +678,36 @@ subbuild_joinrel_joinlist(RelOptInfo *joinrel,
 	}
 
 	return new_joininfo;
+}
+
+
+/*
+ * build_empty_join_rel
+ *		Build a dummy join relation describing an empty set of base rels.
+ *
+ * This is used for queries with empty FROM clauses, such as "SELECT 2+2" or
+ * "INSERT INTO foo VALUES(...)".  We don't try very hard to make the empty
+ * joinrel completely valid, since no real planning will be done with it ---
+ * we just need it to carry a simple Result path out of query_planner().
+ */
+RelOptInfo *
+build_empty_join_rel(PlannerInfo *root)
+{
+	RelOptInfo *joinrel;
+
+	/* The dummy join relation should be the only one ... */
+	Assert(root->join_rel_list == NIL);
+
+	joinrel = makeNode(RelOptInfo);
+	joinrel->reloptkind = RELOPT_JOINREL;
+	joinrel->relids = NULL;		/* empty set */
+	joinrel->rows = 1;			/* we produce one row for such cases */
+	joinrel->width = 0;			/* it contains no Vars */
+	joinrel->rtekind = RTE_JOIN;
+
+	root->join_rel_list = lappend(root->join_rel_list, joinrel);
+
+	return joinrel;
 }
 
 

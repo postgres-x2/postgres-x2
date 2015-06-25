@@ -6,11 +6,13 @@
  * including normal transactions.
  *
  * Any external module loaded via shared_preload_libraries can register a
- * worker.	Then, at the appropriate time, the worker process is forked from
- * the postmaster and runs the user-supplied "main" function.  This code may
- * connect to a database and run transactions.	Once started, it stays active
- * until shutdown or crash.  The process should sleep during periods of
- * inactivity.
+ * worker.	Workers can also be registered dynamically at runtime.  In either
+ * case, the worker process is forked from the postmaster and runs the
+ * user-supplied "main" function.  This code may connect to a database and
+ * run transactions.  Once started, it stays active until shutdown or crash;
+ * unless the restart interval is declared as BGW_NEVER_RESTART and the
+ * process exits with a return code of 1; workers that do this are
+ * automatically unregistered by the postmaster.
  *
  * If the fork() call fails in the postmaster, it will try again later.  Note
  * that the failure can only be transient (fork failure due to high load,
@@ -78,13 +80,32 @@ typedef struct BackgroundWorker
 	char		bgw_library_name[BGW_MAXLEN];	/* only if bgw_main is NULL */
 	char		bgw_function_name[BGW_MAXLEN];	/* only if bgw_main is NULL */
 	Datum		bgw_main_arg;
+	pid_t		bgw_notify_pid;		/* SIGUSR1 this backend on start/stop */
 } BackgroundWorker;
+
+typedef enum BgwHandleStatus
+{
+	BGWH_STARTED,				/* worker is running */
+	BGWH_NOT_YET_STARTED,		/* worker hasn't been started yet */
+	BGWH_STOPPED,				/* worker has exited */
+	BGWH_POSTMASTER_DIED		/* postmaster died; worker status unclear */
+} BgwHandleStatus;
+
+struct BackgroundWorkerHandle;
+typedef struct BackgroundWorkerHandle BackgroundWorkerHandle;
 
 /* Register a new bgworker during shared_preload_libraries */
 extern void RegisterBackgroundWorker(BackgroundWorker *worker);
 
 /* Register a new bgworker from a regular backend */
-extern bool RegisterDynamicBackgroundWorker(BackgroundWorker *worker);
+extern bool RegisterDynamicBackgroundWorker(BackgroundWorker *worker,
+											BackgroundWorkerHandle **handle);
+
+/* Query the status of a bgworker */
+extern BgwHandleStatus GetBackgroundWorkerPid(BackgroundWorkerHandle *handle,
+					   pid_t *pidp);
+extern BgwHandleStatus WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *
+							   handle, pid_t *pid);
 
 /* This is valid in a running worker */
 extern BackgroundWorker *MyBgworkerEntry;

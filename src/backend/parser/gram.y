@@ -335,8 +335,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				reloptions opt_reloptions
 				OptWith opt_distinct opt_definition func_args func_args_list
 				func_args_with_defaults func_args_with_defaults_list
+				aggr_args aggr_args_list
 				func_as createfunc_opt_list alterfunc_opt_list
-				aggr_args old_aggr_definition old_aggr_list
+				old_aggr_definition old_aggr_list
 				oper_argtypes RuleActionList RuleActionMulti
 				opt_column_list columnList opt_name_list
 				sort_clause opt_sort_clause sortby_list index_params
@@ -363,7 +364,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <into>	into_clause create_as_target create_mv_target
 
 %type <defelt>	createfunc_opt_item common_func_opt_item dostmt_opt_item
-%type <fun_param> func_arg func_arg_with_default table_func_column
+%type <fun_param> func_arg func_arg_with_default table_func_column aggr_arg
 %type <fun_param_mode> arg_class
 %type <typnam>	func_return func_type
 
@@ -592,7 +593,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	NULLS_P NUMERIC
 
 	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTION OPTIONS OR
-	ORDER OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
+	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
 	PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
 
@@ -639,8 +640,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  * list and so can never be entered directly.  The filter in parser.c
  * creates these tokens when required.
  */
-%token			NULLS_FIRST NULLS_LAST WITH_TIME
-
+%token			NULLS_FIRST NULLS_LAST WITH_ORDINALITY WITH_TIME
 
 /* Precedence: lowest to highest */
 %nonassoc	SET				/* see relation_expr_opt_alias */
@@ -3860,7 +3860,7 @@ AlterExtensionContentsStmt:
 					n->action = $4;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = $7;
+					n->objargs = extractArgTypes($7);
 					$$ = (Node *)n;
 				}
 			| ALTER EXTENSION name add_drop CAST '(' Typename AS Typename ')'
@@ -4961,10 +4961,6 @@ def_arg:	func_type						{ $$ = (Node *)$1; }
 			| Sconst						{ $$ = (Node *)makeString($1); }
 		;
 
-aggr_args:	'(' type_list ')'						{ $$ = $2; }
-			| '(' '*' ')'							{ $$ = NIL; }
-		;
-
 old_aggr_definition: '(' old_aggr_list ')'			{ $$ = $2; }
 		;
 
@@ -5443,7 +5439,7 @@ CommentStmt:
 					CommentStmt *n = makeNode(CommentStmt);
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $4;
-					n->objargs = $5;
+					n->objargs = extractArgTypes($5);
 					n->comment = $7;
 					$$ = (Node *) n;
 				}
@@ -5609,7 +5605,7 @@ SecLabelStmt:
 					n->provider = $3;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = $7;
+					n->objargs = extractArgTypes($7);
 					n->label = $9;
 					$$ = (Node *) n;
 				}
@@ -6596,6 +6592,28 @@ func_arg_with_default:
 				}
 		;
 
+/* Aggregate args can be most things that function args can be */
+aggr_arg:	func_arg
+				{
+					if (!($1->mode == FUNC_PARAM_IN ||
+						  $1->mode == FUNC_PARAM_VARIADIC))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("aggregates cannot have output arguments"),
+								 parser_errposition(@1)));
+					$$ = $1;
+				}
+		;
+
+/* Zero-argument aggregates are named with * for consistency with COUNT(*) */
+aggr_args:	'(' aggr_args_list ')'					{ $$ = $2; }
+			| '(' '*' ')'							{ $$ = NIL; }
+		;
+
+aggr_args_list:
+			aggr_arg								{ $$ = list_make1($1); }
+			| aggr_args_list ',' aggr_arg			{ $$ = lappend($1, $3); }
+		;
 
 createfunc_opt_list:
 			/* Must be at least one to prevent conflict */
@@ -6795,7 +6813,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($3);
-					n->arguments = list_make1($4);
+					n->arguments = list_make1(extractArgTypes($4));
 					n->behavior = $5;
 					n->missing_ok = false;
 					n->concurrent = false;
@@ -6806,7 +6824,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($5);
-					n->arguments = list_make1($6);
+					n->arguments = list_make1(extractArgTypes($6));
 					n->behavior = $7;
 					n->missing_ok = true;
 					n->concurrent = false;
@@ -7022,7 +7040,7 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					RenameStmt *n = makeNode(RenameStmt);
 					n->renameType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = $4;
+					n->objarg = extractArgTypes($4);
 					n->newname = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7496,7 +7514,7 @@ AlterObjectSchemaStmt:
 					AlterObjectSchemaStmt *n = makeNode(AlterObjectSchemaStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = $4;
+					n->objarg = extractArgTypes($4);
 					n->newschema = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7725,7 +7743,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = $4;
+					n->objarg = extractArgTypes($4);
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
@@ -10001,18 +10019,40 @@ table_ref:	relation_expr opt_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = false;
+					n->ordinality = false;
 					n->funccallnode = $1;
 					n->alias = linitial($2);
 					n->coldeflist = lsecond($2);
+					$$ = (Node *) n;
+				}
+			| func_table WITH_ORDINALITY func_alias_clause
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->lateral = false;
+					n->ordinality = true;
+					n->funccallnode = $1;
+					n->alias = linitial($3);
+					n->coldeflist = lsecond($3);
 					$$ = (Node *) n;
 				}
 			| LATERAL_P func_table func_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = true;
+					n->ordinality = false;
 					n->funccallnode = $2;
 					n->alias = linitial($3);
 					n->coldeflist = lsecond($3);
+					$$ = (Node *) n;
+				}
+			| LATERAL_P func_table WITH_ORDINALITY func_alias_clause
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->lateral = true;
+					n->ordinality = true;
+					n->funccallnode = $2;
+					n->alias = linitial($4);
+					n->coldeflist = lsecond($4);
 					$$ = (Node *) n;
 				}
 			| select_with_parens opt_alias_clause
@@ -12999,6 +13039,7 @@ unreserved_keyword:
 			| OPERATOR
 			| OPTION
 			| OPTIONS
+			| ORDINALITY
 			| OVER
 			| OWNED
 			| OWNER

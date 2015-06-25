@@ -6,7 +6,7 @@
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *		src/include/postmaster/bgworker.h
+ *		src/include/postmaster/bgworker_internals.h
  *--------------------------------------------------------------------
  */
 #ifndef BGWORKER_INTERNALS_H
@@ -39,10 +39,15 @@ extern slist_head BackgroundWorkerList;
 extern Size BackgroundWorkerShmemSize(void);
 extern void BackgroundWorkerShmemInit(void);
 extern void BackgroundWorkerStateChange(void);
-extern void ForgetBackgroundWorker(RegisteredBgWorker *);
+extern void ForgetBackgroundWorker(slist_mutable_iter *cur);
+extern void ReportBackgroundWorkerPID(RegisteredBgWorker *);
+extern void BackgroundWorkerStopNotifications(pid_t pid);
+
+/* Function to start a background worker, called from postmaster.c */
+extern void StartBackgroundWorker(void);
 
 #ifdef EXEC_BACKEND
 extern BackgroundWorker *BackgroundWorkerEntry(int slotno);
 #endif
 
-#endif   /* BGWORKER_INTERNLS_H */
+#endif   /* BGWORKER_INTERNALS_H */
