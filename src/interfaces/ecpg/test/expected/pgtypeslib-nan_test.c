@@ -79,10 +79,10 @@ if (sqlca.sqlcode < 0) sqlprint ( );}
 #line 31 "nan_test.pgc"
 
 
-	/* declare cur cursor for select id , d , d from nantest1 */
+	/* declare cur cursor for select id , d , d from nantest1 order by 1 , 2 , 3 */
 #line 33 "nan_test.pgc"
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select id , d , d from nantest1", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select id , d , d from nantest1 order by 1 , 2 , 3", ECPGt_EOIT, ECPGt_EORT);
 #line 34 "nan_test.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint ( );}
@@ -137,7 +137,7 @@ if (sqlca.sqlcode < 0) sqlprint ( );}
 #line 48 "nan_test.pgc"
 
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select id , d , d from nantest1", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select id , d , d from nantest1 order by 1 , 2 , 3", ECPGt_EOIT, ECPGt_EORT);
 #line 50 "nan_test.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint ( );}
@@ -186,7 +186,7 @@ if (sqlca.sqlcode < 0) sqlprint ( );}
 #line 66 "nan_test.pgc"
 
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select id , d , d from nantest2 where id = 4", ECPGt_EOIT, 
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select id , d , d from nantest2 where id = 4 order by 1 , 2 , 3", ECPGt_EOIT, 
 	ECPGt_int,&(id),(long)1,(long)1,sizeof(int), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, 
 	ECPGt_numeric,&(num),(long)1,(long)0,sizeof(numeric), 
@@ -218,10 +218,10 @@ if (sqlca.sqlcode < 0) sqlprint ( );}
 #line 73 "nan_test.pgc"
 
 
-	/* declare cur1 cursor for select id , d , d from nantest2 */
+	/* declare cur1 cursor for select id , d , d from nantest2 order by 1 , 2 , 3 */
 #line 75 "nan_test.pgc"
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur1 cursor for select id , d , d from nantest2", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur1 cursor for select id , d , d from nantest2 order by 1 , 2 , 3", ECPGt_EOIT, ECPGt_EORT);
 #line 76 "nan_test.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint ( );}

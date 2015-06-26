@@ -12,8 +12,8 @@ int
 main (void)
 {
 exec sql begin declare section;
-	char	*stmt1 = "SELECT id, t FROM descr_t1";
-	char	*stmt2 = "SELECT id, t FROM descr_t1 WHERE id = -1";
+	char	*stmt1 = "SELECT id, t FROM descr_t1 ORDER BY 1,2";
+	char	*stmt2 = "SELECT id, t FROM descr_t1 WHERE id = -1 ORDER BY 1,2";
 	int	i, count1, count2;
 	char	field_name1[30] = "not set";
 	char	field_name2[30] = "not set";

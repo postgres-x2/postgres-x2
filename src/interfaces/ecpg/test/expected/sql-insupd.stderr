@@ -32,43 +32,37 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 24: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 24: correctly got 3 tuples with 1 fields
+[NO_PID]: ecpg_check_PQresult on line 24: bad response - ERROR:  Partition column can't be updated in current version
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 24: RESULT: 2 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 24: RESULT: 3 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 24: RESULT: 4 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
+[NO_PID]: raising sqlstate 42P10 (sqlcode -400): Partition column can't be updated in current version on line 24
+[NO_PID]: sqlca: code: -400, state: 42P10
+SQL error: Partition column can't be updated in current version on line 24
 [NO_PID]: ecpg_execute on line 25: query: update insupd_test set ( a , b ) = ( 5 , 5 ) where a = 4; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 25: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 25: OK: UPDATE 1
+[NO_PID]: ecpg_check_PQresult on line 25: bad response - ERROR:  current transaction is aborted, commands ignored until end of transaction block
 [NO_PID]: sqlca: code: 0, state: 00000
+[NO_PID]: raising sqlstate 25P02 (sqlcode -400): current transaction is aborted, commands ignored until end of transaction block on line 25
+[NO_PID]: sqlca: code: -400, state: 25P02
+SQL error: current transaction is aborted, commands ignored until end of transaction block on line 25
 [NO_PID]: ecpg_execute on line 26: query: update insupd_test set a = 4 where a = 3; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 26: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 26: OK: UPDATE 1
+[NO_PID]: ecpg_check_PQresult on line 26: bad response - ERROR:  current transaction is aborted, commands ignored until end of transaction block
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 28: query: select a , b from insupd_test order by a; with 0 parameter(s) on connection regress1
+[NO_PID]: raising sqlstate 25P02 (sqlcode -400): current transaction is aborted, commands ignored until end of transaction block on line 26
+[NO_PID]: sqlca: code: -400, state: 25P02
+SQL error: current transaction is aborted, commands ignored until end of transaction block on line 26
+[NO_PID]: ecpg_execute on line 28: query: select a , b from insupd_test order by a , b; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 28: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 28: correctly got 3 tuples with 2 fields
+[NO_PID]: ecpg_check_PQresult on line 28: bad response - ERROR:  current transaction is aborted, commands ignored until end of transaction block
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 2 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 4 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 5 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 1 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 2 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_get_data on line 28: RESULT: 5 offset: -1; array: no
-[NO_PID]: sqlca: code: 0, state: 00000
+[NO_PID]: raising sqlstate 25P02 (sqlcode -400): current transaction is aborted, commands ignored until end of transaction block on line 28
+[NO_PID]: sqlca: code: -400, state: 25P02
+SQL error: current transaction is aborted, commands ignored until end of transaction block on line 28
 [NO_PID]: ecpg_finish: connection regress1 closed
 [NO_PID]: sqlca: code: 0, state: 00000

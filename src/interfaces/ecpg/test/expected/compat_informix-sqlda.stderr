@@ -22,9 +22,9 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ECPGtrans on line 88: action "commit"; connection "regress1"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 95: name st_id1; query: "SELECT * FROM t1"
+[NO_PID]: prepare_common on line 95: name st_id1; query: "SELECT * FROM t1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 101: query: declare mycur1 cursor for SELECT * FROM t1; with 0 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 101: query: declare mycur1 cursor for SELECT * FROM t1 ORDER BY 1,2,3,4,5; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 101: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -134,9 +134,9 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: deallocate_one on line 121: name st_id1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 132: name st_id2; query: "SELECT * FROM t1"
+[NO_PID]: prepare_common on line 132: name st_id2; query: "SELECT * FROM t1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 138: query: declare mycur2 cursor for SELECT * FROM t1; with 0 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 138: query: declare mycur2 cursor for SELECT * FROM t1 ORDER BY 1,2,3,4,5; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 138: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -246,11 +246,11 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: deallocate_one on line 158: name st_id2
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 181: name st_id3; query: "SELECT * FROM t1 WHERE id = $1"
+[NO_PID]: prepare_common on line 181: name st_id3; query: "SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 184: query: SELECT * FROM t1 WHERE id = $1; with 1 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 184: query: SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5; with 1 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 184: using PQexecPrepared for "SELECT * FROM t1 WHERE id = $1"
+[NO_PID]: ecpg_execute on line 184: using PQexecPrepared for "SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: free_params on line 184: parameter 1 = 4
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -286,11 +286,11 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ECPGconnect: opening database regress1 on <DEFAULT> port <DEFAULT>  
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 218: name st_id4; query: "SELECT * FROM t1 WHERE id = $1"
+[NO_PID]: prepare_common on line 218: name st_id4; query: "SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 221: query: SELECT * FROM t1 WHERE id = $1; with 1 parameter(s) on connection con2
+[NO_PID]: ecpg_execute on line 221: query: SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5; with 1 parameter(s) on connection con2
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 221: using PQexecPrepared for "SELECT * FROM t1 WHERE id = $1"
+[NO_PID]: ecpg_execute on line 221: using PQexecPrepared for "SELECT * FROM t1 WHERE id = $1 ORDER BY 1,2,3,4,5"
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: free_params on line 221: parameter 1 = 4
 [NO_PID]: sqlca: code: 0, state: 00000

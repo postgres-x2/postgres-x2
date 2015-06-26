@@ -39,10 +39,10 @@ main(void)
  char * stmt1 = "INSERT INTO test1 VALUES ($1, $2)" ;
  
 #line 9 "desc.pgc"
- char * stmt2 = "SELECT * from test1 where a = $1 and b = $2" ;
+ char * stmt2 = "SELECT * from test1 where a = $1 and b = $2 ORDER BY 1,2" ;
  
 #line 10 "desc.pgc"
- char * stmt3 = "SELECT * from test1 where :var = a" ;
+ char * stmt3 = "SELECT * from test1 where :var = a ORDER BY 1,2" ;
  
 #line 12 "desc.pgc"
  int val1 = 1 ;
@@ -325,7 +325,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 #line 75 "desc.pgc"
 
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from test1 where a = 3", ECPGt_EOIT, 
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from test1 where a = 3 order by 1 , 2", ECPGt_EOIT, 
 	ECPGt_int,&(val1output),(long)1,(long)1,sizeof(int), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, 
 	ECPGt_char,(val2output),(long)sizeof("AAA"),(long)1,(sizeof("AAA"))*sizeof(char), 

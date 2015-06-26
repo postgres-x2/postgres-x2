@@ -74,7 +74,7 @@ exec sql end declare section;
 			char text[16];
 		exec sql end declare section;
 
-		exec sql select ascii into :text from perftest1 where number = :i;
+		exec sql select ascii into :text from perftest1 where number = :i ORDER BY 1;
 	}
 
 	exec sql commit;
@@ -93,7 +93,7 @@ exec sql end declare section;
 			char text[16];
 		exec sql end declare section;
 
-		exec sql select perftest1.ascii into :text from perftest1, perftest2 where perftest1.number = perftest2.number and perftest2.number = :i;
+		exec sql select perftest1.ascii into :text from perftest1, perftest2 where perftest1.number = perftest2.number and perftest2.number = :i ORDER BY 1;
 	}
 
 	exec sql commit;

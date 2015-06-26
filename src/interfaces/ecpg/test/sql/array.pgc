@@ -45,7 +45,7 @@ EXEC SQL END DECLARE SECTION;
 	EXEC SQL SELECT f,text
          INTO :f,:text
          FROM test
-         WHERE i = 1;
+         WHERE i = 1 ORDER BY 1,2;
 
 	printf("Found f=%f text=%10.10s\n", f, text);
 
@@ -53,7 +53,7 @@ EXEC SQL END DECLARE SECTION;
 	EXEC SQL SELECT a,text
 	 INTO :a,:t
 	 FROM test
-	 WHERE f = :f;
+	 WHERE f = :f ORDER BY 1,2;
 
 	for (i = 0; i < 10; i++)
 		printf("Found a[%d] = %d\n", i, a[i]);
@@ -63,7 +63,7 @@ EXEC SQL END DECLARE SECTION;
 	EXEC SQL SELECT a
 	 INTO :text
 	 FROM test
-	 WHERE f = :f;
+	 WHERE f = :f ORDER BY 1;
 
 	printf("Found text=%s\n", text);
 

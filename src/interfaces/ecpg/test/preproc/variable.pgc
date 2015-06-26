@@ -15,7 +15,7 @@ typedef union { int integer; short smallint; } ind;
 exec sql type str is varchar[BUFFERSIZ];
 
 exec sql declare cur cursor for
-       select name, born, age, married, children from family;
+       select name, born, age, married, children from family ORDER BY 1,2,3,4,5;
 
 int
 main (void)

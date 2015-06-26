@@ -37,16 +37,16 @@ int main(void)
 	$commit;
 
 	/* this will fail (more than one row in subquery) */
-	$select i from test where j=(select j from test);
+	$select i from test where j=(select j from test) ORDER BY 1;
 	$rollback;
 
 	/* this however should be ok */
-	$select i from test where j=(select j from test order by i limit 1);
+	$select i from test where j=(select j from test order by i limit 1) ORDER BY 1;
 	printf("SELECT: %ld=%s\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
 	if (sqlca.sqlcode != 0) $rollback;
 
 	sqlca.sqlcode = 100;
-	$declare c cursor for select * from test where i <= :i;
+	$declare c cursor for select * from test where i <= :i ORDER BY 1,2,3;
 	printf ("%ld\n", sqlca.sqlcode);
 	openit();
 

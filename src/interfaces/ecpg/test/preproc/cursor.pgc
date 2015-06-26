@@ -20,7 +20,7 @@ int
 main (void)
 {
 exec sql begin declare section;
-	char	*stmt1 = "SELECT id, t FROM t1";
+	char	*stmt1 = "SELECT id, t FROM t1 ORDER BY 1, 2";
 	char	*curname1 = CURNAME;
 	char	*curname2 = CURNAME;
 	char	*curname3 = CURNAME;
@@ -61,7 +61,7 @@ exec sql end declare section;
 
 	strcpy(msg, "declare");
 	exec sql at test1 declare :curname1 cursor for
-		select id, t from t1;
+		select id, t from t1 ORDER BY 1,2;
 
 	strcpy(msg, "open");
 	exec sql at test1 open :curname1;
@@ -102,7 +102,7 @@ exec sql end declare section;
 
 	strcpy(msg, "declare");
 	exec sql at test1 declare :curname2 cursor for
-		select id, t into :id, :t from t1;
+		select id, t into :id, :t from t1 ORDER BY 1,2;
 
 	strcpy(msg, "open");
 	exec sql at test1 open :curname2;

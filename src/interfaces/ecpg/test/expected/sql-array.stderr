@@ -44,7 +44,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ECPGtrans on line 43: action "begin work"; connection "regress1"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 45: query: select f , text from test where i = 1; with 0 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 45: query: select f , text from test where i = 1 order by 1 , 2; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 45: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -54,7 +54,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_get_data on line 45: RESULT: 0123456789 offset: -1; array: no
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 53: query: select a , text from test where f = $1 ; with 1 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 53: query: select a , text from test where f = $1  order by 1 , 2; with 1 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 53: using PQexecParams
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -68,7 +68,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_get_data on line 53: RESULT: klmnopqrst offset: -1; array: no
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 63: query: select a from test where f = $1 ; with 1 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 63: query: select a from test where f = $1  order by 1; with 1 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 63: using PQexecParams
 [NO_PID]: sqlca: code: 0, state: 00000

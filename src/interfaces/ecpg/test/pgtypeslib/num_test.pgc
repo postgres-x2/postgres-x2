@@ -63,7 +63,7 @@ main(void)
 	PGTYPESnumeric_mul(value1, value2, res);
 	PGTYPESnumeric_free(value2);
 
-	exec sql select num into :des from test where text = 'test';
+	exec sql select num into :des from test where text = 'test' ORDER BY 1;
 
 	PGTYPESnumeric_mul(res, des, res);
 	text = PGTYPESnumeric_to_asc(res, -1);

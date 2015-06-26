@@ -33,7 +33,7 @@ int main() {
 
   EXEC SQL INSERT INTO My_Table VALUES (1234, 'Some random text');
   EXEC SQL INSERT INTO My_Table VALUES (5678, 'The Quick Brown');
-  EXEC SQL SELECT name INTO :text FROM Log LIMIT 1;
+  EXEC SQL SELECT name INTO :text FROM Log ORDER BY 1 LIMIT 1;
   printf("Trigger %s fired.\n", text);
 
   EXEC SQL DROP TRIGGER My_Table_Check_Trigger ON My_Table;

@@ -109,7 +109,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 #line 41 "define.pgc"
 
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from test", ECPGt_EOIT, 
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from test order by 1 , 2 , 3", ECPGt_EOIT, 
 	ECPGt_char,(name),(long)8,(long)6,(8)*sizeof(char), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, 
 	ECPGt_int,(amount),(long)1,(long)6,sizeof(int), 

@@ -128,7 +128,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 #line 45 "oldexec.pgc"
 
 
-	sprintf (command, "select * from test");
+	sprintf (command, "select * from test ORDER BY 1,2,3");
 
 	{ ECPGprepare(__LINE__, NULL, 1, "f", command);
 #line 49 "oldexec.pgc"
@@ -187,7 +187,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 #line 66 "oldexec.pgc"
 
 
-	sprintf (command, "select * from test where ? = amount");
+	sprintf (command, "select * from test where ? = amount ORDER BY 1,2,3");
 
 	{ ECPGprepare(__LINE__, NULL, 1, "f", command);
 #line 70 "oldexec.pgc"

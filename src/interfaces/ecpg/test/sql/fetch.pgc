@@ -23,7 +23,7 @@ int main() {
   EXEC SQL INSERT INTO My_Table VALUES ( 3, 'text3');
   EXEC SQL INSERT INTO My_Table VALUES ( 4, 'text4');
 
-  EXEC SQL DECLARE C CURSOR FOR SELECT * FROM My_Table;
+  EXEC SQL DECLARE C CURSOR FOR SELECT * FROM My_Table ORDER BY 1,2;
 
   EXEC SQL OPEN C;
 
@@ -34,12 +34,15 @@ int main() {
   }
 
   EXEC SQL WHENEVER NOT FOUND CONTINUE;
+/* Move backward is not supported by PGXC */
+/*
   EXEC SQL MOVE BACKWARD 2 IN C;
+*/
 
   EXEC SQL FETCH :count IN C INTO :i, :str;
   printf("%d: %s\n", i, str);
 
-  EXEC SQL DECLARE D CURSOR FOR SELECT * FROM My_Table WHERE Item1 = $1;
+  EXEC SQL DECLARE D CURSOR FOR SELECT * FROM My_Table WHERE Item1 = $1 ORDER BY 1,2;
 
   EXEC SQL OPEN D using 1;
 

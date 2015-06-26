@@ -56,7 +56,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ECPGtrans on line 58: action "commit"; connection "test2"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 67: query: declare mycur cursor for select id , t from t1; with 0 parameter(s) on connection test1
+[NO_PID]: ecpg_execute on line 67: query: declare mycur cursor for select id , t from t1 order by 1 , 2; with 0 parameter(s) on connection test1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 67: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -134,7 +134,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 99: OK: CLOSE CURSOR
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 108: query: declare mycur cursor for select id , t from t1; with 0 parameter(s) on connection test1
+[NO_PID]: ecpg_execute on line 108: query: declare mycur cursor for select id , t from t1 order by 1 , 2; with 0 parameter(s) on connection test1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 108: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -212,17 +212,17 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 140: OK: CLOSE CURSOR
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 145: name st_id1; query: "SELECT id, t FROM t1"
+[NO_PID]: prepare_common on line 145: name st_id1; query: "SELECT id, t FROM t1 ORDER BY 1, 2"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 146: name st_id1; query: "SELECT id, t FROM t1"
+[NO_PID]: prepare_common on line 146: name st_id1; query: "SELECT id, t FROM t1 ORDER BY 1, 2"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 153: query: declare mycur cursor for SELECT id, t FROM t1; with 0 parameter(s) on connection test1
+[NO_PID]: ecpg_execute on line 153: query: declare mycur cursor for SELECT id, t FROM t1 ORDER BY 1, 2; with 0 parameter(s) on connection test1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 153: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 153: OK: DECLARE CURSOR
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 154: query: declare mycur cursor for SELECT id, t FROM t1; with 0 parameter(s) on connection test2
+[NO_PID]: ecpg_execute on line 154: query: declare mycur cursor for SELECT id, t FROM t1 ORDER BY 1, 2; with 0 parameter(s) on connection test2
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 154: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -310,9 +310,9 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: deallocate_one on line 191: name st_id1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 200: name st_id2; query: "SELECT id, t FROM t1"
+[NO_PID]: prepare_common on line 200: name st_id2; query: "SELECT id, t FROM t1 ORDER BY 1, 2"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 206: query: declare mycur cursor for SELECT id, t FROM t1; with 0 parameter(s) on connection test1
+[NO_PID]: ecpg_execute on line 206: query: declare mycur cursor for SELECT id, t FROM t1 ORDER BY 1, 2; with 0 parameter(s) on connection test1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 206: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000

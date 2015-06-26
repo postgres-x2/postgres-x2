@@ -118,7 +118,7 @@ if (sqlca.sqlcode < 0) dosqlprint ( );}
 
 
 	/* this will fail (more than one row in subquery) */
-	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select i from test where j = ( select j from test )", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select i from test where j = ( select j from test ) order by 1", ECPGt_EOIT, ECPGt_EORT);
 #line 40 "test_informix.pgc"
 
 if (sqlca.sqlcode < 0) dosqlprint ( );}
@@ -132,7 +132,7 @@ if (sqlca.sqlcode < 0) dosqlprint ( );}
 
 
 	/* this however should be ok */
-	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select i from test where j = ( select j from test order by i limit 1 )", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select i from test where j = ( select j from test order by i limit 1 ) order by 1", ECPGt_EOIT, ECPGt_EORT);
 #line 44 "test_informix.pgc"
 
 if (sqlca.sqlcode < 0) dosqlprint ( );}
@@ -148,7 +148,7 @@ if (sqlca.sqlcode < 0) dosqlprint ( );}
 
 	sqlca.sqlcode = 100;
 	ECPGset_var( 0, &( i ), __LINE__);\
- ECPG_informix_reset_sqlca(); /* declare c cursor for select * from test where i <= $1  */
+ ECPG_informix_reset_sqlca(); /* declare c cursor for select * from test where i <= $1  order by 1 , 2 , 3 */
 #line 49 "test_informix.pgc"
 
 	printf ("%ld\n", sqlca.sqlcode);
@@ -244,7 +244,7 @@ if (sqlca.sqlcode < 0) dosqlprint ( );}
 
 static void openit(void)
 {
-	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "declare c cursor for select * from test where i <= $1 ", 
+	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "declare c cursor for select * from test where i <= $1  order by 1 , 2 , 3", 
 	ECPGt_int,&(*( int  *)(ECPGget_var( 0))),(long)1,(long)1,sizeof(int), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, ECPGt_EORT);
 #line 95 "test_informix.pgc"

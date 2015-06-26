@@ -63,7 +63,7 @@ main (void)
 		
 
 #line 23 "cursor.pgc"
- char * stmt1 = "SELECT id, t FROM t1" ;
+ char * stmt1 = "SELECT id, t FROM t1 ORDER BY 1, 2" ;
  
 #line 24 "cursor.pgc"
  char * curname1 = CURNAME ;
@@ -182,12 +182,12 @@ if (sqlca.sqlcode < 0) exit (1);}
 
 	strcpy(msg, "declare");
 	ECPGset_var( 0, &( curname1 ), __LINE__);\
- /* declare $0 cursor for select id , t from t1 */
+ /* declare $0 cursor for select id , t from t1 order by 1 , 2 */
 #line 64 "cursor.pgc"
 
 
 	strcpy(msg, "open");
-	{ ECPGdo(__LINE__, 0, 1, "test1", 0, ECPGst_normal, "declare $0 cursor for select id , t from t1", 
+	{ ECPGdo(__LINE__, 0, 1, "test1", 0, ECPGst_normal, "declare $0 cursor for select id , t from t1 order by 1 , 2", 
 	ECPGt_char,&(curname1),(long)0,(long)1,(1)*sizeof(char), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, ECPGt_EORT);
 #line 67 "cursor.pgc"
@@ -318,12 +318,12 @@ if (sqlca.sqlcode < 0) exit (1);}
 	ECPGset_var( 1, &( curname2 ), __LINE__);\
  ECPGset_var( 2, ( t ), __LINE__);\
  ECPGset_var( 3, &( id ), __LINE__);\
- /* declare $0 cursor for select id , t from t1 */
+ /* declare $0 cursor for select id , t from t1 order by 1 , 2 */
 #line 105 "cursor.pgc"
 
 
 	strcpy(msg, "open");
-	{ ECPGdo(__LINE__, 0, 1, "test1", 0, ECPGst_normal, "declare $0 cursor for select id , t from t1", 
+	{ ECPGdo(__LINE__, 0, 1, "test1", 0, ECPGst_normal, "declare $0 cursor for select id , t from t1 order by 1 , 2", 
 	ECPGt_char,&(curname2),(long)0,(long)1,(1)*sizeof(char), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, 
 	ECPGt_int,&(id),(long)1,(long)1,sizeof(int), 

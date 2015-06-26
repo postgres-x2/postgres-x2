@@ -30,7 +30,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 36: OK: INSERT 0 1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 38: query: select * from date_test where d = $1 ; with 1 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 38: query: select * from date_test where d = $1  order by 1 , 2; with 1 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 38: using PQexecParams
 [NO_PID]: sqlca: code: 0, state: 00000

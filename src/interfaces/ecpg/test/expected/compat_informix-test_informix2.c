@@ -212,17 +212,17 @@ if (sqlca.sqlcode < 0) sqlprint();}
 
 	sql_check("main", "select max", 100);
 
-	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select customerid , timestamp from history where timestamp = $1  limit 1", 
+	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "select customerid , timestamp from history where timestamp = $1  order by 1 limit 1", 
 	ECPGt_timestamp,&(maxd),(long)1,(long)1,sizeof(timestamp), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, 
 	ECPGt_int,&(c),(long)1,(long)1,sizeof(int), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, 
 	ECPGt_timestamp,&(d),(long)1,(long)1,sizeof(timestamp), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EORT);
-#line 85 "test_informix2.pgc"
+#line 86 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 85 "test_informix2.pgc"
+#line 86 "test_informix2.pgc"
 
 	sql_check("main", "select", 0);
 
@@ -238,40 +238,40 @@ if (sqlca.sqlcode < 0) sqlprint();}
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, 
 	ECPGt_timestamp,&(e),(long)1,(long)1,sizeof(timestamp), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, ECPGt_EORT);
-#line 97 "test_informix2.pgc"
+#line 98 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 97 "test_informix2.pgc"
+#line 98 "test_informix2.pgc"
 
 	sql_check("main", "update", 0);
 
 	{ ECPGtrans(__LINE__, NULL, "commit");
-#line 100 "test_informix2.pgc"
+#line 101 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 100 "test_informix2.pgc"
+#line 101 "test_informix2.pgc"
 
 
 	{ ECPGdo(__LINE__, 1, 1, NULL, 0, ECPGst_normal, "drop table history", ECPGt_EOIT, ECPGt_EORT);
-#line 102 "test_informix2.pgc"
+#line 103 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 102 "test_informix2.pgc"
+#line 103 "test_informix2.pgc"
 
 	sql_check("main", "drop", 0);
 
 	{ ECPGtrans(__LINE__, NULL, "commit");
-#line 105 "test_informix2.pgc"
+#line 106 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 105 "test_informix2.pgc"
+#line 106 "test_informix2.pgc"
 
 
 	{ ECPGdisconnect(__LINE__, "CURRENT");
-#line 107 "test_informix2.pgc"
+#line 108 "test_informix2.pgc"
 
 if (sqlca.sqlcode < 0) sqlprint();}
-#line 107 "test_informix2.pgc"
+#line 108 "test_informix2.pgc"
 
 	sql_check("main", "disconnect", 0);
 

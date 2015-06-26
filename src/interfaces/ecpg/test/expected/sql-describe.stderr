@@ -40,7 +40,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ECPGtrans on line 42: action "commit"; connection "regress1"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 55: name st_id1; query: "SELECT id, t FROM descr_t2"
+[NO_PID]: prepare_common on line 55: name st_id1; query: "SELECT id, t FROM descr_t2 ORDER BY 1,2"
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_build_native_sqlda on line 63 sqld = 2
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -70,7 +70,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: deallocate_one on line 132: name st_id1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 141: name st_id2; query: "SELECT id, t FROM descr_t2 WHERE id = -1"
+[NO_PID]: prepare_common on line 141: name st_id2; query: "SELECT id, t FROM descr_t2 WHERE id = -1 ORDER BY 1,2"
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_build_native_sqlda on line 149 sqld = 2
 [NO_PID]: sqlca: code: 0, state: 00000

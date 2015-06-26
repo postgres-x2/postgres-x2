@@ -158,11 +158,11 @@ if (sqlca.sqlwarn[0] == 'W') sqlprint();
 if (sqlca.sqlcode < 0) sqlprint();}
 #line 42 "quote.pgc"
 
-  /* declare C cursor for select * from \"My_Table\" */
+  /* declare C cursor for select * from \"My_Table\" order by 1 , 2 */
 #line 43 "quote.pgc"
 
 
-  { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare C cursor for select * from \"My_Table\"", ECPGt_EOIT, ECPGt_EORT);
+  { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare C cursor for select * from \"My_Table\" order by 1 , 2", ECPGt_EOIT, ECPGt_EORT);
 #line 45 "quote.pgc"
 
 if (sqlca.sqlwarn[0] == 'W') sqlprint();

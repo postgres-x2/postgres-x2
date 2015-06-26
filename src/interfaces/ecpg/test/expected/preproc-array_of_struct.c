@@ -165,7 +165,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 #line 54 "array_of_struct.pgc"
 
 
-    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers limit 2", ECPGt_EOIT, 
+    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers order by 1 , 2 limit 2", ECPGt_EOIT, 
 	ECPGt_varchar,&(custs1->name),(long)50,(long)10,sizeof( customer ), 
 	ECPGt_short,&(inds->name_ind),(long)1,(long)10,sizeof( struct ind ), 
 	ECPGt_int,&(custs1->phone),(long)1,(long)10,sizeof( customer ), 
@@ -188,7 +188,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 	    printf( "phone - %d\n", custs1[r].phone );
     }
 
-    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers limit 2", ECPGt_EOIT, 
+    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers order by 1 , 2 limit 2", ECPGt_EOIT, 
 	ECPGt_varchar,&(custs2->name),(long)50,(long)10,sizeof( customer2 ), 
 	ECPGt_short,&(inds->name_ind),(long)1,(long)10,sizeof( struct ind ), 
 	ECPGt_int,&(custs2->phone),(long)1,(long)10,sizeof( customer2 ), 
@@ -211,7 +211,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 	    printf( "phone - %d\n", custs2[r].phone );
     }
 
-    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers limit 2", ECPGt_EOIT, 
+    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers order by 1 , 2 limit 2", ECPGt_EOIT, 
 	ECPGt_varchar,&(custs3->name),(long)50,(long)10,sizeof( struct customer3 ), 
 	ECPGt_short,&(inds->name_ind),(long)1,(long)10,sizeof( struct ind ), 
 	ECPGt_int,&(custs3->phone),(long)1,(long)10,sizeof( struct customer3 ), 
@@ -234,7 +234,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
 	    printf( "phone - %d\n", custs3[r].phone );
     }
 
-    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers limit 1", ECPGt_EOIT, 
+    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from customers order by 1 , 2 limit 1", ECPGt_EOIT, 
 	ECPGt_varchar,&(custs4.name),(long)50,(long)1,sizeof(struct varchar_4), 
 	ECPGt_short,&(inds[0].name_ind),(long)1,(long)1,sizeof(short), 
 	ECPGt_int,&(custs4.phone),(long)1,(long)1,sizeof(int), 
@@ -254,7 +254,7 @@ if (sqlca.sqlcode < 0) sqlprint();}
     printf( "name  - %s\n", custs4.name.arr );
     printf( "phone - %d\n", custs4.phone );
 
-    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select c from customers limit 2", ECPGt_EOIT, 
+    { ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select c from customers order by 1 , 2 limit 2", ECPGt_EOIT, 
 	ECPGt_varchar,(onlyname),(long)50,(long)2,sizeof(struct varchar_5), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EORT);
 #line 85 "array_of_struct.pgc"

@@ -44,7 +44,7 @@ exec sql end declare section;
 
 	exec sql commit;
 
-	sprintf (command, "select * from test");
+	sprintf (command, "select * from test ORDER BY 1,2,3");
 
 	exec sql prepare F from :command;
 	exec sql declare CUR cursor for F;
@@ -65,7 +65,7 @@ exec sql end declare section;
 
 	exec sql close CUR;
 
-	sprintf (command, "select * from test where ? = amount");
+	sprintf (command, "select * from test where ? = amount ORDER BY 1,2,3");
 
 	exec sql prepare F from :command;
 	exec sql declare CUR3 cursor for F;

@@ -28,7 +28,7 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_get_data on line 76: RESULT: Wed 07 May 13:28:34 2003 offset: -1; array: no
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 81: query: select customerid , timestamp from history where timestamp = $1  limit 1; with 1 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 81: query: select customerid , timestamp from history where timestamp = $1  order by 1 limit 1; with 1 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 81: using PQexecParams
 [NO_PID]: sqlca: code: 0, state: 00000
@@ -40,25 +40,25 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_get_data on line 81: RESULT: Wed 07 May 13:28:34 2003 offset: -1; array: no
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 95: query: insert into history ( customerid , timestamp , action_taken , narrative ) values ( $1  , $2  , 'test' , 'test' ); with 2 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 96: query: insert into history ( customerid , timestamp , action_taken , narrative ) values ( $1  , $2  , 'test' , 'test' ); with 2 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 95: using PQexecParams
+[NO_PID]: ecpg_execute on line 96: using PQexecParams
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: free_params on line 95: parameter 1 = 2
+[NO_PID]: free_params on line 96: parameter 1 = 2
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: free_params on line 95: parameter 2 = 2003-05-08 15:53:39
+[NO_PID]: free_params on line 96: parameter 2 = 2003-05-08 15:53:39
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 95: OK: INSERT 0 1
+[NO_PID]: ecpg_execute on line 96: OK: INSERT 0 1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ECPGtrans on line 100: action "commit"; connection "regress1"
+[NO_PID]: ECPGtrans on line 101: action "commit"; connection "regress1"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 102: query: drop table history; with 0 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 103: query: drop table history; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 102: using PQexec
+[NO_PID]: ecpg_execute on line 103: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 102: OK: DROP TABLE
+[NO_PID]: ecpg_execute on line 103: OK: DROP TABLE
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ECPGtrans on line 105: action "commit"; connection "regress1"
+[NO_PID]: ECPGtrans on line 106: action "commit"; connection "regress1"
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_finish: connection regress1 closed
 [NO_PID]: sqlca: code: 0, state: 00000

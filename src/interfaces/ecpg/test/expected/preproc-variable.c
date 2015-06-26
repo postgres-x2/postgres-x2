@@ -46,7 +46,7 @@ typedef union { int integer; short smallint; } ind;
 #line 15 "variable.pgc"
 
 
-/* declare cur cursor for select name , born , age , married , children from family */
+/* declare cur cursor for select name , born , age , married , children from family order by 1 , 2 , 3 , 4 , 5 */
 #line 18 "variable.pgc"
 
 
@@ -190,7 +190,7 @@ if (sqlca.sqlcode < 0) exit (1);}
 
 
 	strcpy(msg, "open");
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select name , born , age , married , children from family", ECPGt_EOIT, ECPGt_EORT);
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "declare cur cursor for select name , born , age , married , children from family order by 1 , 2 , 3 , 4 , 5", ECPGt_EOIT, ECPGt_EORT);
 #line 63 "variable.pgc"
 
 if (sqlca.sqlcode < 0) exit (1);}

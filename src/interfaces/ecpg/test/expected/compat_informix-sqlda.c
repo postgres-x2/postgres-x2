@@ -165,10 +165,10 @@ main (void)
 		
 
 #line 57 "sqlda.pgc"
- char * stmt1 = "SELECT * FROM t1" ;
+ char * stmt1 = "SELECT * FROM t1 ORDER BY 1,2,3,4,5" ;
  
 #line 58 "sqlda.pgc"
- char * stmt2 = "SELECT * FROM t1 WHERE id = ?" ;
+ char * stmt2 = "SELECT * FROM t1 WHERE id = ? ORDER BY 1,2,3,4,5" ;
  
 #line 59 "sqlda.pgc"
  int rec ;

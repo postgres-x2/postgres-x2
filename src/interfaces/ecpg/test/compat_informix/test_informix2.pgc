@@ -82,6 +82,7 @@ int main(void)
 		   into :c, :d
 		   from history
 	          where timestamp = :maxd
+		  ORDER BY 1
 		  limit 1;
 	sql_check("main", "select", 0);
 

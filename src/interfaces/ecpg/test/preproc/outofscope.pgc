@@ -25,7 +25,7 @@ get_var1(MYTYPE **myvar0, MYNULLTYPE **mynullvar0)
 
 	/* Test DECLARE ... SELECT ... INTO with pointers */
 
-	exec sql declare mycur cursor for select * INTO :myvar :mynullvar from a1;
+	exec sql declare mycur cursor for select * INTO :myvar :mynullvar from a1 ORDER BY 1,2,3,4,5;
 
 	if (sqlca.sqlcode != 0)
 		exit(1);

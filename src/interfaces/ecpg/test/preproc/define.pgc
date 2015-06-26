@@ -40,7 +40,7 @@ exec sql end declare section;
 	exec sql insert into test (name, amount, letter) values ('true', 2, 't');
 	exec sql commit;
 
-	exec sql select * into :name, :amount, :letter from test;
+	exec sql select * into :name, :amount, :letter from test ORDER BY 1,2,3;
 
 	for (i=0, j=sqlca.sqlerrd[2]; i<j; i++)
 	{

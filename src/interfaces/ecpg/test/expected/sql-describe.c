@@ -61,10 +61,10 @@ main (void)
 		  
 
 #line 15 "describe.pgc"
- char * stmt1 = "SELECT id, t FROM descr_t2" ;
+ char * stmt1 = "SELECT id, t FROM descr_t2 ORDER BY 1,2" ;
  
 #line 16 "describe.pgc"
- char * stmt2 = "SELECT id, t FROM descr_t2 WHERE id = -1" ;
+ char * stmt2 = "SELECT id, t FROM descr_t2 WHERE id = -1 ORDER BY 1,2" ;
  
 #line 17 "describe.pgc"
  int i , count1 , count2 ;

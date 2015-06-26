@@ -26,9 +26,9 @@
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 55: OK: INSERT 0 1
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: prepare_common on line 57: name myquery; query: "select * from dyntest"
+[NO_PID]: prepare_common on line 57: name myquery; query: "select * from dyntest ORDER BY 1,2,3,4,5,6,7"
 [NO_PID]: sqlca: code: 0, state: 00000
-[NO_PID]: ecpg_execute on line 60: query: declare MYCURS cursor for select * from dyntest; with 0 parameter(s) on connection regress1
+[NO_PID]: ecpg_execute on line 60: query: declare MYCURS cursor for select * from dyntest ORDER BY 1,2,3,4,5,6,7; with 0 parameter(s) on connection regress1
 [NO_PID]: sqlca: code: 0, state: 00000
 [NO_PID]: ecpg_execute on line 60: using PQexec
 [NO_PID]: sqlca: code: 0, state: 00000

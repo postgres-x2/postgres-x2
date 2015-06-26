@@ -98,7 +98,7 @@ if (sqlca.sqlcode < 0) sqlprint ( );}
 #line 36 "dt_test.pgc"
 
 
-	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from date_test where d = $1 ", 
+	{ ECPGdo(__LINE__, 0, 1, NULL, 0, ECPGst_normal, "select * from date_test where d = $1  order by 1 , 2", 
 	ECPGt_date,&(date1),(long)1,(long)1,sizeof(date), 
 	ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT, 
 	ECPGt_date,&(date1),(long)1,(long)1,sizeof(date), 
