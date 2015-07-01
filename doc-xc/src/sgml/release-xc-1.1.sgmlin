@@ -19,6 +19,19 @@
   </para>
 
  <sect2>
+  <title>Migrations to Version 1.1.2</title>
+
+  <para>
+   A dump/restore is required for those running 1.1.1 or 1.1.0.
+  </para>
+
+  <para>
+   A dump/restore is required for those running 1.0.x.
+  </para>
+
+ </sect2>
+
+ <sect2>
   <title>Migrations to Version 1.1.1</title>
 
   <para>
