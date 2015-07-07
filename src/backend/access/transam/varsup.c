@@ -215,7 +215,7 @@ GetNewTransactionId(bool isSubXact)
 					 * in shared memory though.
 					 */
 					increment_xid = false;
-					elog(NOTICE, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)",
+					elog(DEBUG1, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)",
 						xid, ShmemVariableCache->nextXid);
 				}
 				else
