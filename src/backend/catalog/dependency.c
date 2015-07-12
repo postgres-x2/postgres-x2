@@ -56,6 +56,8 @@
 #include "catalog/pg_user_mapping.h"
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "commands/sequence.h"
@@ -162,12 +164,14 @@ static const Oid object_classes[MAX_OCLASS] = {
 	ForeignDataWrapperRelationId,		/* OCLASS_FDW */
 	ForeignServerRelationId,	/* OCLASS_FOREIGN_SERVER */
 	UserMappingRelationId,		/* OCLASS_USER_MAPPING */
+#ifdef PGXC
+	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
+	PgxcClassRelationId,		/* OCLASS_PGXC_NODE */
+	PgxcClassRelationId,		/* OCLASS_PGXC_GROUP */
+#endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
 	EventTriggerRelationId		/* OCLASS_EVENT_TRIGGER */
-#ifdef PGXC
-	,PgxcClassRelationId		/* OCLASS_PGXCCLASS */
-#endif
 };
 
 
@@ -1413,6 +1417,11 @@ doDeletion(const ObjectAddress *object, int flags)
 		case OCLASS_PGXC_CLASS:
 			RemovePgxcClass(object->objectId);
 			break;
+
+		/*
+		 * OCLASS_PGXC_NODE, OCLASS_PGXC_GROUP intentionally not
+		 * handled here
+		 */
 #endif
 
 		case OCLASS_EXTENSION:
@@ -2486,6 +2495,12 @@ getObjectClass(const ObjectAddress *object)
 		case PgxcClassRelationId:
 			Assert(object->objectSubId == 0);
 			return OCLASS_PGXC_CLASS;
+
+		case PgxcNodeRelationId:
+			return OCLASS_PGXC_NODE;
+
+		case PgxcGroupRelationId:
+			return OCLASS_PGXC_GROUP;
 #endif
 	}
 
