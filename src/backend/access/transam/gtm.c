@@ -463,7 +463,7 @@ RenameSequenceGTM(char *seqname, const char *newseqname)
  * Connection for registering is just used once then closed
  */
 int
-RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder)
+RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, const char *datafolder)
 {
 	int ret;
 
