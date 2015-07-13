@@ -227,22 +227,14 @@ GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
 /*
  * Node Registering management API
  */
-int node_register(GTM_Conn *conn,
-				  GTM_PGXCNodeType type,
-				  GTM_PGXCNodePort port,
-				  char *node_name,
-				  char *datafolder);
-int bkup_node_register(GTM_Conn *conn,
-					   GTM_PGXCNodeType type,
-					   GTM_PGXCNodePort port,
-					   char *node_name,
-					   char *datafolder);
-int node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port,	char *node_name, char *datafolder);
-int node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host,	GTM_PGXCNodePort port, char *node_name,
-						   char *datafolder, GTM_PGXCNodeStatus status);
-int bkup_node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *node_name, char *datafolder);
+int node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port,
+						const char *node_name, const char *datafolder);
+int node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host, GTM_PGXCNodePort port,
+						const char *node_name, const char *datafolder, GTM_PGXCNodeStatus status);
+int bkup_node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port,
+						const char *node_name, const char *datafolder);
 int bkup_node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host, GTM_PGXCNodePort port,
-								char *node_name, char *datafolder, GTM_PGXCNodeStatus status);
+						const char *node_name, const char *datafolder, GTM_PGXCNodeStatus status);
 
 int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char *node_name);
 int bkup_node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name);

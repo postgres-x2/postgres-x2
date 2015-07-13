@@ -64,7 +64,7 @@ static int alter_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequ
 								   GTM_Sequence minval, GTM_Sequence maxval,
 								   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart, bool is_backup);
 static int node_register_worker(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host, GTM_PGXCNodePort port,
-								char *node_name, char *datafolder, GTM_PGXCNodeStatus status, bool is_backup);
+								const char *node_name, const char *datafolder, GTM_PGXCNodeStatus status, bool is_backup);
 static int node_unregister_worker(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name, bool is_backup);
 static int report_barrier_internal(GTM_Conn *conn, char *barrier_id, bool is_backup);
 /*
@@ -1455,8 +1455,8 @@ node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc)
 int node_register(GTM_Conn *conn,
 			GTM_PGXCNodeType type,
 			GTM_PGXCNodePort port,
-			char *node_name,
-			char *datafolder)
+			const char *node_name,
+			const char *datafolder)
 {
 	char host[1024];
 	int rc;
@@ -1474,8 +1474,8 @@ int node_register_internal(GTM_Conn *conn,
 						   GTM_PGXCNodeType type,
 						   const char *host,
 						   GTM_PGXCNodePort port,
-						   char *node_name,
-						   char *datafolder,
+						   const char *node_name,
+						   const char *datafolder,
 						   GTM_PGXCNodeStatus status)
 {
 	return node_register_worker(conn, type, host, port, node_name, datafolder, status, false);
@@ -1484,8 +1484,8 @@ int node_register_internal(GTM_Conn *conn,
 int bkup_node_register(GTM_Conn *conn,
 					   GTM_PGXCNodeType type,
 					   GTM_PGXCNodePort port,
-					   char *node_name,
-					   char *datafolder)
+					   const char *node_name,
+					   const char *datafolder)
 {
 	char host[1024];
 	int rc;
@@ -1503,8 +1503,8 @@ int bkup_node_register_internal(GTM_Conn *conn,
 								GTM_PGXCNodeType type,
 								const char *host,
 								GTM_PGXCNodePort port,
-								char *node_name,
-								char *datafolder,
+								const char *node_name,
+								const char *datafolder,
 								GTM_PGXCNodeStatus status)
 {
 	return node_register_worker(conn, type, host, port, node_name, datafolder, status, true);
@@ -1514,8 +1514,8 @@ static int node_register_worker(GTM_Conn *conn,
 								GTM_PGXCNodeType type,
 								const char *host,
 								GTM_PGXCNodePort port,
-								char *node_name,
-								char *datafolder,
+								const char *node_name,
+								const char *datafolder,
 								GTM_PGXCNodeStatus status,
 								bool is_backup)
 {
