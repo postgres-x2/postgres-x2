@@ -166,8 +166,8 @@ static const Oid object_classes[MAX_OCLASS] = {
 	UserMappingRelationId,		/* OCLASS_USER_MAPPING */
 #ifdef PGXC
 	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
-	PgxcClassRelationId,		/* OCLASS_PGXC_NODE */
-	PgxcClassRelationId,		/* OCLASS_PGXC_GROUP */
+	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
+	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
 #endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
