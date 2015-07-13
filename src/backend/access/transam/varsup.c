@@ -160,7 +160,7 @@ GetNewTransactionId(bool isSubXact)
 					LWLockRelease(XidGenLock);
 					
 					/* It is a serious issue when xid fall back, so here we write a message to record this */
-					ereport(LOG,
+					ereport(DEBUG1,
 					   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d), IS_PGXC_COORDINATOR:%d, IS_PGXC_DATANODE:%d, REMOTE_CONN_TYPE:%d, regen now",
 						   xid, ShmemVariableCache->nextXid, IS_PGXC_COORDINATOR, IS_PGXC_DATANODE, REMOTE_CONN_TYPE)));
 
