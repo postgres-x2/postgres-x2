@@ -2541,6 +2541,7 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	PlannerInfo		*root;
 	ExecNodes		*exec_nodes;
 	Plan			*top_plan;
+
 	/* Try by-passing standard planner, if fast query shipping is enabled */
 	if (!enable_fast_query_shipping)
 		return NULL;
@@ -2604,7 +2605,6 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * through set_plan_references().
 	 */
 	top_plan = set_plan_references(root, top_plan);
-             
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 	/* Try and set what we can, rest must have been zeroed out by makeNode() */
