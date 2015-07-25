@@ -2427,6 +2427,7 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 	PlannedStmt		*result = NULL;
 	PlannerGlobal	*glob;
 	PlannerInfo		*root;
+    RemoteQuery		*query_step;
 	/*
 	 * if the query has its utility set, it could be an EXEC_DIRECT statement,
 	 * check if it needs to be executed on Coordinator
@@ -2460,6 +2461,7 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			result->planTree = (Plan *)pgxc_FQS_create_remote_plan(query, NULL, true);
 			result->rtable = query->rtable;
 
+            query_step = (RemoteQuery*)result->planTree;
 			/*
 			 * Make a flattened version of the rangetable for faster access (this is
 			 * OK because the rangetable won't change any more), and set up an empty
@@ -2477,6 +2479,9 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			result->planTree = set_plan_references(root, result->planTree);
 			result->relationOids = glob->relationOids;
 			result->invalItems = glob->invalItems;
+            elog_node_display(LOG, "base_tlist", query_step->base_tlist, true);
+            elog_node_display(LOG, "plan targetlist", query_step->scan.plan.targetlist, true);
+
 		}
 	}
 
@@ -2541,7 +2546,6 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	PlannerInfo		*root;
 	ExecNodes		*exec_nodes;
 	Plan			*top_plan;
-
 	/* Try by-passing standard planner, if fast query shipping is enabled */
 	if (!enable_fast_query_shipping)
 		return NULL;
@@ -2605,7 +2609,7 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * through set_plan_references().
 	 */
 	top_plan = set_plan_references(root, top_plan);
-
+             
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 	/* Try and set what we can, rest must have been zeroed out by makeNode() */
@@ -2639,13 +2643,25 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	StringInfoData	buf;
 	RangeTblEntry	*dummy_rte;
 	List			*collected_rtable;
-
+    List			*junk_tlist = NIL;
+    ListCell		*cell;
+    TargetEntry     *currentTle ; 
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{
 		Assert(IsA(query->utilityStmt, RemoteQuery));
 		query_step = (RemoteQuery *)query->utilityStmt;
 		query->utilityStmt = NULL;
+        /* Remove the junk TargetEntry */
+        foreach(cell, query->targetList) {
+            currentTle = (TargetEntry*)lfirst(cell);
+            if (currentTle->resjunk) {
+                junk_tlist = lappend(junk_tlist, currentTle);
+            }
+        }
+        if (junk_tlist != NIL) {
+            query->targetList = list_difference(query->targetList, junk_tlist);
+        }
 	}
 	else
 	{
