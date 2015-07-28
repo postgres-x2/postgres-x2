@@ -1479,7 +1479,7 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 		else if (IsA(lsecond(op->args), RelabelType) &&
 				IsA(((RelabelType *)lsecond(op->args))->arg, Var))
 		{
-			lvar = (Var *)((RelabelType *)lsecond(op->args))->arg;
+			rvar = (Var *)((RelabelType *)lsecond(op->args))->arg;
 		}
 		else
 			continue;
