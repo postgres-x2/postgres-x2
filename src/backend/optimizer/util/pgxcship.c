@@ -1448,8 +1448,8 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 	{
 		Expr *qual_expr = (Expr *)lfirst(qcell);
 		OpExpr *op;
-		Var *lvar = NULL;
-		Var *rvar = NULL;
+		Var *lvar;
+		Var *rvar;
 
 		if (!IsA(qual_expr, OpExpr))
 			continue;
