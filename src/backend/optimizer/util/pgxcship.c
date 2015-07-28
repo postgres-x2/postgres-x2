@@ -1448,8 +1448,8 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 	{
 		Expr *qual_expr = (Expr *)lfirst(qcell);
 		OpExpr *op;
-		Var *lvar;
-		Var *rvar;
+		Var *lvar = NULL;
+		Var *rvar = NULL;
 
 		if (!IsA(qual_expr, OpExpr))
 			continue;
@@ -1460,10 +1460,24 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 
 		/*
 		 * Check if both operands are Vars, if not check next expression */
-		if (IsA(linitial(op->args), Var) && IsA(lsecond(op->args), Var))
+		if (IsA(linitial(op->args), Var))
 		{
 			lvar = (Var *)linitial(op->args);
+		}
+		else if (IsA(linitial(op->args), RelabelType))
+		{
+			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
+        } 
+		else
+			continue;
+
+		if (IsA(lsecond(op->args), Var))
+		{
 			rvar = (Var *)lsecond(op->args);
+		}
+		else if (IsA(lsecond(op->args), RelabelType))
+		{
+			lvar = (Var *)((RelabelType *)lsecond(op->args))->arg;
 		}
 		else
 			continue;
