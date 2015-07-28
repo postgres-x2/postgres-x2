@@ -1468,7 +1468,7 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 					IsA(((RelabelType *)linitial(op->args))->arg, Var))
 		{
 			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
-        } 
+		} 
 		else
 			continue;
 
