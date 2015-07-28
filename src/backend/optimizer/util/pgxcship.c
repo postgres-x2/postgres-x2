@@ -1464,7 +1464,8 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 		{
 			lvar = (Var *)linitial(op->args);
 		}
-		else if (IsA(linitial(op->args), RelabelType))
+		else if (IsA(linitial(op->args), RelabelType) &&
+					IsA(((RelabelType *)linitial(op->args))->arg, Var))
 		{
 			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
         } 
@@ -1475,7 +1476,8 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 		{
 			rvar = (Var *)lsecond(op->args);
 		}
-		else if (IsA(lsecond(op->args), RelabelType))
+		else if (IsA(lsecond(op->args), RelabelType) &&
+				IsA(((RelabelType *)lsecond(op->args))->arg, Var))
 		{
 			lvar = (Var *)((RelabelType *)lsecond(op->args))->arg;
 		}
