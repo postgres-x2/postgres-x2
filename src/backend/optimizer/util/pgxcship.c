@@ -1459,7 +1459,7 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 			continue;
 
 		/*
-		 * Check if both operands are Vars, if not check next expression */
+		 * Check if operands are Vars or RelableType, if not check next expression */
 		if (IsA(linitial(op->args), Var))
 		{
 			lvar = (Var *)linitial(op->args);
