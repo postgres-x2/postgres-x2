@@ -14,4 +14,8 @@ include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = client common config libpq main path proxy recovery
 
+# There are interdependencies between main and proxy, so
+# don't attempt parallel make here.
+.NOTPARALLEL:
+
 $(recurse)
