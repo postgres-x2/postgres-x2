@@ -26,6 +26,7 @@
 
 #ifdef PGXC
 #include "utils/builtins.h"
+#include "pgxc/xc_gtm_commit_sync.h"
 #endif
 
 /*
@@ -161,7 +162,14 @@ TransactionIdDidCommit(TransactionId transactionId)
 	 * If it's marked committed, it's committed.
 	 */
 	if (xidstatus == TRANSACTION_STATUS_COMMITTED)
+#ifdef PGXC
+	{
+		syncGXID_GTM((GlobalTransactionId)transactionId);
+#endif
 		return true;
+#ifdef PGXC
+	}
+#endif
 
 	/*
 	 * If it's marked subcommitted, we have to check the parent recursively.
@@ -268,6 +276,9 @@ TransactionIdIsKnownCompleted(TransactionId transactionId)
 {
 	if (TransactionIdEquals(transactionId, cachedFetchXid))
 	{
+#ifdef PGXC
+		syncGXID_GTM((GlobalTransactionId)transactionId);
+#endif
 		/* If it's in the cache at all, it must be completed. */
 		return true;
 	}
