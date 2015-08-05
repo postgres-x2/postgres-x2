@@ -7165,6 +7165,54 @@ Postgres-XC Specific Parameters
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-xc-gtm-sync-timeout" xreflabel="xc_gtm_sync_timeout">
+      <term><varname>xc_gtm_sync_timeout</varname>
+      (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>xc_gtm_sync_timeout</> configuration
+       parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+		Specify the timeout value in millisecond to wait GTM for transaction
+		commit/abort report.
+       </para>
+       <para>
+		Posgres-XC depends upong GTM to provide global transaction id and
+		snapshot to provide consisitent database view throughout its cluster.
+		When an update transaction commits, the background performs local commits first
+		and then report to GTM.
+       </para>
+	   <para>
+		Postgres-XC needs decicated mechanism to provide additional serialization
+		of updates to prevent phantoms described as follows:
+       <para>
+		Until GTM receives commit report frm the backend (transaction X1)
+		and it is not included in
+		the snapshot, the update is not visible to other transaction.
+		On the other hand, such updates can be updated by another
+		transaction X2 even before X1 commit is reported to GTM.
+		Thus, two generation of the tuple become visible after X2
+		operation is done.
+       </para>
+       <para>
+        Postgres-XC prevents this phantom by making subsequent updates wait until
+		the transaction updated the old version has been reported to GTM
+		as committed.
+		Although the duration from the local commits to GTM report is expected
+		very short, this can depend on the environment and the workload.
+       </para>
+       <para>
+		This parameter controls this duration.
+		If X2 above could not confirm X1 is committed within this timeout,
+		then X2 is aborted.
+       </para>
+	   <para>
+		Default value is 100 milliseconds.
+	   </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
 
   </sect1>

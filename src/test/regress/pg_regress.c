@@ -866,6 +866,7 @@ set_node_config_file(PGXCNodeTypeNum node)
 
 	/* Set pgxcnode_cancel_delay to 100msec only for this test */
 	fputs("pgxcnode_cancel_delay = 100\n", pg_conf);
+	fputs("xc_gtm_commit_sync_test = on\n", pg_conf);
 
 	/* Set pooler port for Coordinators */
 	if (node == PGXC_COORD_1 ||

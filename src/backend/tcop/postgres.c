@@ -61,6 +61,7 @@
 #include "parser/parser.h"
 #ifdef PGXC
 #include "parser/parse_type.h"
+#include "pgxc/xc_gtm_commit_sync.h"
 #endif /* PGXC */
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
@@ -4552,6 +4553,9 @@ PostgresMain(int argc, char *argv[],
 					xip = NULL;
 				pq_getmsgend(&input_message);
 				SetGlobalSnapshotData(xmin, xmax, xcnt, xip);
+				/* Latest Snashot data for update visibility */
+				setSyncGXID();
+				setLatestGTMSnapshot(xmin, xmax, xcnt, xip);
 				break;
 
 			case 't':			/* timestamp */
