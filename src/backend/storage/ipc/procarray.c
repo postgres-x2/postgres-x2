@@ -122,7 +122,15 @@ typedef struct ProcArrayStruct
 	 */
 	int			pgprocnos[1];	/* VARIABLE LENGTH ARRAY */
 #ifdef PGXC
+	/*
+	 * We cannot define more than one variable lenbth array as follows.
+	 * The member pgAVproxnos is not used in other code.  So it will be
+	 * appropriate to comment it out.  When it is really needed, we do
+	 * need to implement in a different way.
+	 */
+#if 0
 	int			pgAVproxnos[1];	/* VARIABLE LENGTH ARRAY */
+#endif
 #endif
 } ProcArrayStruct;
 
