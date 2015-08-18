@@ -50,8 +50,12 @@
 #include "catalog/namespace.h"
 #include "access/hash.h"
 
-static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum,
+static List *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum,
 												Node *quals);
+
+static ExecNodes *
+MergeRelationExecNodes(RelationLocInfo *rel_loc_info, ExecNodes *src, ExecNodes *dst);
+
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -528,6 +532,12 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 	bool			distcol_isnull;
 	Oid				distcol_type;
 
+	List            *distcol_list   = NULL;
+	List            *distcol_values = NULL;
+	ListCell        *qual_cell;
+	ListCell        *value_cell;
+	ExecNodes       *dst = NULL;
+
 	if (!rel_loc_info)
 		return NULL;
 	/*
@@ -538,7 +548,7 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 	{
 		Oid		disttype = get_atttype(reloid, rel_loc_info->partAttrNum);
 		int32	disttypmod = get_atttypmod(reloid, rel_loc_info->partAttrNum);
-		distcol_expr = pgxc_find_distcol_expr(varno, rel_loc_info->partAttrNum,
+		distcol_list = pgxc_find_distcol_expr(varno, rel_loc_info->partAttrNum,
 													quals);
 		/*
 		 * If the type of expression used to find the Datanode, is not same as
@@ -546,43 +556,78 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 		 * will happen in case of inserting that type of expression value as the
 		 * distribution column value.
 		 */
-		if (distcol_expr)
+		if (distcol_list)
 		{
-			distcol_expr = (Expr *)coerce_to_target_type(NULL,
-													(Node *)distcol_expr,
-													exprType((Node *)distcol_expr),
-													disttype, disttypmod,
-													COERCION_ASSIGNMENT,
-													COERCE_IMPLICIT_CAST, -1);
-			/*
-			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
-			 * PlannerInfo struct and we don't handle them right now.
-			 * Even if constant expression mutator changes the expression, it will
-			 * only simplify it, keeping the semantics same
-			 */
-			distcol_expr = (Expr *)eval_const_expressions(NULL,
-															(Node *)distcol_expr);
+			foreach(qual_cell, distcol_list)
+			{
+				distcol_expr = (Expr *)lfirst(qual_cell);
+				distcol_expr = (Expr *)coerce_to_target_type(NULL,
+														(Node *)distcol_expr,
+														exprType((Node *)distcol_expr),
+														disttype, disttypmod,
+														COERCION_ASSIGNMENT,
+														COERCE_IMPLICIT_CAST, -1);
+
+				/*
+				 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
+				 * PlannerInfo struct and we don't handle them right now.
+				 * Even if constant expression mutator changes the expression, it will
+				 * only simplify it, keeping the semantics same
+				 */
+				distcol_expr   = (Expr *)eval_const_expressions(NULL,
+																(Node *)distcol_expr);
+
+				distcol_values = lcons((void*)distcol_expr, distcol_values);
+			}
 		}
 	}
 
-	if (distcol_expr && IsA(distcol_expr, Const))
+	if (distcol_values)
 	{
-		Const *const_expr = (Const *)distcol_expr;
-		distcol_value = const_expr->constvalue;
-		distcol_isnull = const_expr->constisnull;
-		distcol_type = const_expr->consttype;
+		foreach(value_cell, distcol_values)
+		{
+			distcol_expr = (Expr *)lfirst(value_cell);
+			if (distcol_expr && IsA(distcol_expr, Const))
+			{
+				Const *const_expr = (Const *)distcol_expr;
+				distcol_value = const_expr->constvalue;
+				distcol_isnull = const_expr->constisnull;
+				distcol_type = const_expr->consttype;
+			}
+			else
+			{
+				distcol_value = (Datum) 0;
+				distcol_isnull = true;
+				distcol_type = InvalidOid;
+			}
+
+			exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
+														distcol_isnull, distcol_type,
+														relaccess);
+			if (distcol_isnull)
+			{
+				return exec_nodes;
+			}
+
+			if (relaccess != RELATION_ACCESS_READ)
+			{
+				return exec_nodes;
+			}
+
+			dst = MergeRelationExecNodes(rel_loc_info, exec_nodes, dst);
+		}
+		return dst;
 	}
 	else
 	{
 		distcol_value = (Datum) 0;
 		distcol_isnull = true;
 		distcol_type = InvalidOid;
+		exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
+													distcol_isnull, distcol_type,
+													relaccess);
+		return exec_nodes;
 	}
-
-	exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
-												distcol_isnull, distcol_type,
-												relaccess);
-	return exec_nodes;
 }
 
 /*
@@ -813,14 +858,17 @@ FreeExecNodes(ExecNodes **exec_nodes)
  * distribution column val can take in the qualified rows. So, in such cases
  * this function returns NULL.
  */
-static Expr *
+static List *
 pgxc_find_distcol_expr(Index varno,
 					   AttrNumber attrNum,
 					   Node *quals)
 {
-	List *lquals;
+	List     *lquals;
 	ListCell *qual_cell;
-
+	List *result  = NULL;
+	List *lresult = NULL;
+	List *rresult = NULL;
+	
 	/* If no quals, no distribution column expression */
 	if (!quals)
 		return NULL;
@@ -839,11 +887,66 @@ pgxc_find_distcol_expr(Index varno,
 	{
 		Expr *qual_expr = (Expr *)lfirst(qual_cell);
 		OpExpr *op;
+		BoolExpr *or;
 		Expr *lexpr;
 		Expr *rexpr;
 		Var *var_expr;
 		Expr *distcol_expr;
 
+		/* or clause */
+		if (or_clause((Node *) qual_expr))
+		{
+			or = (BoolExpr *)qual_expr;
+			/* no distribute column found, we need to query all nodes */
+			lresult = pgxc_find_distcol_expr(varno, attrNum, (Node*)(linitial(or->args)));		
+			if (!lresult)
+			{
+				return NULL;
+			}		
+
+			/* no distribute column found, we need to query all nodes */
+			rresult = pgxc_find_distcol_expr(varno, attrNum, (Node*)(lsecond(or->args)));	
+			if (!rresult)
+			{
+				return NULL;
+			}
+			
+			if (result)
+			{
+				if (lresult)
+				{
+					result = list_concat(result, lresult);
+				}
+
+				if (rresult)
+				{
+					result = list_concat(result, rresult);
+				}
+			}
+			else
+			{
+				result  = list_concat(lresult, rresult);
+			}
+			continue;
+		}
+		
+		/* iterate process nested and */
+		if (and_clause((Node *) qual_expr))
+		{
+			lresult = pgxc_find_distcol_expr(varno, attrNum, (Node*)(((BoolExpr *) qual_expr)->args));
+			if (lresult)
+			{
+				if (result)
+				{
+					result = lappend(result, lresult);
+				}
+				else
+				{
+					result = lresult;
+				}
+			}
+			continue;
+		}			
 		if (!IsA(qual_expr, OpExpr))
 			continue;
 		op = (OpExpr *)qual_expr;
@@ -901,9 +1004,49 @@ pgxc_find_distcol_expr(Index varno,
 		if (!op_mergejoinable(op->opno, exprType((Node *)lexpr)) &&
 			!op_hashjoinable(op->opno, exprType((Node *)lexpr)))
 			continue;
+		
 		/* Found the distribution column expression return it */
-		return distcol_expr;
+		if (!result)
+		{
+			result = lcons(distcol_expr, result);
+		}
+		else
+		{
+			result = lappend(result, distcol_expr);
+		}
 	}
-	/* Exhausted all quals, but no distribution column expression */
-	return NULL;
+	
+	/* return result list */
+	return result;
+}
+
+ExecNodes *
+MergeRelationExecNodes(RelationLocInfo *rel_loc_info, ExecNodes *src, ExecNodes *dst)
+{
+	if (NULL == dst)
+	{
+		return src;
+	}
+	
+	switch (rel_loc_info->locatorType)
+	{
+		/* replicated table no need to merge list*/
+		case LOCATOR_TYPE_RROBIN:
+		case LOCATOR_TYPE_REPLICATED:
+			break;
+
+		/* only merge distributed list */
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_MODULO:	
+		{
+			dst->nodeList =	list_union_int(dst->nodeList, src->nodeList);						
+			break;			
+		}
+		default:
+			ereport(ERROR, (errmsg("Error: no such supported locator type: %c\n",
+								   rel_loc_info->locatorType)));
+			break;
+	}
+
+	return dst;
 }
