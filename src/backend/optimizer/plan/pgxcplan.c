@@ -2469,13 +2469,25 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	StringInfoData	buf;
 	RangeTblEntry	*dummy_rte;
 	List			*collected_rtable;
-
+	List			*junk_tlist = NIL;
+	ListCell		*cell;
+	TargetEntry     *currentTle ; 
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{
 		Assert(IsA(query->utilityStmt, RemoteQuery));
 		query_step = (RemoteQuery *)query->utilityStmt;
 		query->utilityStmt = NULL;
+		/* Remove the junk TargetEntry */
+		foreach(cell, query->targetList) {
+			currentTle = (TargetEntry*)lfirst(cell);
+			if (currentTle->resjunk) {
+   				junk_tlist = lappend(junk_tlist, currentTle);
+			}
+		}
+		if (junk_tlist != NIL) {
+			query->targetList = list_difference(query->targetList, junk_tlist);
+		}
 	}
 	else
 	{
