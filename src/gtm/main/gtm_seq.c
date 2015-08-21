@@ -1792,7 +1792,7 @@ static void advance_gs_value(GTM_SeqInfo *seqinfo)
 	}
 	else
 	{
-		if ((seqinfo->gs_min_value - seqinfo->gs_value) >= distance)
+		if ((seqinfo->gs_min_value - seqinfo->gs_value) <= distance)
 			seqinfo->gs_backedUpValue = seqinfo->gs_value + distance;
 		else
 		{
