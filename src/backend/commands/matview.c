@@ -411,7 +411,7 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 							TupleDesc tupdesc)
 {
 	CopyState	cstate;
-	Relation	mv_rel;
+	Relation	mv_rel = NULL;
 	TupleDesc	tupDesc;
 	Datum		*values;
 	bool		*isnulls;
