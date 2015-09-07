@@ -4555,7 +4555,7 @@ PostgresMain(int argc, char *argv[],
 				SetGlobalSnapshotData(xmin, xmax, xcnt, xip);
 				/* Latest Snashot data for update visibility */
 				setSyncGXID();
-				setLatestGTMSnapshot(xmin, xmax, xcnt, xip);
+				setLatestGTMSnapshot(xmin, xmax, xcnt, (GlobalTransactionId *) xip);
 				break;
 
 			case 't':			/* timestamp */
