@@ -1066,7 +1066,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	bool			ctid_found = false;
 	bool			node_id_found = false;
 	int				col_att = 0;
-	int				ctid_param_num;
+	int				ctid_param_num = 0;
 	ListCell		*lc;
 	bool			can_use_pk_for_rep_change = false;
 	int16			*indexed_col_numbers = NULL;
