@@ -96,7 +96,10 @@ static void ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
 static void ExplainScanTarget(Scan *plan, ExplainState *es);
 static void ExplainModifyTarget(ModifyTable *plan, ExplainState *es);
 static void ExplainTargetRel(Plan *plan, Index rti, ExplainState *es);
+#ifdef PGXC
+#else
 static void show_modifytable_info(ModifyTableState *mtstate, ExplainState *es);
+#endif
 static void ExplainMemberNodes(List *plans, PlanState **planstates,
 				   List *ancestors, ExplainState *es);
 static void ExplainSubPlans(List *plans, List *ancestors,
@@ -2114,6 +2117,8 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 /*
  * Show extra information for a ModifyTable node
  */
+#ifdef PGXC
+#else
 static void
 show_modifytable_info(ModifyTableState *mtstate, ExplainState *es)
 {
@@ -2138,6 +2143,7 @@ show_modifytable_info(ModifyTableState *mtstate, ExplainState *es)
 										 es);
 	}
 }
+#endif
 
 /*
  * Explain the constituent plans of a ModifyTable, Append, MergeAppend,
