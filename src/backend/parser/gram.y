@@ -68,6 +68,9 @@
 #include "utils/datetime.h"
 #include "utils/numeric.h"
 #include "utils/xml.h"
+#ifdef PGXC
+#include "miscadmin.h"
+#endif
 
 
 /* Location tracking support --- simpler than bison's default */
