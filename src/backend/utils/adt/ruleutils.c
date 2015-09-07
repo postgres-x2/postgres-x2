@@ -4367,7 +4367,7 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	int			netlevelsup;
 	deparse_namespace *dpns;
 	char	   *schemaname;
-	char	   *refname;
+	char	   *refname = NULL;
 	char	   *attname;
 
 	/* Find appropriate nesting depth */

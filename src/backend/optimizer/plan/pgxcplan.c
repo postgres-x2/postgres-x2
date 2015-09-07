@@ -994,7 +994,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	bool			ctid_found = false;
 	bool			node_id_found = false;
 	int				col_att = 0;
-	int				ctid_param_num;
+	int				ctid_param_num = 0;
 
 	/* Make sure we are dealing with DMLs */
 	if (cmdtype != CMD_UPDATE &&

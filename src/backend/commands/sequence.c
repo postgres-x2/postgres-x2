@@ -677,15 +677,15 @@ nextval_internal(Oid relid)
 	Page		page;
 	HeapTupleData seqtuple;
 	Form_pg_sequence seq;
-	int64		incby,
-				maxv,
-				minv,
+	int64		incby = 0,
+				maxv = 0,
+				minv = 0,
 				cache,
 				log,
 				fetch,
-				last;
+				last = 0;
 	int64		result,
-				next,
+				next = 0,
 				rescnt = 0;
 	bool		logit = false;
 #ifdef PGXC
