@@ -116,17 +116,20 @@ GTM_ThreadRemove(GTM_ThreadInfo *thrinfo)
 	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
 	{
 		if (GTMThreads->gt_threads[ii] == thrinfo)
+		{
+			GTMThreads->gt_threads[ii] = NULL;
+			GTMThreads->gt_thread_count--;
 			break;
+		}
 	}
 
-	if (ii == GTMThreads->gt_array_size)
-		elog(ERROR, "Thread (%p) not found ", thrinfo);
-
-	GTMThreads->gt_threads[ii] = NULL;
-	GTMThreads->gt_thread_count--;
 	GTM_RWLockRelease(&GTMThreads->gt_lock);
 
-	pfree(thrinfo);
+	/*
+	 * It is dangerous to free invalid thrinfo, not found in GTMThreads.
+	 */
+	if (ii < GTMThreads->gt_array_size)
+		pfree(thrinfo);
 
 	return 0;
 }
