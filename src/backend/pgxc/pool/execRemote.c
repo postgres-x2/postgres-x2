@@ -1796,6 +1796,13 @@ pgxc_node_remote_commit(void)
 
 		if (!GlobalTransactionIdIsValid(remoteXactState.commitXid))
 			remoteXactState.commitXid = GetAuxilliaryTransactionId();
+
+		if(!GlobalTransactionIdIsValid(remoteXactState.commitXid))
+		{
+			remoteXactState.status = RXACT_COMMIT_FAILED;
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("failed to set commitXid for COMMIT PREPARED command")));
+		}		
 	}
 
 	/*
@@ -1983,6 +1990,17 @@ pgxc_node_remote_abort(void)
 
 			if (!GlobalTransactionIdIsValid(remoteXactState.commitXid))
 				remoteXactState.commitXid = GetAuxilliaryTransactionId();
+
+			/* Do not report error to avoid infinite loop of errors */
+			if (!GlobalTransactionIdIsValid(remoteXactState.commitXid))
+			{
+				ereport(WARNING, (errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("failed to set commitXid for ROLLBACK PREPARED command")));
+
+				return EOF;
+			}
+
+			Assert(GlobalTransactionIdIsValid(remoteXactState.commitXid));
 
 			if (pgxc_node_send_gxid(connections[i], remoteXactState.commitXid))
 			{
