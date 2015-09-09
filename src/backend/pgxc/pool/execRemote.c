@@ -1997,7 +1997,7 @@ pgxc_node_remote_abort(void)
 				ereport(WARNING, (errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("failed to set commitXid for ROLLBACK PREPARED command")));
 
-				return EOF;
+				return;
 			}
 
 			Assert(GlobalTransactionIdIsValid(remoteXactState.commitXid));
