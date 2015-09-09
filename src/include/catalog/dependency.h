@@ -152,6 +152,9 @@ typedef enum ObjectClass
 #endif
 	OCLASS_DEFACL,				/* pg_default_acl */
 	OCLASS_EXTENSION,			/* pg_extension */
+#ifdef PGXC
+	OCLAS_PGXCCLASS,			/* pgxcclass */
+#endif
 	MAX_OCLASS				/* MUST BE LAST */
 } ObjectClass;
 
