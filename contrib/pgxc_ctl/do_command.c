@@ -180,13 +180,17 @@ deploy_xc(char **hostlist)
 		/* Extract Tarball and remove it */
 		appendCmdEl(cmd, (cmdTarExtract = initCmd(hostlist[ii])));
 		snprintf(newCommand(cmdTarExtract), MAXLINE,
-				 "tar xzCf %s %s/%s; rm %s/%s",
+				 "tar xzCf %s %s/%s;",
 				  sval(VAR_pgxcInstallDir), 
-				  sval(VAR_tmpDir), tarFile,
 				  sval(VAR_tmpDir), tarFile);
 	}
 	doCmdList(cmdList);
 	cleanCmdList(cmdList);
+	for (ii = 0; hostlist[ii]; ii++)
+	{
+		doImmediate(NULL, NULL, "rm -f %s/%s",
+					hostlist[ii], tarFile);
+	}
 	doImmediate(NULL, NULL, "rm -f %s/%s",
 				sval(VAR_tmpDir), tarFile);
 	elog(NOTICE, "Deployment done.\n");
