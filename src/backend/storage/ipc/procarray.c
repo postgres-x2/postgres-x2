@@ -3059,8 +3059,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 	if (!gtm_snapshot)
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
-				errmsg("GTM error, could not obtain snapshot XID = %d",
-					   GetCurrentTransactionId())));
+				errmsg("GTM error, could not obtain snapshot XID")));
 	else
 	{
 		snapshot->xmin = gtm_snapshot->sn_xmin;

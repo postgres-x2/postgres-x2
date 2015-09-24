@@ -486,6 +486,10 @@ AutoVacLauncherMain(int argc, char *argv[])
 	 */
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
+#ifdef PGXC
+		if (got_SIGTERM)
+			goto AutoVacEnd;
+#endif
 		/* since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
 
@@ -778,6 +782,9 @@ AutoVacLauncherMain(int argc, char *argv[])
 		}
 	}
 
+#ifdef PGXC
+AutoVacEnd:
+#endif
 	/* Normal exit from the autovac launcher is here */
 	ereport(LOG,
 			(errmsg("autovacuum launcher shutting down")));
