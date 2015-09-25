@@ -110,6 +110,114 @@ extern int         tcp_keepalives_count;
 static int	internal_putbytes(Port *myport, const char *s, size_t len);
 static int	internal_flush(Port *myport);
 
+#ifdef HAVE_UNIX_SOCKETS
+static int	Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath);
+static int	Setup_AF_UNIX(char *sock_path);
+#endif   /* HAVE_UNIX_SOCKETS */
+
+#ifdef HAVE_UNIX_SOCKETS
+
+/*
+ * Lock_AF_UNIX -- configure unix socket file path
+ */
+static int
+Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
+{
+	/*
+	 * Grab an interlock file associated with the socket file.
+	 *
+	 * Note: there are two reasons for using a socket lock file, rather than
+	 * trying to interlock directly on the socket itself.  First, it's a lot
+	 * more portable, and second, it lets us remove any pre-existing socket
+	 * file without race conditions.
+	 */
+	CreateSocketLockFile(unixSocketPath, true, unixSocketDir);
+
+	/*
+	 * Once we have the interlock, we can safely delete any pre-existing
+	 * socket file to avoid failure at bind() time.
+	 */
+	unlink(unixSocketPath);
+
+	/*
+	 * Arrange to unlink the socket file(s) at proc_exit.  If this is the
+	 * first one, set up the on_proc_exit function to do it; then add this
+	 * socket file to the list of files to unlink.
+	 */
+	if (sock_paths == NIL)
+		on_proc_exit(StreamDoUnlink, 0);
+
+	sock_paths = lappend(sock_paths, pstrdup(unixSocketPath));
+
+	return STATUS_OK;
+}
+
+
+/*
+ * Setup_AF_UNIX -- configure unix socket permissions
+ */
+static int
+Setup_AF_UNIX(char *sock_path)
+{
+	/*
+	 * Fix socket ownership/permission if requested.  Note we must do this
+	 * before we listen() to avoid a window where unwanted connections could
+	 * get accepted.
+	 */
+	Assert(Unix_socket_group);
+	if (Unix_socket_group[0] != '\0')
+	{
+#ifdef WIN32
+		elog(WARNING, "configuration item unix_socket_group is not supported on this platform");
+#else
+		char	   *endptr;
+		unsigned long val;
+		gid_t		gid;
+
+		val = strtoul(Unix_socket_group, &endptr, 10);
+		if (*endptr == '\0')
+		{						/* numeric group id */
+			gid = val;
+		}
+		else
+		{						/* convert group name to id */
+			struct group *gr;
+
+			gr = getgrnam(Unix_socket_group);
+			if (!gr)
+			{
+				ereport(LOG,
+						(errmsg("group \"%s\" does not exist",
+								Unix_socket_group)));
+				return STATUS_ERROR;
+			}
+			gid = gr->gr_gid;
+		}
+		if (chown(sock_path, -1, gid) == -1)
+		{
+			ereport(LOG,
+					(errcode_for_file_access(),
+					 errmsg("could not set group of file \"%s\": %m",
+							sock_path)));
+			return STATUS_ERROR;
+		}
+#endif
+	}
+
+	if (chmod(sock_path, Unix_socket_permissions) == -1)
+	{
+		ereport(LOG,
+				(errcode_for_file_access(),
+				 errmsg("could not set permissions of file \"%s\": %m",
+						sock_path)));
+		return STATUS_ERROR;
+	}
+	return STATUS_OK;
+}
+#endif   /* HAVE_UNIX_SOCKETS */
+
+
+
 /*
  * Streams -- wrapper around Unix socket system calls
  *
@@ -145,6 +253,9 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 	int			listen_index = 0;
 	int			added = 0;
 
+#ifdef HAVE_UNIX_SOCKETS
+	char		unixSocketPath[MAXPGPATH];
+#endif
 #if !defined(WIN32) || defined(IPV6_V6ONLY)
 	int			one = 1;
 #endif
@@ -155,6 +266,28 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 	hint.ai_flags = AI_PASSIVE;
 	hint.ai_socktype = SOCK_STREAM;
 
+#ifdef HAVE_UNIX_SOCKETS
+	if (family == AF_UNIX)
+	{
+		/*
+ 		 * Create unixSocketPath from portNumber and unixSocketDir and lock
+ 		 * that file path
+ 		 */
+		UNIXSOCK_PATH(unixSocketPath, portNumber, unixSocketDir);
+		if (strlen(unixSocketPath) >= UNIXSOCK_PATH_BUFLEN)
+		{
+			ereport(LOG,
+					(errmsg("Unix-domain socket path \"%s\" is too long (maximum %d bytes)",
+							unixSocketPath,
+							(int) (UNIXSOCK_PATH_BUFLEN - 1))));
+			return STATUS_ERROR;
+		}
+		if (Lock_AF_UNIX(unixSocketDir, unixSocketPath) != STATUS_OK)
+			return STATUS_ERROR;
+		service = unixSocketPath;
+	}
+	else
+#endif   /* HAVE_UNIX_SOCKETS */
 	{
 		snprintf(portNumberStr, sizeof(portNumberStr), "%d", portNumber);
 		service = portNumberStr;
@@ -210,6 +343,11 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 #ifdef HAVE_IPV6
 			case AF_INET6:
 				familyDesc = "IPv6";
+				break;
+#endif
+#ifdef HAVE_UNIX_SOCKETS
+			case AF_UNIX:
+				familyDesc = _("Unix");
 				break;
 #endif
 			default:
@@ -296,6 +434,17 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 			close(fd);
 			continue;
 		}
+
+#ifdef HAVE_UNIX_SOCKETS
+		if (addr->ai_family == AF_UNIX)
+		{
+			if (Setup_AF_UNIX(service) != STATUS_OK)
+			{
+				closesocket(fd);
+				break;
+			}
+		}
+#endif
 
 #define GTM_MAX_CONNECTIONS		1024
 

@@ -64,6 +64,7 @@ extern char *optarg;
 #endif
 
 static char *progname = "gtm_proxy";
+static char *Unix_socket_directory = "/tmp";
 char	   *ListenAddresses;
 int			GTMProxyPortNumber;
 int			GTMProxyWorkerThreads;
@@ -837,6 +838,26 @@ main(int argc, char *argv[])
 					(errmsg("could not create listen socket for \"%s\"",
 							ListenAddresses)));
 	}
+
+#ifdef HAVE_UNIX_SOCKETS
+	if (Unix_socket_directory)
+	{
+		char	   *rawstring;
+		List	   *elemlist;
+		ListCell   *l;
+
+		status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMProxyPortNumber,
+									Unix_socket_directory, ListenSocket, MAXLISTEN);
+		if (status == STATUS_OK)
+		{
+			AddToDataDirLockFile(LOCK_FILE_LINE_SOCKET_DIR, socketdir);
+		}
+		else
+			ereport(WARNING,
+					(errmsg("could not create Unix-domain socket in directory \"%s\"",
+							socketdir)));
+	}
+#endif
 
 	/*
 	 * check that we have some socket to listen on
