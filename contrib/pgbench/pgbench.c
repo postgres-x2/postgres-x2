@@ -3199,7 +3199,7 @@ threadRun(void *arg)
 				/* generate and show report */
 				int64 count = 0;
 				int64 run = now - last_report;
-				float tps, total_run, latency;
+				double tps, total_run, latency;
 
 				for (i = 0 ; i < nstate ; i++)
 					count += state[i].cnt;
@@ -3229,7 +3229,7 @@ threadRun(void *arg)
 				/* generate and show report */
 				int64 count = 0;
 				int64 run = now - last_report;
-				float tps, total_run, latency;
+				double tps, total_run, latency;
 
 				for (i = 0 ; i < progress_nclients ; i++)
 					count += state[i].cnt;
