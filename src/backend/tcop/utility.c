@@ -977,7 +977,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_VariableSetStmt:
-			ExecSetVariableStmt((VariableSetStmt *) parsetree);
+			ExecSetVariableStmt((VariableSetStmt *) parsetree, isTopLevel);
 #ifdef PGXC
 			/* Let the pooler manage the statement */
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
@@ -1116,6 +1116,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_ConstraintsSetStmt:
+			RequireTransactionChain(isTopLevel, "SET CONSTRAINTS");
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
 #ifdef PGXC
 			/*
@@ -3518,6 +3519,9 @@ CreateCommandTag(Node *parsetree)
 					break;
 				case DISCARD_TEMP:
 					tag = "DISCARD TEMP";
+					break;
+				case DISCARD_SEQUENCES:
+					tag = "DISCARD SEQUENCES";
 					break;
 				default:
 					tag = "???";

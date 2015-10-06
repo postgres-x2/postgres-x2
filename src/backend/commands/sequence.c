@@ -1928,6 +1928,23 @@ seq_redo(XLogRecPtr lsn, XLogRecord *record)
 
 	pfree(localpage);
 }
+
+/*
+ * Flush cached sequence information.
+ */
+void
+ResetSequenceCaches(void)
+{
+	SeqTableData *next;
+
+	while (seqtab != NULL)
+	{
+		next = seqtab->next;
+		free(seqtab);
+		seqtab = next;
+	}
+}
+
 #ifdef PGXC
 /*
  * Register a callback for a sequence rename drop on GTM

@@ -6502,7 +6502,7 @@ flatten_set_variable_args(const char *name, List *args)
  * SET command
  */
 void
-ExecSetVariableStmt(VariableSetStmt *stmt)
+ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 {
 	GucAction	action = stmt->is_local ? GUC_ACTION_LOCAL : GUC_ACTION_SET;
 
@@ -6510,6 +6510,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 	{
 		case VAR_SET_VALUE:
 		case VAR_SET_CURRENT:
+			if (stmt->is_local)
+				RequireTransactionChain(isTopLevel, "SET LOCAL");
 			(void) set_config_option(stmt->name,
 									 ExtractSetVariableArgs(stmt),
 									 (superuser() ? PGC_SUSET : PGC_USERSET),
@@ -6519,7 +6521,6 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 									 0);
 			break;
 		case VAR_SET_MULTI:
-
 			/*
 			 * Special-case SQL syntaxes.  The TRANSACTION and SESSION
 			 * CHARACTERISTICS cases effectively set more than one variable
@@ -6530,6 +6531,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 			if (strcmp(stmt->name, "TRANSACTION") == 0)
 			{
 				ListCell   *head;
+
+				RequireTransactionChain(isTopLevel, "SET TRANSACTION");
 
 				foreach(head, stmt->args)
 				{
@@ -6579,6 +6582,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("SET LOCAL TRANSACTION SNAPSHOT is not implemented")));
+
+				RequireTransactionChain(isTopLevel, "SET TRANSACTION");
 				Assert(IsA(con, A_Const));
 				Assert(nodeTag(&con->val) == T_String);
 				ImportSnapshot(strVal(&con->val));
@@ -6588,7 +6593,13 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 					 stmt->name);
 			break;
 		case VAR_SET_DEFAULT:
+			if (stmt->is_local)
+				RequireTransactionChain(isTopLevel, "SET LOCAL");
+			/* fall through */
 		case VAR_RESET:
+			if (strcmp(stmt->name, "transaction_isolation") == 0)
+				RequireTransactionChain(isTopLevel, "RESET TRANSACTION");
+
 			(void) set_config_option(stmt->name,
 									 NULL,
 									 (superuser() ? PGC_SUSET : PGC_USERSET),

@@ -338,7 +338,7 @@ extern TupleDesc GetPGVariableResultDesc(const char *name);
 extern char *RewriteBeginQuery(char *query_string, const char *name, List *args);
 #endif
 
-extern void ExecSetVariableStmt(VariableSetStmt *stmt);
+extern void ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel);
 extern char *ExtractSetVariableArgs(VariableSetStmt *stmt);
 
 extern void ProcessGUCArray(ArrayType *array,
