@@ -150,7 +150,7 @@ next_insert(char *text, int pos, bool questionmarks)
 }
 
 static bool
-ecpg_type_infocache_push(struct ECPGtype_information_cache ** cache, int oid, bool isarray, int lineno)
+ecpg_type_infocache_push(struct ECPGtype_information_cache ** cache, int oid, enum ARRAY_TYPE isarray, int lineno)
 {
 	struct ECPGtype_information_cache *new_entry
 	= (struct ECPGtype_information_cache *) ecpg_alloc(sizeof(struct ECPGtype_information_cache), lineno);
@@ -402,11 +402,10 @@ ecpg_store_result(const PGresult *results, int act_field,
 		}
 
 		ecpg_log("ecpg_store_result on line %d: allocating memory for %d tuples\n", stmt->lineno, ntuples);
-		var->value = (char *) ecpg_alloc(len, stmt->lineno);
+		var->value = (char *) ecpg_auto_alloc(len, stmt->lineno);
 		if (!var->value)
 			return false;
 		*((char **) var->pointer) = var->value;
-		ecpg_add_mem(var->value, stmt->lineno);
 	}
 
 	/* allocate indicator variable if needed */
@@ -414,11 +413,10 @@ ecpg_store_result(const PGresult *results, int act_field,
 	{
 		int			len = var->ind_offset * ntuples;
 
-		var->ind_value = (char *) ecpg_alloc(len, stmt->lineno);
+		var->ind_value = (char *) ecpg_auto_alloc(len, stmt->lineno);
 		if (!var->ind_value)
 			return false;
 		*((char **) var->ind_pointer) = var->ind_value;
-		ecpg_add_mem(var->ind_value, stmt->lineno);
 	}
 
 	/* fill the variable with the tuple(s) */
@@ -758,18 +756,9 @@ ecpg_store_input(const int lineno, const bool force_indicator, const struct vari
 				{
 					strcpy(mallocedval, "{");
 
-					if (var->offset == sizeof(char))
-						for (element = 0; element < asize; element++)
-							sprintf(mallocedval + strlen(mallocedval), "%c,", (((char *) var->value)[element]) ? 't' : 'f');
+					for (element = 0; element < asize; element++)
+                                                        sprintf(mallocedval + strlen(mallocedval), "%c,", (((bool *) var->value)[element]) ? 't' : 'f');
 
-					/*
-					 * this is necessary since sizeof(C++'s bool)==sizeof(int)
-					 */
-					else if (var->offset == sizeof(int))
-						for (element = 0; element < asize; element++)
-							sprintf(mallocedval + strlen(mallocedval), "%c,", (((int *) var->value)[element]) ? 't' : 'f');
-					else
-						ecpg_raise(lineno, ECPG_CONVERT_BOOL, ECPG_SQLSTATE_DATATYPE_MISMATCH, NULL);
 
 					strcpy(mallocedval + strlen(mallocedval) - 1, "}");
 				}
@@ -1439,6 +1428,13 @@ ecpg_execute(struct statement * stmt)
 
 	if (!ecpg_check_PQresult(results, stmt->lineno, stmt->connection->connection, stmt->compat))
 		return (false);
+
+	if (sqlca == NULL)
+	{
+		ecpg_raise(stmt->lineno, ECPG_OUT_OF_MEMORY,
+				   ECPG_SQLSTATE_ECPG_OUT_OF_MEMORY, NULL);
+		return (false);
+	}
 
 	var = stmt->outlist;
 	switch (PQresultStatus(results))

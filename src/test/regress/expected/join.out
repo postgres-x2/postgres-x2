@@ -2201,6 +2201,44 @@ select count(*) from tenk1 x where
 
 rollback;
 --
+-- regression test: be sure we cope with proven-dummy append rels
+--
+explain (costs off, nodes off, num_nodes off)
+select aa, bb, unique1, unique1
+  from tenk1 right join b on aa = unique1
+  where bb < bb and bb is null;
+        QUERY PLAN        
+--------------------------
+ Result
+   One-Time Filter: false
+(2 rows)
+
+select aa, bb, unique1, unique1
+  from tenk1 right join b on aa = unique1
+  where bb < bb and bb is null;
+ aa | bb | unique1 | unique1 
+----+----+---------+---------
+(0 rows)
+
+--
+-- regression test: check a case where join_clause_is_movable_into() gives
+-- an imprecise result, causing an assertion failure
+--
+select count(*)
+from
+  (select t3.tenthous as x1, coalesce(t1.stringu1, t2.stringu1) as x2
+   from tenk1 t1
+   left join tenk1 t2 on t1.unique1 = t2.unique1
+   join tenk1 t3 on t1.unique2 = t3.unique2) ss,
+  tenk1 t4,
+  tenk1 t5
+where t4.thousand = t5.unique1 and ss.x1 = t4.tenthous and ss.x2 = t5.stringu1;
+ count 
+-------
+  1000
+(1 row)
+
+--
 -- Clean up
 --
 DROP TABLE t1;
@@ -2868,6 +2906,80 @@ where thousand = a.q1 and tenthous = b.q1 and a.q2 = 1 and b.q2 = 2;
 (8 rows)
 
 --
+-- test a corner case in which we shouldn't apply the star-schema optimization
+--
+explain (costs off, nodes off, num_nodes off)
+select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from
+  tenk1 t1
+  inner join int4_tbl i1
+    left join (select v1.x2, v2.y1, 11 AS d1
+               from (values(1,0)) v1(x1,x2)
+               left join (values(3,1)) v2(y1,y2)
+               on v1.x1 = v2.y2) subq1
+    on (i1.f1 = subq1.x2)
+  on (t1.unique2 = subq1.d1)
+  left join tenk1 t2
+  on (subq1.y1 = t2.unique1)
+where t1.unique2 < 42 and t1.stringu1 > t2.stringu2;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Hash Join
+   Hash Cond: (unique1 = "*VALUES*_1".column1)
+   Join Filter: (stringu1 > stringu2)
+   ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+   ->  Hash
+         ->  Hash Join
+               Hash Cond: (f1 = "*VALUES*".column2)
+               ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+               ->  Hash
+                     ->  Hash Join
+                           Hash Cond: (unique2 = (11))
+                           ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+                           ->  Hash
+                                 ->  Nested Loop
+                                       Join Filter: ("*VALUES*".column1 = "*VALUES*_1".column2)
+                                       ->  Values Scan on "*VALUES*"
+                                       ->  Values Scan on "*VALUES*_1"
+(17 rows)
+
+select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from
+  tenk1 t1
+  inner join int4_tbl i1
+    left join (select v1.x2, v2.y1, 11 AS d1
+               from (values(1,0)) v1(x1,x2)
+               left join (values(3,1)) v2(y1,y2)
+               on v1.x1 = v2.y2) subq1
+    on (i1.f1 = subq1.x2)
+  on (t1.unique2 = subq1.d1)
+  left join tenk1 t2
+  on (subq1.y1 = t2.unique1)
+where t1.unique2 < 42 and t1.stringu1 > t2.stringu2;
+ unique2 | stringu1 | unique1 | stringu2 
+---------+----------+---------+----------
+      11 | WFAAAA   |       3 | LKIAAA
+(1 row)
+
+-- variant that isn't quite a star-schema case
+select ss1.d1 from
+  tenk1 as t1
+  inner join tenk1 as t2
+  on t1.tenthous = t2.ten
+  inner join
+    int8_tbl as i8
+    left join int4_tbl as i4
+      inner join (select 64::information_schema.cardinal_number as d1
+                  from tenk1 t3,
+                       lateral (select abs(t3.unique1) + random()) ss0(x)
+                  where t3.fivethous < 0) as ss1
+      on i4.f1 = ss1.d1
+    on i8.q1 = i4.f1
+  on t1.tenthous = ss1.d1
+where t1.unique1 < i4.f1;
+ d1 
+----
+(0 rows)
+
+--
 -- test placement of movable quals in a parameterized join tree
 --
 explain (num_nodes off, nodes off, costs off)
@@ -3146,6 +3258,271 @@ using (join_key);
 (2 rows)
 
 --
+-- test successful handling of nested outer joins with degenerate join quals
+--
+explain (verbose, costs off, nodes off, num_nodes off)
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Hash Left Join
+   Output: t1.f1
+   Hash Cond: (i8.q2 = i4.f1)
+   ->  Nested Loop Left Join
+         Output: t1.f1, i8.q2
+         Join Filter: (t1.f1 = '***'::text)
+         ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY_"
+               Output: t1.f1
+               Remote query: SELECT f1 FROM ONLY public.text_tbl t1 WHERE true
+         ->  Materialize
+               Output: i8.q2
+               ->  Hash Right Join
+                     Output: i8.q2
+                     Hash Cond: ((NULL::integer) = i8b1.q2)
+                     ->  Hash Left Join
+                           Output: i8.q2, (NULL::integer)
+                           Hash Cond: (i8.q1 = i8b2.q1)
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
+                                 Output: i8.q1, i8.q2
+                                 Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl i8 WHERE true
+                           ->  Hash
+                                 Output: i8b2.q1, (NULL::integer)
+                                 ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
+                                       Output: i8b2.q1, NULL::integer
+                                       Remote query: SELECT q1 FROM ONLY public.int8_tbl i8b2 WHERE true
+                     ->  Hash
+                           Output: i8b1.q2
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__3"
+                                 Output: i8b1.q2
+                                 Remote query: SELECT q2 FROM ONLY public.int8_tbl i8b1 WHERE true
+   ->  Hash
+         Output: i4.f1
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__4"
+               Output: i4.f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl i4 WHERE true
+(35 rows)
+
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1) order by 1;
+        f1         
+-------------------
+ doh!
+ hi de ho neighbor
+(2 rows)
+
+explain (verbose, costs off, nodes off, num_nodes off)
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Hash Left Join
+   Output: t1.f1
+   Hash Cond: (i8.q2 = i4.f1)
+   ->  Nested Loop Left Join
+         Output: t1.f1, i8.q2
+         Join Filter: (t1.f1 = '***'::text)
+         ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY_"
+               Output: t1.f1
+               Remote query: SELECT f1 FROM ONLY public.text_tbl t1 WHERE true
+         ->  Materialize
+               Output: i8.q2
+               ->  Hash Right Join
+                     Output: i8.q2
+                     Hash Cond: ((NULL::integer) = i8b1.q2)
+                     ->  Hash Right Join
+                           Output: i8.q2, (NULL::integer)
+                           Hash Cond: (i8b2.q1 = i8.q1)
+                           ->  Nested Loop
+                                 Output: i8b2.q1, NULL::integer
+                                 ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
+                                       Output: i8b2.q1
+                                       Remote query: SELECT q1 FROM ONLY public.int8_tbl i8b2 WHERE true
+                                 ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__2"
+                                       Remote query: SELECT * FROM ONLY public.int4_tbl i4b2 WHERE true
+                           ->  Hash
+                                 Output: i8.q1, i8.q2
+                                 ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__3"
+                                       Output: i8.q1, i8.q2
+                                       Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl i8 WHERE true
+                     ->  Hash
+                           Output: i8b1.q2
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__4"
+                                 Output: i8b1.q2
+                                 Remote query: SELECT q2 FROM ONLY public.int8_tbl i8b1 WHERE true
+   ->  Hash
+         Output: i4.f1
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__5"
+               Output: i4.f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl i4 WHERE true
+(39 rows)
+
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1) order by 1;
+        f1         
+-------------------
+ doh!
+ hi de ho neighbor
+(2 rows)
+
+explain (verbose, costs off, nodes off, num_nodes off)
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2
+                 where q1 = f1) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Hash Left Join
+   Output: t1.f1
+   Hash Cond: (i8.q2 = i4.f1)
+   ->  Nested Loop Left Join
+         Output: t1.f1, i8.q2
+         Join Filter: (t1.f1 = '***'::text)
+         ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY_"
+               Output: t1.f1
+               Remote query: SELECT f1 FROM ONLY public.text_tbl t1 WHERE true
+         ->  Materialize
+               Output: i8.q2
+               ->  Hash Right Join
+                     Output: i8.q2
+                     Hash Cond: ((NULL::integer) = i8b1.q2)
+                     ->  Hash Right Join
+                           Output: i8.q2, (NULL::integer)
+                           Hash Cond: (i8b2.q1 = i8.q1)
+                           ->  Hash Join
+                                 Output: i8b2.q1, NULL::integer
+                                 Hash Cond: (i8b2.q1 = i4b2.f1)
+                                 ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__1"
+                                       Output: i8b2.q1
+                                       Remote query: SELECT q1 FROM ONLY public.int8_tbl i8b2 WHERE true
+                                 ->  Hash
+                                       Output: i4b2.f1
+                                       ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__2"
+                                             Output: i4b2.f1
+                                             Remote query: SELECT f1 FROM ONLY public.int4_tbl i4b2 WHERE true
+                           ->  Hash
+                                 Output: i8.q1, i8.q2
+                                 ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__3"
+                                       Output: i8.q1, i8.q2
+                                       Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl i8 WHERE true
+                     ->  Hash
+                           Output: i8b1.q2
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__4"
+                                 Output: i8b1.q2
+                                 Remote query: SELECT q2 FROM ONLY public.int8_tbl i8b1 WHERE true
+   ->  Hash
+         Output: i4.f1
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__5"
+               Output: i4.f1
+               Remote query: SELECT f1 FROM ONLY public.int4_tbl i4 WHERE true
+(43 rows)
+
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2
+                 where q1 = f1) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1) order by 1;
+        f1         
+-------------------
+ doh!
+ hi de ho neighbor
+(2 rows)
+
+explain (verbose, costs off, nodes off, num_nodes off)
+select * from
+  text_tbl t1
+  inner join int8_tbl i8
+  on i8.q2 = 456
+  right join text_tbl t2
+  on t1.f1 = 'doh!'
+  left join int4_tbl i4
+  on i8.q1 = i4.f1;
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Nested Loop Left Join
+   Output: t1.f1, i8.q1, i8.q2, t2.f1, i4.f1
+   ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY_"
+         Output: t2.f1
+         Remote query: SELECT f1 FROM ONLY public.text_tbl t2 WHERE true
+   ->  Materialize
+         Output: i8.q1, i8.q2, i4.f1, t1.f1
+         ->  Nested Loop
+               Output: i8.q1, i8.q2, i4.f1, t1.f1
+               ->  Hash Right Join
+                     Output: i8.q1, i8.q2, i4.f1
+                     Hash Cond: (i4.f1 = i8.q1)
+                     ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__1"
+                           Output: i4.f1
+                           Remote query: SELECT f1 FROM ONLY public.int4_tbl i4 WHERE true
+                     ->  Hash
+                           Output: i8.q1, i8.q2
+                           ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY__2"
+                                 Output: i8.q1, i8.q2
+                                 Remote query: SELECT q1, q2 FROM ONLY public.int8_tbl i8 WHERE (q2 = 456)
+               ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY__3"
+                     Output: t1.f1
+                     Remote query: SELECT f1 FROM ONLY public.text_tbl t1 WHERE (f1 = 'doh!'::text)
+(23 rows)
+
+select * from
+  text_tbl t1
+  inner join int8_tbl i8
+  on i8.q2 = 456
+  right join text_tbl t2
+  on t1.f1 = 'doh!'
+  left join int4_tbl i4
+  on i8.q1 = i4.f1 order by 1,2,3,4;
+  f1  | q1  | q2  |        f1         | f1 
+------+-----+-----+-------------------+----
+ doh! | 123 | 456 | doh!              |   
+ doh! | 123 | 456 | hi de ho neighbor |   
+(2 rows)
+
+--
 -- test ability to push constants through outer join clauses
 --
 explain (costs off, num_nodes off, nodes off)
@@ -3176,7 +3553,7 @@ explain (costs off, num_nodes off, nodes off)
 --
 set enable_hashjoin to off;
 set enable_nestloop to off;
-explain (verbose, costs off)
+explain (verbose, costs off, nodes off, num_nodes off)
   select a.q2, b.q1
     from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
     where coalesce(b.q1, 1) > 0;
@@ -3191,16 +3568,14 @@ explain (verbose, costs off)
          Sort Key: a.q2
          ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
                Output: a.q2
-               Node/s: dn1, dn2
                Remote query: SELECT q2 FROM ONLY public.int8_tbl a WHERE true ORDER BY 1
    ->  Sort
          Output: b.q1, (COALESCE(b.q1, 1::bigint))
          Sort Key: (COALESCE(b.q1, 1::bigint))
          ->  Data Node Scan on int8_tbl "_REMOTE_TABLE_QUERY_"
                Output: b.q1, COALESCE(b.q1, 1::bigint)
-               Node/s: dn1, dn2
                Remote query: SELECT q1 FROM ONLY public.int8_tbl b WHERE true
-(18 rows)
+(16 rows)
 
 select a.q2, b.q1
   from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1)
@@ -3411,6 +3786,64 @@ SELECT * FROM
  1 | 4567890123456789 |               123 |               42
  1 | 4567890123456789 |  4567890123456789 | 4567890123456789
 (5 rows)
+
+rollback;
+-- another join removal bug: we must clean up correctly when removing a PHV
+begin;
+create temp table uniquetbl (f1 text unique);
+explain (costs off, nodes off, num_nodes off)
+select t1.* from
+  uniquetbl as t1
+  left join (select *, '***'::text as d1 from uniquetbl) t2
+  on t1.f1 = t2.f1
+  left join uniquetbl t3
+  on t2.d1 = t3.f1;
+                     QUERY PLAN                     
+----------------------------------------------------
+ Data Node Scan on uniquetbl "_REMOTE_TABLE_QUERY_"
+(1 row)
+
+explain (costs off, nodes off, num_nodes off)
+select t0.*
+from
+ text_tbl t0
+ left join
+   (select case t1.ten when 0 then 'doh!'::text else null::text end as case1,
+           t1.stringu2
+     from tenk1 t1
+     join int4_tbl i4 ON i4.f1 = t1.unique2
+     left join uniquetbl u1 ON u1.f1 = t1.string4) ss
+  on t0.f1 = ss.case1
+where ss.stringu2 !~* ss.case1;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Hash Join
+   Hash Cond: (t1.unique2 = i4.f1)
+   ->  Hash Join
+         Hash Cond: (t0.f1 = CASE t1.ten WHEN 0 THEN 'doh!'::text ELSE NULL::text END)
+         ->  Data Node Scan on text_tbl "_REMOTE_TABLE_QUERY_"
+         ->  Hash
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY__1"
+                     Coordinator quals: (stringu2 !~* CASE ten WHEN 0 THEN 'doh!'::text ELSE NULL::text END)
+   ->  Hash
+         ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY__2"
+(10 rows)
+
+select t0.*
+from
+ text_tbl t0
+ left join
+   (select case t1.ten when 0 then 'doh!'::text else null::text end as case1,
+           t1.stringu2
+     from tenk1 t1
+     join int4_tbl i4 ON i4.f1 = t1.unique2
+     left join uniquetbl u1 ON u1.f1 = t1.string4) ss
+  on t0.f1 = ss.case1
+where ss.stringu2 !~* ss.case1;
+  f1  
+------
+ doh!
+(1 row)
 
 rollback;
 -- bug #8444: we've historically allowed duplicate aliases within aliased JOINs
@@ -4284,6 +4717,45 @@ select * from
    ->  Result
          Output: 3
 (11 rows)
+
+-- check we don't try to do a unique-ified semijoin with LATERAL
+explain (verbose, costs off, nodes off, num_nodes off)
+select * from
+  (values (0,9998), (1,1000)) v(id,x),
+  lateral (select f1 from int4_tbl
+           where f1 = any (select unique1 from tenk1
+                           where unique2 = v.x offset 0)) ss;
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Nested Loop
+   Output: "*VALUES*".column1, "*VALUES*".column2, f1
+   ->  Values Scan on "*VALUES*"
+         Output: "*VALUES*".column1, "*VALUES*".column2
+   ->  Hash Join
+         Output: f1
+         Hash Cond: (unique1 = f1)
+         ->  HashAggregate
+               Output: unique1
+               ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
+                     Output: unique1
+                     Remote query: SELECT unique1, unique2 FROM ONLY public.tenk1 WHERE true
+                     Coordinator quals: (unique2 = "*VALUES*".column2)
+         ->  Hash
+               Output: f1
+               ->  Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
+                     Output: f1
+                     Remote query: SELECT f1 FROM ONLY public.int4_tbl WHERE true
+(18 rows)
+
+select * from
+  (values (0,9998), (1,1000)) v(id,x),
+  lateral (select f1 from int4_tbl
+           where f1 = any (select unique1 from tenk1
+                           where unique2 = v.x offset 0)) ss;
+ id |  x   | f1 
+----+------+----
+  0 | 9998 |  0
+(1 row)
 
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;

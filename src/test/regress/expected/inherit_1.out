@@ -1527,6 +1527,38 @@ DETAIL:  drop cascades to table matest1
 drop cascades to table matest2
 drop cascades to table matest3
 --
+-- Check that use of an index with an extraneous column doesn't produce
+-- a plan with extraneous sorting
+--
+create table matest0 (a int, b int, c int, d int);
+create table matest1 () inherits(matest0);
+create index matest0i on matest0 (b, c);
+create index matest1i on matest1 (b, c);
+set enable_nestloop = off;  -- we want a plan with two MergeAppends
+explain (costs off, num_nodes off, nodes off)
+select t1.* from matest0 t1, matest0 t2
+where t1.b = t2.b and t2.c = t2.d
+order by t1.b limit 10;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: t1_1.b
+         ->  Hash Join
+               Hash Cond: (t1_1.b = t2_1.b)
+               ->  Append
+                     ->  Data Node Scan on matest0 "_REMOTE_TABLE_QUERY_"
+                     ->  Data Node Scan on matest1 "_REMOTE_TABLE_QUERY__1"
+               ->  Hash
+                     ->  Append
+                           ->  Data Node Scan on matest0 "_REMOTE_TABLE_QUERY__2"
+                           ->  Data Node Scan on matest1 "_REMOTE_TABLE_QUERY__3"
+(12 rows)
+
+reset enable_nestloop;
+drop table matest0 cascade;
+NOTICE:  drop cascades to table matest1
+--
 -- Test merge-append for UNION ALL append relations
 --
 set enable_seqscan = off;
