@@ -14,6 +14,7 @@
 #include "miscadmin.h"
 
 #include "access/heapam.h"
+#include "access/htup_details.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"

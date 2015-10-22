@@ -384,7 +384,7 @@ do_monitor_command(char *line)
 		if (!GetToken() || TestToken("all"))
 		{
 			monitor_datanode_master(aval(VAR_datanodeNames));
-			if (isVarYes(VAR_coordSlave))
+			if (isVarYes(VAR_datanodeSlave))
 				monitor_datanode_slave(aval(VAR_datanodeNames));
 		}
 		else if (TestToken("master"))

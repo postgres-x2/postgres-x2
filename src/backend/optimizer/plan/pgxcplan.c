@@ -1072,7 +1072,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	bool			ctid_found = false;
 	bool			node_id_found = false;
 	int				col_att = 0;
-	int				ctid_param_num;
+	int				ctid_param_num = 0;
 	ListCell		*lc;
 	bool			can_use_pk_for_rep_change = false;
 	int16			*indexed_col_numbers = NULL;
@@ -2639,13 +2639,25 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	StringInfoData	buf;
 	RangeTblEntry	*dummy_rte;
 	List			*collected_rtable;
-
+	List			*junk_tlist = NIL;
+	ListCell		*cell;
+	TargetEntry     *currentTle ; 
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{
 		Assert(IsA(query->utilityStmt, RemoteQuery));
 		query_step = (RemoteQuery *)query->utilityStmt;
 		query->utilityStmt = NULL;
+		/* Remove the junk TargetEntry */
+		foreach(cell, query->targetList) {
+			currentTle = (TargetEntry*)lfirst(cell);
+			if (currentTle->resjunk) {
+   				junk_tlist = lappend(junk_tlist, currentTle);
+			}
+		}
+		if (junk_tlist != NIL) {
+			query->targetList = list_difference(query->targetList, junk_tlist);
+		}
 	}
 	else
 	{

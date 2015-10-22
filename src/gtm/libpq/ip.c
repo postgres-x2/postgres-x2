@@ -203,6 +203,7 @@ pg_sockaddr_cidr_mask(struct sockaddr_storage * mask, char *numbits, int family)
 				struct sockaddr_in mask4;
 				long		maskl;
 
+				memset(&mask4, 0, sizeof(mask4));
 				if (bits < 0 || bits > 32)
 					return -1;
 				/* avoid "x << 32", which is not portable */
