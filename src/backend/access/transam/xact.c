@@ -32,6 +32,8 @@
 #include "postmaster/autovacuum.h"
 #include "libpq/pqformat.h"
 #include "libpq/libpq.h"
+/* Commit synchronization with GTM */
+#include "pgxc/xc_gtm_commit_sync.h"
 #endif
 #include "access/multixact.h"
 #include "access/subtrans.h"
@@ -371,6 +373,29 @@ static const char *TransStateAsString(TransState state);
 static void PrepareTransaction(void);
 static void AtEOXact_GlobalTxn(bool commit);
 
+#ifdef PGXC
+/*
+ * In Postgres-XC environment, each local commit is completed before
+ * it is reported to GTM.
+ * Therefore, in a busy workload, some comits can be updated while
+ * updating transaction's GXID is still in some of the snapshot,
+ * making older version bisible too and causing the phantom.
+ * This code improves this by confirming that transaction updated
+ * a given row has been reported to GTM and does not appear in
+ * the snapshot.
+ * This snapshot is not used for other means so that any read
+ * visibility is not affected.
+ */
+int	xc_gtm_sync_timeout = 100;
+bool xc_gtm_commit_sync_test = false;
+static GTM_Snapshot latestGTMSnapshot = NULL;
+/* XC need this to obtain the snapshot from GTM. XL doesn't. */
+static GlobalTransactionId dummyGxid = InvalidGlobalTransactionId;
+
+static void refreshLatestGTMSnapshot(void);
+static bool gtmSnapshotIncludes(GTM_Snapshot snapshot, GlobalTransactionId gxid);
+static void resetDummyGxid(bool commit);
+#endif
 
 /* ----------------------------------------------------------------
  *	transaction state accessors
@@ -5797,5 +5822,131 @@ IsPGXCNodeXactDatanodeDirect(void)
 		   IsNormalProcessingMode() &&
 		   !IsAutoVacuumLauncherProcess() &&
 		   !IsConnFromCoord();
+}
+
+/*
+ * Synchronize that the given gxid is reported as committed or aborted to GTM.
+ * It is needed to maintain update consisitency.
+ *
+ * syncGXID_GTM returns a bool value if synchronization has really been done or
+ * not.
+ */
+
+bool shouldSyncGXID = false;
+
+bool
+syncGXID_GTM(GlobalTransactionId gxid)
+{
+	int	wait_tm = 0;
+	int wait_total = 0;
+	int retry = 0;
+
+	if (!shouldSyncGXID)
+		return false;
+
+	if (latestGTMSnapshot == NULL)
+	{
+		if (xc_gtm_commit_sync_test)
+			elog(DEBUG1, "GXID(%u): No latestGTMSnapshot, refreshing.", gxid);
+		refreshLatestGTMSnapshot();
+		retry++;
+	}
+	if (!gtmSnapshotIncludes(latestGTMSnapshot, gxid))
+	{
+		if (xc_gtm_commit_sync_test)
+			elog(DEBUG1, "Sync GXID(%u): refresh(%d), No further refreshLatestGTMSnapshot() needed.", gxid, retry);
+		resetDummyGxid(true);
+		return true;
+	}
+	while (wait_total < xc_gtm_sync_timeout)	/* GUN parameter */
+	{
+		if (wait_tm)
+		{
+			pg_usleep(wait_tm * 1000);
+			wait_total += wait_tm;
+		}
+		refreshLatestGTMSnapshot();
+		if (!gtmSnapshotIncludes(latestGTMSnapshot, gxid))
+		{
+			if (xc_gtm_commit_sync_test)
+				elog(DEBUG1, "Sync GXID(%u): refresh(%d), eynchronized in %d millisec.", gxid, retry, wait_total);
+			resetDummyGxid(true);
+			return true;
+		}
+		if (wait_tm == 0)
+			wait_tm = 1;	/* 1 millisec */
+		else
+			wait_tm *= 2;
+		retry++;
+	}
+	resetDummyGxid(false);
+	elog(ERROR, "Could not synchronize gxid (%u) with GTM within %d milliseconds.",
+		 		gxid, xc_gtm_sync_timeout);
+	return false; /* Does not reach here though. */
+}
+
+void
+setLatestGTMSnapshot(GlobalTransactionId gxmin,
+					 GlobalTransactionId gxmax,
+					 int xcnt,
+					 GlobalTransactionId *xip)
+{
+	if (latestGTMSnapshot == NULL)
+	{
+		latestGTMSnapshot = (GTM_Snapshot)malloc(sizeof(GTM_SnapshotData));
+		memset(latestGTMSnapshot, 0, sizeof(GTM_SnapshotData));
+	}
+	latestGTMSnapshot->sn_xmin = gxmin;
+	latestGTMSnapshot->sn_xmax = gxmax;
+	latestGTMSnapshot->sn_xcnt = xcnt;
+	if (latestGTMSnapshot->sn_xip)
+		latestGTMSnapshot->sn_xip = realloc((void *)latestGTMSnapshot->sn_xip,
+											latestGTMSnapshot->sn_xcnt * sizeof(GlobalTransactionId));
+	else
+		latestGTMSnapshot->sn_xip = malloc(latestGTMSnapshot->sn_xcnt * sizeof(GlobalTransactionId));
+	memcpy(latestGTMSnapshot->sn_xip, xip, xcnt * sizeof(GlobalTransactionId));
+}
+
+static void
+refreshLatestGTMSnapshot(void)
+{
+	GTM_Timestamp timestamp;
+
+	if (dummyGxid == InvalidGlobalTransactionId)
+	{
+		dummyGxid = BeginTranGTM(&timestamp);
+	}
+	(void)GetSnapshotGTM(dummyGxid, true);
+	if (latestGTMSnapshot == NULL)
+		elog(ERROR, "Could not obtain a snapshot from GTM.");
+}
+
+static bool
+gtmSnapshotIncludes(GTM_Snapshot snapshot, GlobalTransactionId gxid)
+{
+	int ii;
+
+	if (TransactionIdFollows((TransactionId)gxid, (TransactionId)(snapshot->sn_xmax)) ||
+		TransactionIdFollows((TransactionId)(snapshot->sn_xmin), (TransactionId)gxid))
+		return false;
+	for (ii = 0; ii < snapshot->sn_xcnt; ii++)
+	{
+		if (snapshot->sn_xip[ii] == gxid)
+			return true;
+	}
+	return false;
+}
+
+static void
+resetDummyGxid(bool commit)
+{
+	if (dummyGxid == InvalidGlobalTransactionId)
+		return;
+	if (commit)
+		CommitTranGTM(dummyGxid);
+	else
+		RollbackTranGTM(dummyGxid);
+	dummyGxid = InvalidGlobalTransactionId;
+	return;
 }
 #endif

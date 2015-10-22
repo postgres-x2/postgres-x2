@@ -65,7 +65,9 @@
 #include "optimizer/pgxcplan.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/nodemgr.h"
+#include "pgxc/pgxcnode.h"
 #include "pgxc/xc_maintenance_mode.h"
+#include "pgxc/xc_gtm_commit_sync.h"
 #endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker.h"
@@ -852,6 +854,15 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&gtm_backup_barrier,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"xc_gtm_commit_sync_test", PGC_USERSET, STATS_MONITORING,
+			gettext_noop("Prints additional status info on GTM commit syncronization."),
+			NULL
+		},
+		&xc_gtm_commit_sync_test,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2606,6 +2617,26 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&MaxCoords,
 		16, 2, 65535,
+		NULL, NULL, NULL
+	},
+	{
+		{"pgxcnode_cancel_delay", PGC_USERSET, DATA_NODES,
+			gettext_noop("Cancel deay dulation at the coordinator."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&pgxcnode_cancel_delay,
+		10, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"xc_gtm_sync_timeout", PGC_USERSET, DATA_NODES,
+			gettext_noop("Timeout to synchronize commit report to GTM"),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&xc_gtm_sync_timeout,
+		2000, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 #endif

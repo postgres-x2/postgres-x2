@@ -4240,8 +4240,17 @@ GetCommandLogLevel(Node *parsetree)
 			}
 			break;
 #ifdef PGXC
+		case T_CreateNodeStmt:
+		case T_AlterNodeStmt:
+		case T_DropNodeStmt:
+		case T_CreateGroupStmt:
+		case T_DropGroupStmt:
 		case T_CleanConnStmt:
 			lev = LOGSTMT_DDL;
+			break;
+		case T_ExecDirectStmt:
+		case T_BarrierStmt:
+			lev = LOGSTMT_ALL;
 			break;
 #endif
 

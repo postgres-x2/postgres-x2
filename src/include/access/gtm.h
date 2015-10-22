@@ -40,7 +40,7 @@ extern int CommitPreparedTranGTM(GlobalTransactionId gxid,
 extern GTM_Snapshot GetSnapshotGTM(GlobalTransactionId gxid, bool canbe_grouped);
 
 /* Node registration APIs with GTM */
-extern int RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder);
+extern int RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, const char *datafolder);
 extern int UnregisterGTM(GTM_PGXCNodeType type);
 
 /* Sequence interface APIs with GTM */

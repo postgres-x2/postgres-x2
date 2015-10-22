@@ -1718,9 +1718,9 @@ static bool GTM_NeedSeqRestoreUpdateInternal(GTM_SeqInfo *seqinfo)
 		return TRUE;
 	distance = distanceToBackedUpSeqValue(seqinfo);
 	if (SEQ_IS_ASCENDING(seqinfo))
-		return(distance >= seqinfo->gs_increment_by);
+		return(distance <= 0);
 	else
-		return(distance <= seqinfo->gs_increment_by);
+		return(distance >= 0);
 }
 
 
@@ -1792,7 +1792,7 @@ static void advance_gs_value(GTM_SeqInfo *seqinfo)
 	}
 	else
 	{
-		if ((seqinfo->gs_min_value - seqinfo->gs_value) >= distance)
+		if ((seqinfo->gs_min_value - seqinfo->gs_value) <= distance)
 			seqinfo->gs_backedUpValue = seqinfo->gs_value + distance;
 		else
 		{

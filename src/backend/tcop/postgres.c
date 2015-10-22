@@ -61,6 +61,7 @@
 #include "parser/parser.h"
 #ifdef PGXC
 #include "parser/parse_type.h"
+#include "pgxc/xc_gtm_commit_sync.h"
 #endif /* PGXC */
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
@@ -1075,8 +1076,16 @@ exec_simple_query(const char *query_string)
 
 #ifdef PGXC
 		/* PGXC_DATANODE */
-		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
-		if (IS_PGXC_DATANODE && IsA(parsetree, VacuumStmt) && IsPostmasterEnvironment)
+		/* Force getting Xid from GTM if not autovacuum, but a vacuum or CLUSTER */
+		/* Now in the cluster command, we take GXID using BeginTranGTM(), not
+		 * BeginTrnAutovacumGTM(), which means this GXID will appear in global
+		 * snapshots.
+		 * It may be okay because CLUSTER acquires exclusive lock on all the
+		 * resource to handle.
+		 */
+		if (IS_PGXC_DATANODE
+				&& (IsA(parsetree, VacuumStmt) || IsA(parsetree, ClusterStmt))
+				&& IsPostmasterEnvironment)
 			SetForceXidFromGTM(true);
 #endif
 
@@ -3986,23 +3995,24 @@ PostgresMain(int argc, char *argv[],
 	xc_lockForBackupKey1 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_1);
 	xc_lockForBackupKey1 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_2);
 
-	/* If this postmaster is launched from another Coord, do not initialize handles. skip it */
+	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
 		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
 
 		InitMultinodeExecutor(false);
-
-		pool_handle = GetPoolManagerHandle();
-		if (pool_handle == NULL)
+		if (!IsConnFromCoord())
 		{
-			ereport(ERROR,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("Can not connect to pool manager")));
-			return STATUS_ERROR;
+			pool_handle = GetPoolManagerHandle();
+			if (pool_handle == NULL)
+			{
+				ereport(ERROR,
+					(errcode(ERRCODE_IO_ERROR),
+					 errmsg("Can not connect to pool manager")));
+			}
+			/* Pooler initialization has to be made before ressource is released */
+			PoolManagerConnect(pool_handle, dbname, username, session_options());
 		}
-		/* Pooler initialization has to be made before ressource is released */
-		PoolManagerConnect(pool_handle, dbname, username, session_options());
 
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
@@ -4520,6 +4530,9 @@ PostgresMain(int argc, char *argv[],
 					xip = NULL;
 				pq_getmsgend(&input_message);
 				SetGlobalSnapshotData(xmin, xmax, xcnt, xip);
+				/* Latest Snashot data for update visibility */
+				setSyncGXID();
+				setLatestGTMSnapshot(xmin, xmax, xcnt, (GlobalTransactionId *) xip);
 				break;
 
 			case 't':			/* timestamp */

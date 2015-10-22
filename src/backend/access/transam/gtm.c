@@ -19,6 +19,7 @@
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
+#include "pgxc/xc_gtm_commit_sync.h"
 
 /* Configuration variables */
 char *GtmHost = "localhost";
@@ -99,6 +100,8 @@ InitGTM(void)
 
 		CloseGTM();
 	}
+	if (conn)
+		setSyncGXID();
 }
 
 void
@@ -347,6 +350,11 @@ GetSnapshotGTM(GlobalTransactionId gxid, bool canbe_grouped)
 		CloseGTM();
 		InitGTM();
 	}
+	if (ret_snapshot)
+		setLatestGTMSnapshot(ret_snapshot->sn_xmin,
+							 ret_snapshot->sn_xmax,
+							 ret_snapshot->sn_xcnt,
+							 ret_snapshot->sn_xip);
 	return ret_snapshot;
 }
 
@@ -463,7 +471,7 @@ RenameSequenceGTM(char *seqname, const char *newseqname)
  * Connection for registering is just used once then closed
  */
 int
-RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder)
+RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, const char *datafolder)
 {
 	int ret;
 
