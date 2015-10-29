@@ -74,6 +74,7 @@ char		*error_reporter;
 char		*status_reader;
 bool		isStartUp;
 
+
 /* If this is GTM or not */
 /*
  * Used to determine if given Port is in GTM or in GT_Proxy.
@@ -81,6 +82,7 @@ bool		isStartUp;
  * writing anything to Port.
  */
 bool		isGTM = true;
+char *Unix_socket_directory = NULL;
 
 GTM_ThreadID	TopMostThreadID;
 
@@ -667,6 +669,19 @@ main(int argc, char *argv[])
 					(errmsg("could not create listen socket for \"%s\"",
 							ListenAddresses)));
 	}
+
+#ifdef HAVE_UNIX_SOCKETS
+    if (Unix_socket_directory && strlen(Unix_socket_directory) > 0)
+    {
+
+        status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMPortNumber,
+                                    Unix_socket_directory, ListenSocket, MAXLISTEN);
+        if (status != STATUS_OK)
+            ereport(WARNING,
+                    (errmsg("could not create Unix-domain socket in directory \"%s\"",
+                            Unix_socket_directory)));
+    }
+#endif
 
 	/*
 	 * check that we have some socket to listen on

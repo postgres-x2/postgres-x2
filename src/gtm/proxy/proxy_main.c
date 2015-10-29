@@ -65,7 +65,7 @@ extern char *optarg;
 
 static char *progname = "gtm_proxy";
 // TDB add socket_directory to GUC
-static char *Unix_socket_directory = "/tmp";
+char *Unix_socket_directory = NULL;
 char	   *ListenAddresses;
 int			GTMProxyPortNumber;
 int			GTMProxyWorkerThreads;
@@ -840,7 +840,7 @@ main(int argc, char *argv[])
 	}
 
 #ifdef HAVE_UNIX_SOCKETS
-	if (Unix_socket_directory)
+	if (Unix_socket_directory && strlen(Unix_socket_directory) > 0)
 	{
 
 		status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMProxyPortNumber,

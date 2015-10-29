@@ -53,8 +53,9 @@ extern int tcp_keepalives_idle;
 extern int tcp_keepalives_count;
 extern int tcp_keepalives_interval;
 extern char *GTMDataDir;
-
-
+extern char *Unix_socket_directory;
+extern char *Unix_socket_group;
+extern int Unix_socket_permissions;
 
 /*
  * We have different sets for client and server message level options because
@@ -151,6 +152,19 @@ struct config_int ConfigureNamesInt[] =
 		6666, 0, INT_MAX,
 		0, NULL
 	},
+
+    {
+        {
+            GTM_OPTNAME_UNIX_SOCKET_PERMISSOINS, GTMC_STARTUP,
+            gettext_noop("Sets the access permissions of the Unix-domain socket."),
+            NULL,
+            0
+        },
+        &Unix_socket_permissions,
+        0777, 0000, 0777,
+        0, NULL
+    },
+
 	{
 		{GTM_OPTNAME_ACTIVE_PORT, GTMC_SIGHUP,
 			gettext_noop("GTM server port number when it works as GTM-Standby."),
@@ -219,6 +233,36 @@ struct config_string ConfigureNamesString[] =
 		NULL,
 		NULL
 	},
+
+    {
+        {
+            GTM_OPTNAME_UNIX_SOCKET_DIRECTORY, GTMC_STARTUP,
+            gettext_noop("Sets the directory where Unix-domain socket will be created."),
+            NULL,
+            0
+        },
+        &Unix_socket_directory,
+#ifdef HAVE_UNIX_SOCKETS
+        DEFAULT_GTMSOCKET_DIR,
+#else
+        "",
+#endif
+        NULL,
+        NULL
+    },
+
+    {
+        {
+            GTM_OPTNAME_UNIX_SOCKET_GROUP, GTMC_STARTUP,
+            gettext_noop("Sets the owning group of the Unix-domain socket."),
+            NULL,
+            0
+        },
+        &Unix_socket_group,
+        "",
+        NULL,
+        NULL
+    },
 
 	{
 		{GTM_OPTNAME_CONFIG_FILE, GTMC_SIGHUP,

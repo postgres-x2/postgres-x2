@@ -102,8 +102,8 @@ extern int         tcp_keepalives_interval;
 extern int         tcp_keepalives_count;
 
 // TBD: add it to GUC
-int         Unix_socket_permissions = 0777;
-char       *Unix_socket_group = "";
+int         Unix_socket_permissions ;
+char       *Unix_socket_group ;
 /*
  * Buffers for low-level I/O
  */
