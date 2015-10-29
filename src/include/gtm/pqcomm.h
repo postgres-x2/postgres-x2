@@ -38,6 +38,8 @@ typedef struct
 				DEFAULT_PGSOCKET_DIR, \
 				(port))
 
+#define UNIXSOCK_PATH_BUFLEN sizeof(((struct sockaddr_un *) NULL)->sun_path)
+
 /*
  * In protocol 3.0 and later, the startup packet length is not fixed, but
  * we set an arbitrary limit on it anyway.	This is just to prevent simple

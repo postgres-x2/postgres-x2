@@ -653,11 +653,11 @@ main(int argc, char *argv[])
 
 		if (strcmp(ListenAddresses, "*") == 0)
 			status = StreamServerPort(AF_UNSPEC, NULL,
-									  (unsigned short) GTMPortNumber,
+									  (unsigned short) GTMPortNumber, NULL,
 									  ListenSocket, MAXLISTEN);
 		else
 			status = StreamServerPort(AF_UNSPEC, ListenAddresses,
-									  (unsigned short) GTMPortNumber,
+									  (unsigned short) GTMPortNumber, NULL,
 									  ListenSocket, MAXLISTEN);
 
 		if (status == STATUS_OK)

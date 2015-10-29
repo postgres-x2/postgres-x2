@@ -101,7 +101,9 @@ extern int         tcp_keepalives_idle;
 extern int         tcp_keepalives_interval;
 extern int         tcp_keepalives_count;
 
-
+// TBD: add it to GUC
+int         Unix_socket_permissions = 0777;
+char       *Unix_socket_group = "";
 /*
  * Buffers for low-level I/O
  */
@@ -131,7 +133,7 @@ Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
 	 * more portable, and second, it lets us remove any pre-existing socket
 	 * file without race conditions.
 	 */
-	CreateSocketLockFile(unixSocketPath, true, unixSocketDir);
+	//CreateSocketLockFile(unixSocketPath, true, unixSocketDir);
 
 	/*
 	 * Once we have the interlock, we can safely delete any pre-existing
@@ -144,10 +146,10 @@ Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
 	 * first one, set up the on_proc_exit function to do it; then add this
 	 * socket file to the list of files to unlink.
 	 */
-	if (sock_paths == NIL)
-		on_proc_exit(StreamDoUnlink, 0);
+	//if (sock_paths == NIL)
+		//on_proc_exit(StreamDoUnlink, 0);
 
-	sock_paths = lappend(sock_paths, pstrdup(unixSocketPath));
+	//sock_paths = lappend(sock_paths, pstrdup(unixSocketPath));
 
 	return STATUS_OK;
 }
@@ -196,8 +198,7 @@ Setup_AF_UNIX(char *sock_path)
 		if (chown(sock_path, -1, gid) == -1)
 		{
 			ereport(LOG,
-					(errcode_for_file_access(),
-					 errmsg("could not set group of file \"%s\": %m",
+					 (errmsg("could not set group of file \"%s\": %m",
 							sock_path)));
 			return STATUS_ERROR;
 		}
@@ -206,9 +207,7 @@ Setup_AF_UNIX(char *sock_path)
 
 	if (chmod(sock_path, Unix_socket_permissions) == -1)
 	{
-		ereport(LOG,
-				(errcode_for_file_access(),
-				 errmsg("could not set permissions of file \"%s\": %m",
+		ereport(LOG, (errmsg("could not set permissions of file \"%s\": %m",
 						sock_path)));
 		return STATUS_ERROR;
 	}
@@ -237,6 +236,7 @@ Setup_AF_UNIX(char *sock_path)
 
 int
 StreamServerPort(int family, char *hostName, unsigned short portNumber,
+				 char *unixSocketDir,
 				 int ListenSocket[], int MaxListen)
 {
 	int			fd,

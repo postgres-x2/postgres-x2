@@ -64,6 +64,7 @@ extern char *optarg;
 #endif
 
 static char *progname = "gtm_proxy";
+// TDB add socket_directory to GUC
 static char *Unix_socket_directory = "/tmp";
 char	   *ListenAddresses;
 int			GTMProxyPortNumber;
@@ -120,7 +121,6 @@ static int	ListenSocket[MAXLISTEN];
 pthread_key_t	threadinfo_key;
 static bool		GTMProxyAbortPending = false;
 static GTM_Conn *master_conn;
-
 
 /*
  * External Routines
@@ -824,11 +824,11 @@ main(int argc, char *argv[])
 
 		if (strcmp(ListenAddresses, "*") == 0)
 			status = StreamServerPort(AF_UNSPEC, NULL,
-									  (unsigned short) GTMProxyPortNumber,
+									  (unsigned short) GTMProxyPortNumber, NULL,
 									  ListenSocket, MAXLISTEN);
 		else
 			status = StreamServerPort(AF_UNSPEC, ListenAddresses,
-									  (unsigned short) GTMProxyPortNumber,
+									  (unsigned short) GTMProxyPortNumber, NULL,
 									  ListenSocket, MAXLISTEN);
 
 		if (status == STATUS_OK)
@@ -842,20 +842,13 @@ main(int argc, char *argv[])
 #ifdef HAVE_UNIX_SOCKETS
 	if (Unix_socket_directory)
 	{
-		char	   *rawstring;
-		List	   *elemlist;
-		ListCell   *l;
 
 		status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMProxyPortNumber,
 									Unix_socket_directory, ListenSocket, MAXLISTEN);
-		if (status == STATUS_OK)
-		{
-			AddToDataDirLockFile(LOCK_FILE_LINE_SOCKET_DIR, socketdir);
-		}
-		else
+		if (status != STATUS_OK)
 			ereport(WARNING,
 					(errmsg("could not create Unix-domain socket in directory \"%s\"",
-							socketdir)));
+							Unix_socket_directory)));
 	}
 #endif
 

@@ -28,9 +28,8 @@
 /*
  * prototypes for functions in pqcomm.c
  */
-extern int StreamServerPort(int family, char *hostName,
-		 unsigned short portNumber, int ListenSocket[],
-				 int MaxListen);
+extern int StreamServerPort(int family, char *hostName,	unsigned short portNumber,
+							char *unixSocketDir, int ListenSocket[], int MaxListen);
 extern int	StreamConnection(int server_fd, Port *port);
 extern void StreamClose(int sock);
 extern void TouchSocketFile(void);
