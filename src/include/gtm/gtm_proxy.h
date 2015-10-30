@@ -110,6 +110,7 @@ typedef struct GTMProxy_ThreadInfo
 	/* connection array */
 	GTMProxy_ConnectionInfo	*thr_all_conns[GTM_PROXY_MAX_CONNECTIONS];
 	struct pollfd			thr_poll_fds[GTM_PROXY_MAX_CONNECTIONS];
+    int                     epoll_fd;
 
 	/* map info from ConnectionInfo->con_id to array index of thr_all_conns */
 	int16					thr_conid2idx[GTM_PROXY_MAX_CONNECTIONS];
