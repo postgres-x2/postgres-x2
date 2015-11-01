@@ -1117,6 +1117,8 @@ GTMProxy_ThreadMain(void *argp)
 										   ALLOCSET_DEFAULT_MAXSIZE,
 										   false);
 
+	MemoryContextSwitchTo(TopMemoryContext);
+
 	/*
 	 * Set up connection with the GTM server
 	 */
@@ -1147,6 +1149,16 @@ GTMProxy_ThreadMain(void *argp)
 		thrinfo->thr_qtype[ii] = 0;
 		initStringInfo(&(thrinfo->thr_inBufData[ii]));
 	}
+
+	thrinfo->pending_msg_type_mask = gtm_bms_make_singleton(MSG_TXN_BEGIN_GETGXID);
+	thrinfo->pending_msg_type_mask = gtm_bms_add_member(thrinfo->pending_msg_type_mask, 
+														MSG_TXN_COMMIT);
+	thrinfo->pending_msg_type_mask = gtm_bms_add_member(thrinfo->pending_msg_type_mask,
+														MSG_TXN_ROLLBACK);
+	thrinfo->pending_msg_type_mask = gtm_bms_add_member(thrinfo->pending_msg_type_mask,
+														MSG_SNAPSHOT_GET);
+	thrinfo->pending_msg_type_mask = gtm_bms_add_member(thrinfo->pending_msg_type_mask,
+														MSG_BACKEND_DISCONNECT);
 
 	/*
 	 * If an exception is encountered, processing resumes here so we abort the
@@ -1239,6 +1251,7 @@ GTMProxy_ThreadMain(void *argp)
 		MemoryContextSwitchTo(MessageContext);
 		MemoryContextResetAndDeleteChildren(MessageContext);
 
+		thrinfo->pending_msg_type_set = gtm_bms_make_singleton(MSG_TYPE_COUNT);;
 		/*
 		 * The following block should be skipped at the first turn.
 		 */
@@ -1375,6 +1388,9 @@ setjmp_again:
 		 */
 		resetStringInfo(&input_message);
 
+		// Rest the pending_msg_type_set
+		gtm_bms_reset(thrinfo->pending_msg_type_set);
+
 		/*
 		 * Now, read command from each of the connections that has some data to
 		 * be read.
@@ -1509,7 +1525,8 @@ setjmp_again:
 
 		gtm_list_free_deep(thrinfo->thr_processed_commands);
 		thrinfo->thr_processed_commands = gtm_NIL;
-
+		gtm_bms_free(thrinfo->pending_msg_type_set);
+        thrinfo->pending_msg_type_set = gtm_NIL;
 		/*
 		 * Now clean up disconnected connections
 		 */
@@ -2509,6 +2526,7 @@ static void
 GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo, GTM_MessageType mtype,
 		GTMProxy_CommandData cmd_data)
 {
+	Assert(mtype != MSG_TYPE_COUNT);
 	GTMProxy_CommandInfo *cmdinfo;
 	GTMProxy_ThreadInfo *thrinfo = GetMyThreadInfo;
 
@@ -2521,6 +2539,7 @@ GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo, GTM_MessageType mtype
 	cmdinfo->ci_res_index = 0;
 	cmdinfo->ci_data = cmd_data;
 	thrinfo->thr_pending_commands[mtype] = gtm_lappend(thrinfo->thr_pending_commands[mtype], cmdinfo);
+	gtm_bms_add_member(thrinfo->pending_msg_type_set, mtype);
 
 	return;
 }
@@ -2651,16 +2670,19 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 	GTM_ProxyMsgHeader proxyhdr;
 	GTM_Conn *gtm_conn = thrinfo->thr_gtm_conn;
 	gtm_ListCell *elem = NULL;
+	gtm_Bitmapset *tmpset = gtm_bms_copy(thrinfo->pending_msg_type_set);
 
-	for (ii = 0; ii < MSG_TYPE_COUNT; ii++)
+	gtm_bms_del_members(thrinfo->pending_msg_type_set, thrinfo->pending_msg_type_mask);
+	if (!gtm_bms_is_empty(thrinfo->pending_msg_type_set)) {
+		elog(ERROR, "Some message can not be grouped together");
+	}
+
+	while((ii = gtm_bms_first_member(tmpset)) >= 0)
 	{
 		int res_index = 0;
-
-		/* We process backend disconnects last! */
-		if (ii == MSG_BACKEND_DISCONNECT ||
-				gtm_list_length(thrinfo->thr_pending_commands[ii]) == 0)
+		if (ii == MSG_BACKEND_DISCONNECT) {
 			continue;
-
+		}
 		/*
 		 * Start a new group message and fill in the headers
 		 */
@@ -2831,9 +2853,10 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 
 
 			default:
-				elog(ERROR, "This message type (%d) can not be grouped together", ii);
+				elog(ERROR, "Unkown message type (%d)", ii);
 		}
 	}
+
 	/* Process backend disconnect messages now */
 	gtm_foreach (elem, thrinfo->thr_pending_commands[MSG_BACKEND_DISCONNECT])
 	{
@@ -2843,6 +2866,8 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 		cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 		GTMProxy_HandleDisconnect(cmdinfo->ci_conn, gtm_conn);
 	}
+
+	gtm_bms_free(tmpset);
 }
 
 /*

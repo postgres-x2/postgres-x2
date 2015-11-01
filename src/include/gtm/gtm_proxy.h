@@ -23,6 +23,7 @@
 #include "gtm/gtm_conn.h"
 #include "gtm/elog.h"
 #include "gtm/gtm_list.h"
+#include "gtm/gtm_bitmapset.h"
 #include "gtm/gtm_msg.h"
 #include "gtm/libpq-fe.h"
 
@@ -121,6 +122,9 @@ typedef struct GTMProxy_ThreadInfo
 
 	gtm_List 					*thr_processed_commands;
 	gtm_List 					*thr_pending_commands[MSG_TYPE_COUNT];
+
+	gtm_Bitmapset			*pending_msg_type_set;
+	gtm_Bitmapset			*pending_msg_type_mask;
 
 	GTM_Conn				*thr_gtm_conn;		/* Connection to GTM */
 

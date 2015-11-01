@@ -14,14 +14,37 @@
  *-------------------------------------------------------------------------
  */
 
-#include "gtm/elog.h"
 #include "gtm/gtm.h"
+#include "gtm/elog.h"
+#include "gtm/gtm_bitmapset.h"
+#include "gtm/memutils.h"
 
 #define GTM_WORDNUM(x)  ((x) / GTM_BITS_PER_BITMAPWORD)
 #define GTM_BITNUM(x)   ((x) % GTM_BITS_PER_BITMAPWORD)
 
 #define GTM_BITMAPSET_SIZE(nwords)	\
 	(offsetof(gtm_Bitmapset, words) + (nwords) * sizeof(gtm_bitmapword))
+
+#define GTM_RIGHTMOST_ONE(x) ((gtm_signedbitmapword) (x) & -((gtm_signedbitmapword) (x)))
+
+static const uint8 gtm_rightmost_one_pos[256] = {
+	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
+};
 
 static const uint8 gtm_number_of_ones[256] = {
 	0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
@@ -53,7 +76,7 @@ gtm_bms_copy(const gtm_Bitmapset *a)
 
 	if (a == NULL)
 		return NULL;
-	size = gtm_BITMAPSET_SIZE(a->nwords);
+	size = GTM_BITMAPSET_SIZE(a->nwords);
 	result = (gtm_Bitmapset *) palloc(size);
 	memcpy(result, a, size);
 	return result;
@@ -107,12 +130,12 @@ gtm_bms_num_members(const gtm_Bitmapset *a)
 	nwords = a->nwords;
 	for (wordnum = 0; wordnum < nwords; wordnum++)
 	{
-		bitmapword	w = a->words[wordnum];
+		gtm_bitmapword	w = a->words[wordnum];
 
 		/* we assume here that bitmapword is an unsigned type */
 		while (w != 0)
 		{
-			result += number_of_ones[w & 255];
+			result += gtm_number_of_ones[w & 255];
 			w >>= 8;
 		}
 	}
@@ -126,7 +149,7 @@ gtm_bms_num_members(const gtm_Bitmapset *a)
  * Input set is modified or recycled!
  */
 gtm_Bitmapset *
-gmt_bms_add_member(gtm_Bitmapset *a, int x)
+gtm_bms_add_member(gtm_Bitmapset *a, int x)
 {
 	int			wordnum,
 				bitnum;
@@ -134,9 +157,9 @@ gmt_bms_add_member(gtm_Bitmapset *a, int x)
 	if (x < 0)
 		elog(ERROR, "negative bitmapset member not allowed");
 	if (a == NULL)
-		return bms_make_singleton(x);
-	wordnum = WORDNUM(x);
-	bitnum = BITNUM(x);
+		return gtm_bms_make_singleton(x);
+	wordnum = GTM_WORDNUM(x);
+	bitnum = GTM_BITNUM(x);
 	if (wordnum >= a->nwords)
 	{
 		/* Slow path: make a larger set and union the input set into it */
@@ -144,7 +167,7 @@ gmt_bms_add_member(gtm_Bitmapset *a, int x)
 		int			nwords;
 		int			i;
 
-		result = bms_make_singleton(x);
+		result = gtm_bms_make_singleton(x);
 		nwords = a->nwords;
 		for (i = 0; i < nwords; i++)
 			result->words[i] |= a->words[i];
@@ -152,7 +175,7 @@ gmt_bms_add_member(gtm_Bitmapset *a, int x)
 		return result;
 	}
 	/* Fast path: x fits in existing set */
-	a->words[wordnum] |= ((bitmapword) 1 << bitnum);
+	a->words[wordnum] |= ((gtm_bitmapword) 1 << bitnum);
 	return a;
 }
 
@@ -173,10 +196,10 @@ gtm_bms_del_member(gtm_Bitmapset *a, int x)
 		elog(ERROR, "negative bitmapset member not allowed");
 	if (a == NULL)
 		return NULL;
-	wordnum = WORDNUM(x);
-	bitnum = BITNUM(x);
+	wordnum = GTM_WORDNUM(x);
+	bitnum = GTM_BITNUM(x);
 	if (wordnum < a->nwords)
-		a->words[wordnum] &= ~((bitmapword) 1 << bitnum);
+		a->words[wordnum] &= ~((gtm_bitmapword) 1 << bitnum);
 	return a;
 }
 
@@ -195,7 +218,7 @@ gtm_bms_is_empty(const gtm_Bitmapset *a)
 	nwords = a->nwords;
 	for (wordnum = 0; wordnum < nwords; wordnum++)
 	{
-		bitmapword  w = a->words[wordnum];
+		gtm_bitmapword  w = a->words[wordnum];
 
 		if (w != 0)
 			return false;
@@ -223,3 +246,58 @@ gtm_bms_del_members(gtm_Bitmapset *a, const gtm_Bitmapset *b)
 		a->words[i] &= ~b->words[i];
 	return a;
 }
+
+/*----------
+ * gtm_bms_first_member - find and remove first member of a set
+ *
+ * Returns -1 if set is empty.	NB: set is destructively modified!
+ */
+int
+gtm_bms_first_member(gtm_Bitmapset *a)
+{
+	int			nwords;
+	int			wordnum;
+
+	if (a == NULL)
+		return -1;
+	nwords = a->nwords;
+	for (wordnum = 0; wordnum < nwords; wordnum++)
+	{
+		gtm_bitmapword	w = a->words[wordnum];
+
+		if (w != 0)
+		{
+			int			result;
+
+			w = GTM_RIGHTMOST_ONE(w);
+			a->words[wordnum] &= ~w;
+
+			result = wordnum * GTM_BITS_PER_BITMAPWORD;
+			while ((w & 255) == 0)
+			{
+				w >>= 8;
+				result += 8;
+			}
+			result += gtm_rightmost_one_pos[w & 255];
+			return result;
+		}
+	}
+	return -1;
+}
+
+/*
+ * gtm_bms_reset - reset all bits to be 0
+ */
+void
+gtm_bms_reset(gtm_Bitmapset *a)
+{
+	int			shortlen;
+	int			i;
+
+	if (a == NULL)
+		return NULL;
+	for (i = 0; i < a->nwords; i++)
+		a->words[i] &= 0;
+	return a;
+}
+
