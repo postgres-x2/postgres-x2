@@ -30,6 +30,7 @@
 #include "gtm/elog.h"
 #include "gtm/memutils.h"
 #include "gtm/gtm_list.h"
+#include "gtm/gtm_bitmapset.h"
 #include "gtm/libpq.h"
 #include "gtm/libpq-be.h"
 #include "gtm/libpq-fe.h"

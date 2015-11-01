@@ -17,7 +17,7 @@ LIBS += $(PTHREAD_LIBS)
 include $(top_srcdir)/src/backend/common.mk
 
 OBJS = gtm_utils.o gtm_lock.o gtm_serialize.o gtm_serialize_debug.o \
-	aset.o assert.o elog.o mcxt.o stringinfo.o gtm_list.o
+	aset.o assert.o elog.o mcxt.o stringinfo.o gtm_list.o gtm_bitmapset.o
 
 all: libgtmcommon.a
 
