@@ -1526,7 +1526,7 @@ setjmp_again:
 		gtm_list_free_deep(thrinfo->thr_processed_commands);
 		thrinfo->thr_processed_commands = gtm_NIL;
 		gtm_bms_free(thrinfo->pending_msg_type_set);
-        thrinfo->pending_msg_type_set = gtm_NIL;
+		thrinfo->pending_msg_type_set = NULL;
 		/*
 		 * Now clean up disconnected connections
 		 */
