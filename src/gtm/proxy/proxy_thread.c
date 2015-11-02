@@ -331,7 +331,7 @@ GTMProxy_ThreadMainWrapper(void *argp)
  * Return the reference to the GTMProxy_ThreadInfo structure of the thread
  * which will be serving this connection
  */
-GTMProxy_ThreadInfo *
+int
 GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 {
 	int con_id = -1, con_idx = 0;
@@ -415,11 +415,10 @@ GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 		GTM_CVBcast(&thrinfo->thr_cv);
 		GTM_MutexLockRelease(&thrinfo->thr_lock);
 
-		return thrinfo;
+		return STATUS_OK;
 	}
 	
-	elog(ERROR, "Too many connections");
-	return NULL;
+	return STATUS_ERROR;
 }
 
 /*

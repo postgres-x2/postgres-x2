@@ -1046,9 +1046,9 @@ ServerLoop(void)
 					{
 						if (GTMProxyAddConnection(port) != STATUS_OK)
 						{
-							elog(ERROR, "Too many connections");
 							StreamClose(port->sock);
 							ConnFree(port);
+							elog(ERROR, "Too many connections");
 						}
 					}
 				}
@@ -1540,7 +1540,7 @@ GTMProxyAddConnection(Port *port)
 
 	if (conninfo == NULL)
 	{
-		ereport(ERROR,
+		ereport(PANIC,
 				(ENOMEM,
 					errmsg("Out of memory")));
 		return STATUS_ERROR;
@@ -1552,9 +1552,7 @@ GTMProxyAddConnection(Port *port)
 	/*
 	 * Add the conninfo struct to the next worker thread in round-robin manner
 	 */
-	GTMProxy_ThreadAddConnection(conninfo);
-
-	return STATUS_OK;
+	return GTMProxy_ThreadAddConnection(conninfo);
 }
 
 /* Convert a connection id to a index in GTMProxy_ThreadInfo::thr_all_conns */
