@@ -336,83 +336,90 @@ GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 {
 	int con_id = -1, con_idx = 0;
 	GTMProxy_ThreadInfo *thrinfo = NULL;
+	int32               try_count = 0;
 
-	/*
-	 * Get the next thread in the queue
-	 */
-	GTM_RWLockAcquire(&GTMProxyThreads->gt_lock, GTM_LOCKMODE_WRITE);
+	while (try_count < GTMProxyThreads->gt_thread_count) {
+		/*
+	 	 * Get the next thread in the queue
+	 	 */
+		GTM_RWLockAcquire(&GTMProxyThreads->gt_lock, GTM_LOCKMODE_WRITE);
 
-	/*
-	 * Always start with thread 1 because thread 0 is the main thread
-	 */
-	if (GTMProxyThreads->gt_next_worker == 0)
-		GTMProxyThreads->gt_next_worker = 1;
+		/*
+	 	 * Always start with thread 1 because thread 0 is the main thread
+	 	 */
+		if (GTMProxyThreads->gt_next_worker == 0)
+			GTMProxyThreads->gt_next_worker = 1;
 
-	thrinfo = GTMProxyThreads->gt_threads[GTMProxyThreads->gt_next_worker];
+		thrinfo = GTMProxyThreads->gt_threads[GTMProxyThreads->gt_next_worker];
 
-	/*
-	 * Set the next worker thread before releasing the lock
-	 */
-	GTMProxyThreads->gt_next_worker++;
-	if (GTMProxyThreads->gt_next_worker == GTMProxyThreads->gt_thread_count)
-	   GTMProxyThreads->gt_next_worker = 1;
+		/*
+	 	 * Set the next worker thread before releasing the lock
+	 	 */
+		GTMProxyThreads->gt_next_worker++;
+		if (GTMProxyThreads->gt_next_worker == GTMProxyThreads->gt_thread_count)
+	   		GTMProxyThreads->gt_next_worker = 1;
 
-	GTM_RWLockRelease(&GTMProxyThreads->gt_lock);
+		GTM_RWLockRelease(&GTMProxyThreads->gt_lock);
 
-	/*
-	 * Lock the threadninfo structure to safely add the new connection to the
-	 * thread structure. The thread will see the connection when it queries the
-	 * socket descriptor in the next cycle
-	 */
-	GTM_MutexLockAcquire(&thrinfo->thr_lock);
+		/*
+	 	 * Lock the threadninfo structure to safely add the new connection to the
+	 	 * thread structure. The thread will see the connection when it queries the
+	 	 * socket descriptor in the next cycle
+	 	 */
+		GTM_MutexLockAcquire(&thrinfo->thr_lock);
 
-	if (thrinfo->thr_conn_count >= GTM_PROXY_MAX_CONNECTIONS)
-	{
+		if (thrinfo->thr_conn_count >= GTM_PROXY_MAX_CONNECTIONS)
+		{
+			GTM_MutexLockRelease(&thrinfo->thr_lock);
+			try_count++;
+			continue;
+		}
+
+		/* Find unassigned connection id in this worker thread. */
+		for (con_id = 0; con_id < GTM_PROXY_MAX_CONNECTIONS; con_id++)
+			if (thrinfo->thr_conid2idx[con_id] == -1)
+				break;
+
+		if (con_id >= GTM_PROXY_MAX_CONNECTIONS) {
+			GTM_MutexLockRelease(&thrinfo->thr_lock);
+			elog(ERROR, "Unassigned connection id not found.");
+		}
+
+		/*
+	 	 * Save the array slotid in the conninfo structure. We send this to the GTM
+	 	 * server as an identifier which the GTM server sends us back in the
+	 	 * response. We use that information to route the response back to the
+	 	 * approrpiate connection
+	 	 */
+		con_idx = thrinfo->thr_conn_count++;
+		conninfo->con_id = con_id;
+		thrinfo->thr_conid2idx[con_id] = con_idx;
+		thrinfo->thr_all_conns[con_idx] = conninfo;
+		elog(DEBUG5, "Assigned a connection id to new connection: id = %d, index = %d", con_id, con_idx);
+
+		/*
+	 	 * Now increment the seqno since a new connection is added to the array.
+	 	 * Before we do the next poll(), the fd array will be forced to be
+	 	 * reconstructed.
+	 	 */
+   		thrinfo->thr_seqno++;
+
+		/*
+	 	 * Signal the worker thread if its waiting for connections to be added to
+	 	 * its Q
+	 	 *
+	 	 * XXX May be we can first check the condition that this is the first
+	 	 * connection in the array and also use signal instead of a bcast since
+	 	 * only one thread is waiting on the cv.
+	 	 */
+		GTM_CVBcast(&thrinfo->thr_cv);
 		GTM_MutexLockRelease(&thrinfo->thr_lock);
-		elog(ERROR, "Too many connections");
+
+		return thrinfo;
 	}
-
-	/* Find unassigned connection id in this worker thread. */
-	for (con_id = 0; con_id < GTM_PROXY_MAX_CONNECTIONS; con_id++)
-		if (thrinfo->thr_conid2idx[con_id] == -1)
-			break;
-
-	if (con_id >= GTM_PROXY_MAX_CONNECTIONS) {
-		GTM_MutexLockRelease(&thrinfo->thr_lock);
-		elog(ERROR, "Unassigned connection id not found.");
-	}
-
-	/*
-	 * Save the array slotid in the conninfo structure. We send this to the GTM
-	 * server as an identifier which the GTM server sends us back in the
-	 * response. We use that information to route the response back to the
-	 * approrpiate connection
-	 */
-	con_idx = thrinfo->thr_conn_count++;
-	conninfo->con_id = con_id;
-	thrinfo->thr_conid2idx[con_id] = con_idx;
-	thrinfo->thr_all_conns[con_idx] = conninfo;
-	elog(DEBUG5, "Assigned a connection id to new connection: id = %d, index = %d", con_id, con_idx);
-
-	/*
-	 * Now increment the seqno since a new connection is added to the array.
-	 * Before we do the next poll(), the fd array will be forced to be
-	 * reconstructed.
-	 */
-   	thrinfo->thr_seqno++;
-
-	/*
-	 * Signal the worker thread if its waiting for connections to be added to
-	 * its Q
-	 *
-	 * XXX May be we can first check the condition that this is the first
-	 * connection in the array and also use signal instead of a bcast since
-	 * only one thread is waiting on the cv.
-	 */
-	GTM_CVBcast(&thrinfo->thr_cv);
-	GTM_MutexLockRelease(&thrinfo->thr_lock);
-
-	return thrinfo;
+	
+	elog(ERROR, "Too many connections");
+	return NULL;
 }
 
 /*
