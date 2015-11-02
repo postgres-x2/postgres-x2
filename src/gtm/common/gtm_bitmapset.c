@@ -291,13 +291,12 @@ gtm_bms_first_member(gtm_Bitmapset *a)
 void
 gtm_bms_reset(gtm_Bitmapset *a)
 {
-	int			shortlen;
 	int			i;
 
 	if (a == NULL)
-		return NULL;
+		return ;
 	for (i = 0; i < a->nwords; i++)
 		a->words[i] &= 0;
-	return a;
+	return ;
 }
 
