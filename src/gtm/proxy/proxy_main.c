@@ -2677,12 +2677,11 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 		elog(ERROR, "Some message can not be grouped together");
 	}
 
+	tmpset = gtm_bms_del_member(tmpset, MSG_BACKEND_DISCONNECT);
+
 	while((ii = gtm_bms_first_member(tmpset)) >= 0)
 	{
 		int res_index = 0;
-		if (ii == MSG_BACKEND_DISCONNECT) {
-			continue;
-		}
 		/*
 		 * Start a new group message and fill in the headers
 		 */
@@ -2853,7 +2852,7 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 
 
 			default:
-				elog(ERROR, "Unkown message type (%d)", ii);
+				elog(ERROR, "This message type (%d) can not be grouped together", ii);
 		}
 	}
 
