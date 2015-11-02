@@ -1117,7 +1117,6 @@ GTMProxy_ThreadMain(void *argp)
 										   ALLOCSET_DEFAULT_MAXSIZE,
 										   false);
 
-	MemoryContextSwitchTo(TopMemoryContext);
 
 	/*
 	 * Set up connection with the GTM server
