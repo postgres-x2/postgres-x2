@@ -1552,12 +1552,11 @@ GTMProxyAddConnection(Port *port)
 	/*
 	 * Add the conninfo struct to the next worker thread in round-robin manner
 	 */
-	if (GTMProxy_ThreadAddConnection(conninfo)) {
-		return STATUS_OK;
-	} else {
+	if (GTMProxy_ThreadAddConnection(conninfo) != STATUS_OK) {
 		pfree(conninfo);
 		return STATUS_ERROR;
     }
+	return STATUS_OK;
 }
 
 /* Convert a connection id to a index in GTMProxy_ThreadInfo::thr_all_conns */
