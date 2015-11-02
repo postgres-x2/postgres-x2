@@ -60,7 +60,7 @@ typedef struct GTMProxy_Connections
 } GTMProxy_Connections;
 
 #define ERRORDATA_STACK_SIZE  20
-#define GTM_PROXY_MAX_CONNECTIONS	1024
+#define GTM_PROXY_MAX_CONNECTIONS	1
 
 typedef struct GTMProxy_ThreadInfo
 {

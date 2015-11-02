@@ -1048,7 +1048,7 @@ ServerLoop(void)
 						{
 							StreamClose(port->sock);
 							ConnFree(port);
-							elog(ERROR, "Too many connections");
+							elog(WARNING, "Too many connections");
 						}
 					}
 				}
@@ -1540,7 +1540,7 @@ GTMProxyAddConnection(Port *port)
 
 	if (conninfo == NULL)
 	{
-		ereport(PANIC,
+		ereport(ERROR,
 				(ENOMEM,
 					errmsg("Out of memory")));
 		return STATUS_ERROR;
