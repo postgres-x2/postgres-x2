@@ -18,7 +18,6 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/select.h>
-#include <sys/epoll.h> 
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -1113,7 +1112,6 @@ GTMProxy_ThreadMain(void *argp)
 	char gtm_connect_string[1024];
 	int	first_turn = TRUE;	/* Used only to set longjmp target at the first turn of thread loop */
 	GTMProxy_CommandData cmd_data = {};
-    struct epoll_event event, event_set[GTM_PROXY_MAX_CONNECTIONS];
 
 	elog(DEBUG3, "Starting the connection helper thread");
 
@@ -1142,11 +1140,6 @@ GTMProxy_ThreadMain(void *argp)
 
 	if (thrinfo->thr_gtm_conn == NULL)
 		elog(FATAL, "GTM connection failed");
-
-	thrinfo->epoll_fd = epoll_create(GTM_PROXY_MAX_CONNECTIONS);
-
-	if (thrinfo->epoll_fd == -1)
-		elog(FATAL, "GTM failed to create epoll instance");
 
 	/*
 	 * Get the input_message in the TopMemoryContext so that we don't need to
@@ -1317,11 +1310,7 @@ GTMProxy_ThreadMain(void *argp)
 					 */
 					if (!conninfo->con_authenticated)
 						GTMProxy_HandshakeConnection(conninfo);
-                    even.events = EPOLLIN;
-                    even.data.fd = conninfo->con_port->sock;
-                    if (epoll_ctl(thrinfo->epoll_fd, EPOLL_CTL_ADD, even.data.fd, &even) == -1) {
-                        elog(FATAL, "GTM failed to add socket to epoll instance");               
-                    }
+
 					thrinfo->thr_poll_fds[ii].fd = conninfo->con_port->sock;
 					thrinfo->thr_poll_fds[ii].events = POLLIN;
 					thrinfo->thr_poll_fds[ii].revents = 0;
@@ -1332,8 +1321,7 @@ GTMProxy_ThreadMain(void *argp)
 			while (true)
 			{
 				Enable_Longjmp();
-                nrfds = epoll_wait(thrinfo->thr_poll_fds, event_set, GTM_PROXY_MAX_CONNECTIONS, 1000);
-				//nrfds = poll(thrinfo->thr_poll_fds, thrinfo->thr_conn_count, 1000);
+				nrfds = poll(thrinfo->thr_poll_fds, thrinfo->thr_conn_count, 1000);
 				Disable_Longjmp();
 
 				if (nrfds < 0)
@@ -1404,12 +1392,12 @@ setjmp_again:
 		 * Now, read command from each of the connections that has some data to
 		 * be read.
 		 */
-		for (ii = 0; ii < nrfds; ii++)
+		for (ii = 0; ii < thrinfo->thr_conn_count; ii++)
 		{
-			//GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
-			//thrinfo->thr_conn = conninfo;
+			GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
+			thrinfo->thr_conn = conninfo;
 
-			if (event_set[ii].revents & POLLHUP)
+			if (thrinfo->thr_poll_fds[ii].revents & POLLHUP)
 			{
 				/*
 				 * The fd has become invalid. The connection is broken. Add it
