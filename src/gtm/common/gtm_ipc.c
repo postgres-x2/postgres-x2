@@ -116,7 +116,7 @@ gtm_proc_exit_prepare(int code)
 	gtm_proc_exit_inprogress = true;
 
     elog(DEBUG3, "proc_exit(%d): %d callbacks to make",
-         code, gtm_on_proc_exit_index);
+        code, gtm_on_proc_exit_index);
 
     /*
  	 * call all the registered callbacks.

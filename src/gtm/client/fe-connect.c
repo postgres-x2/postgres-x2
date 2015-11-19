@@ -295,8 +295,8 @@ connectGTMStart(GTM_Conn *conn)
 	{
 #ifdef HAVE_UNIX_SOCKETS
 		/* pghostaddr and pghost are NULL, so use Unix domain socket */
-        node = NULL;
-        hint.ai_family = AF_UNIX;
+		node = NULL;
+		hint.ai_family = AF_UNIX;
 		UNIXSOCK_PATH(portstr, portnum, (char*)NULL);
 		if (strlen(portstr) >= UNIXSOCK_PATH_BUFLEN)
 		{

@@ -135,3 +135,5 @@ extern GTM_ThreadID						TopMostThreadID;
 		    CritSectionCount--; \
 	} while(0)
 #endif
+
+#define DEFAULT_GTMSOCKET_DIR  "/tmp"

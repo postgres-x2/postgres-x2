@@ -350,8 +350,6 @@ const char *const config_type_names[] =\
 #define GTM_OPTNAME_WORKER_THREADS		"worker_threads"
 #define GTM_OPTNAME_UNIX_SOCKET_DIRECTORY		"unix_socket_directory"
 #define GTM_OPTNAME_UNIX_SOCKET_PERMISSOINS		"unix_socket_permissions"
-#define GTM_OPTNAME_UNIX_SOCKET_GROUP		"unix_socket_group"
-
-#define DEFAULT_GTMSOCKET_DIR  "/tmp"
+#define GTM_OPTNAME_UNIX_SOCKET_GROUP			"unix_socket_group"
 
 #endif   /* GTM_OPT_H */
