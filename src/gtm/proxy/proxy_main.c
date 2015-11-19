@@ -45,6 +45,8 @@
 /* For reconnect control lock */
 #include "gtm/gtm_lock.h"
 #include "gtm/gtm_opt.h"
+#include "gtm/gtm_ipc.h"
+#include "gtm/gtm_miscinit.h"
 
 extern int	optind;
 extern char *optarg;
@@ -177,8 +179,8 @@ static void GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo,
 		GTM_MessageType mtype, GTMProxy_CommandData cmd_data);
 
 static bool CreateOptsFile(int argc, char *argv[]);
-static void CreateDataDirLockFile(void);
-static void CreateLockFile(const char *filename, const char *refName);
+//static void CreateDataDirLockFile(void);
+//static void CreateLockFile(const char *filename, const char *refName);
 static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
@@ -216,7 +218,7 @@ MainThreadInit()
 		fprintf(stderr, "malloc failed: %d", errno);
 		fflush(stdout);
 		fflush(stderr);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 
 	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
@@ -226,7 +228,7 @@ MainThreadInit()
 		fprintf(stderr, "SetMyThreadInfo failed: %d", errno);
 		fflush(stdout);
 		fflush(stderr);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 
 	TopMostThreadID = pthread_self();
@@ -248,7 +250,7 @@ BaseInit()
 	checkDataDir();
 	SetDataDir();
 	ChangeToDataDir();
-	CreateDataDirLockFile();
+	CreateDataDirLockFile(GTM_PID_FILE, GTMProxyDataDir);
 
 	if (GTMLogFile == NULL)
 	{
@@ -592,12 +594,12 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			help(argv[0]);
-			exit(0);
+		    gtm_proc_exit(0);
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
 			puts("gtm_proxy (Postgres-XC) " PGXC_VERSION);
-			exit(0);
+			gtm_proc_exit(0);
 		}
 	}
 
@@ -686,7 +688,7 @@ main(int argc, char *argv[])
 	 * Setup configuration file
 	 */
 	if (!SelectConfigFiles(data_dir, progname))
-		exit(1);
+		gtm_proc_exit(1);
 
 	/*
 	 * Parse config file
@@ -748,28 +750,28 @@ main(int argc, char *argv[])
 		write_stderr("GTM Proxy data directory must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 	if (GTMProxyNodeName == NULL)
 	{
 		write_stderr("GTM Proxy Node name must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 	if (ListenAddresses == NULL || *ListenAddresses == '\0')
 	{
 		write_stderr("GTM Proxy listen addresses must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 	if (GTMProxyPortNumber == 0)
 	{
 		write_stderr("GTM Proxy port number must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 
 	}
 	if (GTMServerHost == NULL || *GTMServerHost == '\0')
@@ -777,7 +779,7 @@ main(int argc, char *argv[])
 		write_stderr("GTM server listen address must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 
 	}
 	if (GTMServerPortNumber == 0)
@@ -785,7 +787,7 @@ main(int argc, char *argv[])
 		write_stderr("GTM server port number must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 
 	}
 
@@ -798,7 +800,7 @@ main(int argc, char *argv[])
 					 progname, argv[optind]);
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		exit(1);
+		gtm_proc_exit(1);
 	}
 
 	/*
@@ -864,7 +866,7 @@ main(int argc, char *argv[])
 	 * bogus options
 	 */
 	if (!CreateOptsFile(argc, argv))
-		exit(1);
+		gtm_proc_exit(1);
 
 	pqsignal(SIGHUP, GTMProxy_SigleHandler);
 	pqsignal(SIGKILL, GTMProxy_SigleHandler);
@@ -905,7 +907,7 @@ main(int argc, char *argv[])
 	/*
 	 * ServerLoop probably shouldn't ever return, but if it does, close down.
 	 */
-	exit(status != STATUS_OK);
+	gtm_proc_exit(status != STATUS_OK);
 
 	return 0;					/* not reached */
 }
@@ -923,7 +925,7 @@ ConnCreate(int serverFd)
 		ereport(LOG,
 				(ENOMEM,
 				 errmsg("out of memory")));
-		exit(1);
+		gtm_proc_exit(1);
 	}
 
 	if (StreamConnection(serverFd, port) != STATUS_OK)
@@ -1008,7 +1010,7 @@ ServerLoop(void)
 			 *
 			 * !! TODO
 			 */
-			exit(1);
+			gtm_proc_exit(1);
 		}
 
 		{
@@ -2961,186 +2963,13 @@ ChangeToDataDir(void)
  * directory to DataDir, so we can just use a relative path.  This
  * helps ensure that we are locking the directory we should be.
  */
-static void
+/*static void
 CreateDataDirLockFile()
 {
 	CreateLockFile(GTM_PID_FILE, GTMProxyDataDir);
-}
+}*/
 
-/*
- * Create a lockfile.
- *
- * filename is the name of the lockfile to create.
- * amPostmaster is used to determine how to encode the output PID.
- * isDDLock and refName are used to determine what error message to produce.
- */
-static void
-CreateLockFile(const char *filename, const char *refName)
-{
-	int			fd;
-	char		buffer[MAXPGPATH + 100];
-	int			ntries;
-	int			len;
-	int			encoded_pid;
-	pid_t		other_pid;
-	pid_t		my_pid = getpid();
 
-	/*
-	 * We need a loop here because of race conditions.	But don't loop forever
-	 * (for example, a non-writable $PGDATA directory might cause a failure
-	 * that won't go away).  100 tries seems like plenty.
-	 */
-	for (ntries = 0;; ntries++)
-	{
-		/*
-		 * Try to create the lock file --- O_EXCL makes this atomic.
-		 *
-		 * Think not to make the file protection weaker than 0600.	See
-		 * comments below.
-		 */
-		fd = open(filename, O_RDWR | O_CREAT | O_EXCL, 0600);
-		if (fd >= 0)
-			break;				/* Success; exit the retry loop */
-
-		/*
-		 * Couldn't create the pid file. Probably it already exists.
-		 */
-		if ((errno != EEXIST && errno != EACCES) || ntries > 100)
-			ereport(FATAL,
-					(EINVAL,
-					 errmsg("could not create lock file \"%s\": %m",
-							filename)));
-
-		/*
-		 * Read the file to get the old owner's PID.  Note race condition
-		 * here: file might have been deleted since we tried to create it.
-		 */
-		fd = open(filename, O_RDONLY, 0600);
-		if (fd < 0)
-		{
-			if (errno == ENOENT)
-				continue;		/* race condition; try again */
-			ereport(FATAL,
-					(EINVAL,
-					 errmsg("could not open lock file \"%s\": %m",
-							filename)));
-		}
-		if ((len = read(fd, buffer, sizeof(buffer) - 1)) < 0)
-			ereport(FATAL,
-					(EINVAL,
-					 errmsg("could not read lock file \"%s\": %m",
-							filename)));
-		close(fd);
-
-		buffer[len] = '\0';
-		encoded_pid = atoi(buffer);
-		other_pid = (pid_t) encoded_pid;
-
-		if (other_pid <= 0)
-			elog(FATAL, "bogus data in lock file \"%s\": \"%s\"",
-				 filename, buffer);
-
-		/*
-		 * Check to see if the other process still exists
-		 *
-		 * If the PID in the lockfile is our own PID or our parent's PID, then
-		 * the file must be stale (probably left over from a previous system
-		 * boot cycle).  We need this test because of the likelihood that a
-		 * reboot will assign exactly the same PID as we had in the previous
-		 * reboot.	Also, if there is just one more process launch in this
-		 * reboot than in the previous one, the lockfile might mention our
-		 * parent's PID.  We can reject that since we'd never be launched
-		 * directly by a competing postmaster.	We can't detect grandparent
-		 * processes unfortunately, but if the init script is written
-		 * carefully then all but the immediate parent shell will be
-		 * root-owned processes and so the kill test will fail with EPERM.
-		 *
-		 * We can treat the EPERM-error case as okay because that error
-		 * implies that the existing process has a different userid than we
-		 * do, which means it cannot be a competing postmaster.  A postmaster
-		 * cannot successfully attach to a data directory owned by a userid
-		 * other than its own.	(This is now checked directly in
-		 * checkDataDir(), but has been true for a long time because of the
-		 * restriction that the data directory isn't group- or
-		 * world-accessible.)  Also, since we create the lockfiles mode 600,
-		 * we'd have failed above if the lockfile belonged to another userid
-		 * --- which means that whatever process kill() is reporting about
-		 * isn't the one that made the lockfile.  (NOTE: this last
-		 * consideration is the only one that keeps us from blowing away a
-		 * Unix socket file belonging to an instance of Postgres being run by
-		 * someone else, at least on machines where /tmp hasn't got a
-		 * stickybit.)
-		 *
-		 * Windows hasn't got getppid(), but doesn't need it since it's not
-		 * using real kill() either...
-		 *
-		 * Normally kill() will fail with ESRCH if the given PID doesn't
-		 * exist.
-		 */
-		if (other_pid != my_pid
-#ifndef WIN32
-			&& other_pid != getppid()
-#endif
-			)
-		{
-			if (kill(other_pid, 0) == 0 ||
-				(errno != ESRCH && errno != EPERM))
-			{
-				/* lockfile belongs to a live process */
-				ereport(FATAL,
-						(EINVAL,
-						 errmsg("lock file \"%s\" already exists",
-								filename),
-						  errhint("Is another GTM proxy (PID %d) running in data directory \"%s\"?",
-								  (int) other_pid, refName)));
-			}
-		}
-
-		/*
-		 * Looks like nobody's home.  Unlink the file and try again to create
-		 * it.	Need a loop because of possible race condition against other
-		 * would-be creators.
-		 */
-		if (unlink(filename) < 0)
-			ereport(FATAL,
-					(EACCES,
-					 errmsg("could not remove old lock file \"%s\": %m",
-							filename),
-					 errhint("The file seems accidentally left over, but "
-						   "it could not be removed. Please remove the file "
-							 "by hand and try again.")));
-	}
-
-	/*
-	 * Successfully created the file, now fill it.
-	 */
-	snprintf(buffer, sizeof(buffer), "%d\n%s\n",
-			 (int) my_pid, GTMProxyDataDir);
-	errno = 0;
-	if (write(fd, buffer, strlen(buffer)) != strlen(buffer))
-	{
-		int			save_errno = errno;
-
-		close(fd);
-		unlink(filename);
-		/* if write didn't set errno, assume problem is no disk space */
-		errno = save_errno ? save_errno : ENOSPC;
-		ereport(FATAL,
-				(EACCES,
-				 errmsg("could not write lock file \"%s\": %m", filename)));
-	}
-	if (close(fd))
-	{
-		int			save_errno = errno;
-
-		unlink(filename);
-		errno = save_errno;
-		ereport(FATAL,
-				(EACCES,
-				 errmsg("could not write lock file \"%s\": %m", filename)));
-	}
-
-}
 
 /*
  * Create the opts file

@@ -91,19 +91,20 @@
 #include "gtm/libpq.h"
 #include "gtm/libpq-be.h"
 #include "gtm/elog.h"
+#include "gtm/memutils.h"
+#include "gtm/gtm_miscinit.h"
 
 #define MAXGTMPATH	256
 
 /* Where the Unix socket file is */
-static char sock_path[MAXGTMPATH];
+static char gtm_sock_path[MAXGTMPATH];
+int         Unix_socket_permissions ;
+char       *Unix_socket_group ;
 
 extern int         tcp_keepalives_idle;
 extern int         tcp_keepalives_interval;
 extern int         tcp_keepalives_count;
 
-// TBD: add it to GUC
-int         Unix_socket_permissions ;
-char       *Unix_socket_group ;
 /*
  * Buffers for low-level I/O
  */
@@ -117,104 +118,6 @@ static int	Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath);
 static int	Setup_AF_UNIX(char *sock_path);
 #endif   /* HAVE_UNIX_SOCKETS */
 
-#ifdef HAVE_UNIX_SOCKETS
-
-/*
- * Lock_AF_UNIX -- configure unix socket file path
- */
-static int
-Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
-{
-	/*
-	 * Grab an interlock file associated with the socket file.
-	 *
-	 * Note: there are two reasons for using a socket lock file, rather than
-	 * trying to interlock directly on the socket itself.  First, it's a lot
-	 * more portable, and second, it lets us remove any pre-existing socket
-	 * file without race conditions.
-	 */
-	//CreateSocketLockFile(unixSocketPath, true, unixSocketDir);
-
-	/*
-	 * Once we have the interlock, we can safely delete any pre-existing
-	 * socket file to avoid failure at bind() time.
-	 */
-	unlink(unixSocketPath);
-
-	/*
-	 * Arrange to unlink the socket file(s) at proc_exit.  If this is the
-	 * first one, set up the on_proc_exit function to do it; then add this
-	 * socket file to the list of files to unlink.
-	 */
-	//if (sock_paths == NIL)
-		//on_proc_exit(StreamDoUnlink, 0);
-
-	//sock_paths = lappend(sock_paths, pstrdup(unixSocketPath));
-
-	return STATUS_OK;
-}
-
-
-/*
- * Setup_AF_UNIX -- configure unix socket permissions
- */
-static int
-Setup_AF_UNIX(char *sock_path)
-{
-	/*
-	 * Fix socket ownership/permission if requested.  Note we must do this
-	 * before we listen() to avoid a window where unwanted connections could
-	 * get accepted.
-	 */
-	Assert(Unix_socket_group);
-	if (Unix_socket_group[0] != '\0')
-	{
-#ifdef WIN32
-		elog(WARNING, "configuration item unix_socket_group is not supported on this platform");
-#else
-		char	   *endptr;
-		unsigned long val;
-		gid_t		gid;
-
-		val = strtoul(Unix_socket_group, &endptr, 10);
-		if (*endptr == '\0')
-		{						/* numeric group id */
-			gid = val;
-		}
-		else
-		{						/* convert group name to id */
-			struct group *gr;
-
-			gr = getgrnam(Unix_socket_group);
-			if (!gr)
-			{
-				ereport(LOG,
-						(errmsg("group \"%s\" does not exist",
-								Unix_socket_group)));
-				return STATUS_ERROR;
-			}
-			gid = gr->gr_gid;
-		}
-		if (chown(sock_path, -1, gid) == -1)
-		{
-			ereport(LOG,
-					 (errmsg("could not set group of file \"%s\": %m",
-							sock_path)));
-			return STATUS_ERROR;
-		}
-#endif
-	}
-
-	if (chmod(sock_path, Unix_socket_permissions) == -1)
-	{
-		ereport(LOG, (errmsg("could not set permissions of file \"%s\": %m",
-						sock_path)));
-		return STATUS_ERROR;
-	}
-	return STATUS_OK;
-}
-#endif   /* HAVE_UNIX_SOCKETS */
-
 
 
 /*
@@ -223,6 +126,19 @@ Setup_AF_UNIX(char *sock_path)
  *
  *		Stream functions are used for vanilla TCP connection protocol.
  */
+
+/* StreamDoUnlink()
+ * Shutdown routine for backend connection
+ * If any Unix sockets are used for communication, explicitly close them.
+ */
+#ifdef HAVE_UNIX_SOCKETS
+static void
+StreamDoUnlink(int code, uintptr_t arg)
+{
+	unlink(gtm_sock_path);
+}
+#endif   /* HAVE_UNIX_SOCKETS */
+
 
 
 /*
@@ -427,7 +343,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 					 (IS_AF_UNIX(addr->ai_family)) ?
 				  errhint("Is another postmaster already running on port %d?"
 						  " If not, remove socket file \"%s\" and retry.",
-						  (int) portNumber, sock_path) :
+						  (int) portNumber, service) :
 				  errhint("Is another postmaster already running on port %d?"
 						  " If not, wait a few seconds and retry.",
 						  (int) portNumber)));
@@ -478,6 +394,102 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 	return STATUS_OK;
 }
 
+#ifdef HAVE_UNIX_SOCKETS
+
+/*
+ * Lock_AF_UNIX -- configure unix socket file path
+ */
+static int
+Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
+{
+	/*
+	 * Grab an interlock file associated with the socket file.
+	 *
+	 * Note: there are two reasons for using a socket lock file, rather than
+	 * trying to interlock directly on the socket itself.  First, it's a lot
+	 * more portable, and second, it lets us remove any pre-existing socket
+	 * file without race conditions.
+	 */
+	CreateSocketLockFile(unixSocketPath, unixSocketDir);
+
+	/*
+	 * Once we have the interlock, we can safely delete any pre-existing
+	 * socket file to avoid failure at bind() time.
+	 */
+	unlink(unixSocketPath);
+
+	/*
+	 * Arrange to unlink the socket file(s) at proc_exit.  If this is the
+	 * first one, set up the on_proc_exit function to do it; then add this
+	 * socket file to unlink (Currently, gtm proxy only support 1 unix domain socket,
+	 * will make a change if need more domain sockets).
+	 */
+	gtm_on_proc_exit(StreamDoUnlink, 0);
+
+    strcpy(unixSocketPath, gtm_sock_path);
+
+	return STATUS_OK;
+}
+
+/*
+ * Setup_AF_UNIX -- configure unix socket permissions
+ */
+static int
+Setup_AF_UNIX(char *sock_path)
+{
+	/*
+	 * Fix socket ownership/permission if requested.  Note we must do this
+	 * before we listen() to avoid a window where unwanted connections could
+	 * get accepted.
+	 */
+	Assert(Unix_socket_group);
+	if (Unix_socket_group[0] != '\0')
+	{
+#ifdef WIN32
+		elog(WARNING, "configuration item unix_socket_group is not supported on this platform");
+#else
+		char	   *endptr;
+		unsigned long val;
+		gid_t		gid;
+
+		val = strtoul(Unix_socket_group, &endptr, 10);
+		if (*endptr == '\0')
+		{						/* numeric group id */
+			gid = val;
+		}
+		else
+		{						/* convert group name to id */
+			struct group *gr;
+
+			gr = getgrnam(Unix_socket_group);
+			if (!gr)
+			{
+				ereport(LOG,
+						(errmsg("group \"%s\" does not exist",
+								Unix_socket_group)));
+				return STATUS_ERROR;
+			}
+			gid = gr->gr_gid;
+		}
+		if (chown(sock_path, -1, gid) == -1)
+		{
+			ereport(LOG,
+					 (errmsg("could not set group of file \"%s\": %m",
+							sock_path)));
+			return STATUS_ERROR;
+		}
+#endif
+	}
+
+	if (chmod(sock_path, Unix_socket_permissions) == -1)
+	{
+		ereport(LOG, (errmsg("could not set permissions of file \"%s\": %m",
+						sock_path)));
+		return STATUS_ERROR;
+	}
+	return STATUS_OK;
+}
+#endif   /* HAVE_UNIX_SOCKETS */
 
 /*
  * StreamConnection -- create a new connection with client using
@@ -587,8 +599,7 @@ StreamClose(int sock)
 }
 
 /*
- * TouchSocketFile -- mark socket file as recently accessed
- *
+ * TouchSocketFile -- mark socket file as recently accessgtm_miscinit*
  * This routine should be called every so often to ensure that the socket
  * file has a recent mod date (ordinary operations on sockets usually won't
  * change the mod date).  That saves it from being removed by
@@ -599,7 +610,7 @@ void
 TouchSocketFile(void)
 {
 	/* Do nothing if we did not create a socket... */
-	if (sock_path[0] != '\0')
+	if (gtm_sock_path[0] != '\0')
 	{
 		/*
 		 * utime() is POSIX standard, utimes() is a common alternative. If we
@@ -609,10 +620,10 @@ TouchSocketFile(void)
 		 * In either path, we ignore errors; there's no point in complaining.
 		 */
 #ifdef HAVE_UTIME
-		utime(sock_path, NULL);
+		utime(gtm_sock_path, NULL);
 #else							/* !HAVE_UTIME */
 #ifdef HAVE_UTIMES
-		utimes(sock_path, NULL);
+		utimes(gtm_sock_path, NULL);
 #endif   /* HAVE_UTIMES */
 #endif   /* HAVE_UTIME */
 	}
