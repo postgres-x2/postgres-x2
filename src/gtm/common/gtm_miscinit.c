@@ -1,13 +1,13 @@
 /*-------------------------------------------------------------------------
  *
  * gtm_miscinit.c
- *    miscellaneous initialization support stuff
+ *      miscellaneous initialization support stuff
  *
  * Portions Copyright (c) 2015, PostgreSQL_X2 Global Development Group
  *
  *
  * IDENTIFICATION
- *    src/gtm/common/gtm_miscinit.c
+ *      src/gtm/common/gtm_miscinit.c
  *
  *-------------------------------------------------------------------------
  */
@@ -27,8 +27,6 @@
 #include <utime.h>
 #endif
 
-//#include "gtm/gtm_c.h"
-//#include "gtm/path.h"
 #include "gtm/gtm.h"
 #include "gtm/elog.h"
 #include "gtm/gtm_miscinit.h"

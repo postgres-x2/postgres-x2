@@ -171,7 +171,7 @@ struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&Unix_socket_permissions,
-        0777, 0000, 0777,
+		0777, 0000, 0777,
 		0, NULL
 	},
 
@@ -315,11 +315,11 @@ struct config_string ConfigureNamesString[] =
 		 	NULL,
 		 	0
 		},
-        &Unix_socket_directory,
+		&Unix_socket_directory,
 #ifdef HAVE_UNIX_SOCKETS
-        DEFAULT_GTMSOCKET_DIR,
+		DEFAULT_GTMSOCKET_DIR,
 #else
-        "",
+		"",
 #endif
 		NULL,
 		NULL
@@ -332,8 +332,8 @@ struct config_string ConfigureNamesString[] =
 		 	NULL,
 		 	0
 		},
-        &Unix_socket_group,
-        "",
+		&Unix_socket_group,
+		"",
 		NULL,
 		NULL
 	},

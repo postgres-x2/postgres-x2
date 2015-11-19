@@ -422,6 +422,7 @@ int
 GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo, GTMProxy_ConnectionInfo *conninfo)
 {
 	int ii;
+
 	/*
 	 * Lock the threadninfo structure to safely remove the connection from the
 	 * thread structure.
@@ -450,7 +451,7 @@ GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo, GTMProxy_Connectio
 	/* Release connection id */
 	if (conninfo->con_id != InvalidGTMProxyConnID)
 	{
-        thrinfo->thr_conid2idx[conninfo->con_id] = -1;
+		thrinfo->thr_conid2idx[conninfo->con_id] = -1;
 		elog(DEBUG5, "Released connection id %d", conninfo->con_id);
 	}
 

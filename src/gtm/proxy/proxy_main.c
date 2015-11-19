@@ -66,9 +66,8 @@ extern char *optarg;
 #endif
 
 static char *progname = "gtm_proxy";
-// TDB add socket_directory to GUC
-char *Unix_socket_directory = NULL;
-char	   *ListenAddresses;
+char 		*Unix_socket_directory = NULL;
+char		*ListenAddresses;
 int			GTMProxyPortNumber;
 int			GTMProxyWorkerThreads;
 char		*GTMProxyDataDir;
@@ -179,8 +178,6 @@ static void GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo,
 		GTM_MessageType mtype, GTMProxy_CommandData cmd_data);
 
 static bool CreateOptsFile(int argc, char *argv[]);
-//static void CreateDataDirLockFile(void);
-//static void CreateLockFile(const char *filename, const char *refName);
 static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
@@ -594,7 +591,7 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			help(argv[0]);
-		    exit(0);
+			exit(0);
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
@@ -2955,21 +2952,6 @@ ChangeToDataDir(void)
 				 errmsg("could not change directory to \"%s\": %m",
 						GTMProxyDataDir)));
 }
-
-/*
- * Create the data directory lockfile.
- *
- * When this is called, we must have already switched the working
- * directory to DataDir, so we can just use a relative path.  This
- * helps ensure that we are locking the directory we should be.
- */
-/*static void
-CreateDataDirLockFile()
-{
-	CreateLockFile(GTM_PID_FILE, GTMProxyDataDir);
-}*/
-
-
 
 /*
  * Create the opts file

@@ -59,7 +59,8 @@ extern char *optarg;
 #define GTM_LOG_FILE			"gtm.log"
 
 static char *progname = "gtm";
-char	   *ListenAddresses;
+char		*Unix_socket_directory = NULL;
+char	   	*ListenAddresses;
 int			GTMPortNumber;
 char		GTMControlFile[GTM_MAX_PATH];
 char		*GTMDataDir;
@@ -82,7 +83,6 @@ bool		isStartUp;
  * writing anything to Port.
  */
 bool		isGTM = true;
-char *Unix_socket_directory = NULL;
 
 GTM_ThreadID	TopMostThreadID;
 
@@ -671,16 +671,15 @@ main(int argc, char *argv[])
 	}
 
 #ifdef HAVE_UNIX_SOCKETS
-    if (Unix_socket_directory && strlen(Unix_socket_directory) > 0)
-    {
-
-        status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMPortNumber,
-                                    Unix_socket_directory, ListenSocket, MAXLISTEN);
-        if (status != STATUS_OK)
-            ereport(WARNING,
-                    (errmsg("could not create Unix-domain socket in directory \"%s\"",
-                            Unix_socket_directory)));
-    }
+	if (Unix_socket_directory && strlen(Unix_socket_directory) > 0)
+	{
+		status = StreamServerPort(AF_UNIX, NULL, (unsigned short) GTMPortNumber,
+									Unix_socket_directory, ListenSocket, MAXLISTEN);
+		if (status != STATUS_OK)
+			ereport(WARNING,
+					(errmsg("could not create Unix-domain socket in directory \"%s\"",
+							Unix_socket_directory)));
+	}
 #endif
 
 	/*

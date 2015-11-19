@@ -285,7 +285,7 @@ connectGTMStart(GTM_Conn *conn)
 		hint.ai_flags = AI_NUMERICHOST;
 	}
 	else if (conn->pghost != NULL && conn->pghost[0] != '\0' &&
-            strcmp(conn->pghost, DefaultHost) != 0)
+				strcmp(conn->pghost, DefaultHost) != 0)
 	{
 		/* Using pghost, so we have to look-up the hostname */
 		node = conn->pghost;
@@ -294,23 +294,23 @@ connectGTMStart(GTM_Conn *conn)
 	else
 	{
 #ifdef HAVE_UNIX_SOCKETS
-        /* pghostaddr and pghost are NULL, so use Unix domain socket */
+		/* pghostaddr and pghost are NULL, so use Unix domain socket */
         node = NULL;
         hint.ai_family = AF_UNIX;
-        UNIXSOCK_PATH(portstr, portnum, (char*)NULL);
-        if (strlen(portstr) >= UNIXSOCK_PATH_BUFLEN)
-        {
-            appendGTMPQExpBuffer(&conn->errorMessage,
-                              libpq_gettext("Unix-domain socket path \"%s\" is too long (maximum %d bytes)\n"),
-                              portstr,
-                              (int) (UNIXSOCK_PATH_BUFLEN - 1));
-            goto connect_errReturn;
-        }
+		UNIXSOCK_PATH(portstr, portnum, (char*)NULL);
+		if (strlen(portstr) >= UNIXSOCK_PATH_BUFLEN)
+		{
+			appendGTMPQExpBuffer(&conn->errorMessage,
+								libpq_gettext("Unix-domain socket path \"%s\" is too long (maximum %d bytes)\n"),
+								portstr,
+								(int) (UNIXSOCK_PATH_BUFLEN - 1));
+			goto connect_errReturn;
+		}
 #else
-        /* Without Unix sockets, default to localhost instead */
-        node = DefaultHost;
-        hint.ai_family = AF_UNSPEC;
-#endif   /* HAVE_UNIX_SOCKETS */
+		/* Without Unix sockets, default to localhost instead */
+		node = DefaultHost;
+		hint.ai_family = AF_UNSPEC;
+#endif	/* HAVE_UNIX_SOCKETS */
 	}
 
 	/* Use gtm_getaddrinfo_all() to resolve the address */

@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * gtm_ipc.c
- *    POSTGRES inter-process communication definitions.
+ *		GTM inter-process communication definitions.
  *
  * This file is misnamed, as it no longer has much of anything directly
  * to do with IPC.  The functionality here is concerned with managing
@@ -11,7 +11,7 @@
  * Portions Copyright (c) 2015, PostgreSQL_X2 Global Development Group
  *
  * IDENTIFICATION
- *    src/gtm/common/gtm_ipc.c
+ *		src/gtm/common/gtm_ipc.c
  *
  *-------------------------------------------------------------------------
  */
@@ -24,15 +24,14 @@
 #include "gtm/gtm_ipc.h"
 
 /*
- * This flag is set during proc_exit() to change ereport()'s behavior,
+ * This flag is set during gtm_proc_exit() to change ereport()'s behavior,
  * so that an ereport() from an on_proc_exit routine cannot get us out
  * of the exit procedure.  We do NOT want to go back to the idle loop...
  */
-bool        gtm_proc_exit_inprogress = false;
+bool		gtm_proc_exit_inprogress = false;
 
 /*
- * This flag tracks whether we've called atexit() in the current process
- * (or in the parent postmaster).
+ * This flag tracks whether we've called gtm_atexit() in the current process
  */
 static bool gtm_atexit_callback_setup = false;
 
@@ -45,8 +44,7 @@ static void gtm_proc_exit_prepare(int code);
  *
  * These functions are in generally the same spirit as atexit(),
  * but provide some additional features we need --- in particular,
- * we want to register callbacks to invoke when we are disconnecting
- * from a broken shared-memory context but not exiting the postmaster.
+ * we want to register callbacks to invoke when gtm/proxy exit
  *
  * Callback functions can take zero, one, or two args: the first passed
  * arg is the integer exitcode, the second is the uintptr_t supplied when
@@ -59,12 +57,11 @@ static void gtm_proc_exit_prepare(int code);
 
 static struct ONEXIT
 {
-    gtm_pg_on_exit_callback function;
-    uintptr_t       arg;
-}   gtm_on_proc_exit_list[MAX_ON_EXITS];
+	gtm_pg_on_exit_callback function;
+	uintptr_t				arg;
+}	gtm_on_proc_exit_list[MAX_ON_EXITS];
 
 static int  gtm_on_proc_exit_index;
-
 
 /* ----------------------------------------------------------------
  *      borrow from proc_exit
@@ -89,19 +86,19 @@ gtm_proc_exit(int code)
 
 #ifdef PROFILE_PID_DIR
 	{
-        char        gprofDirName[32];
+		char        gprofDirName[32];
 
-        snprintf(gprofDirName, 32, "gtm_gprof/%d", (int) getpid());
+		snprintf(gprofDirName, 32, "gtm_gprof/%d", (int) getpid());
 
-        mkdir("gtm_gprof", S_IRWXU | S_IRWXG | S_IRWXO);
-        mkdir(gprofDirName, S_IRWXU | S_IRWXG | S_IRWXO);
-        chdir(gprofDirName);
-    }
+		mkdir("gtm_gprof", S_IRWXU | S_IRWXG | S_IRWXO);
+		mkdir(gprofDirName, S_IRWXU | S_IRWXG | S_IRWXO);
+		chdir(gprofDirName);
+	}
 #endif
 
-    elog(DEBUG3, "exit(%d)", code);
+	elog(DEBUG3, "exit(%d)", code);
 
-    exit(code);
+	exit(code);
 }
 
 /*
@@ -112,23 +109,11 @@ gtm_proc_exit(int code)
 static void
 gtm_proc_exit_prepare(int code)
 {
-    /*
- 	 * Once we set this flag, we are committed to exit.  Any ereport() will
+	/*
+	 * Once we set this flag, we are committed to exit.  Any ereport() will
 	 * NOT send control back to the main loop, but right back here.
- 	 */
+	 */
 	gtm_proc_exit_inprogress = true;
-
-
-    /*
- 	 * Also clear the error context stack, to prevent error callbacks from
- 	 * being invoked by any elog/ereport calls made during proc_exit. Whatever
- 	 * context they might want to offer is probably not relevant, and in any
- 	 * case they are likely to fail outright after we've done things like
- 	 * aborting any open transaction.  (In normal exit scenarios the context
- 	 * stack should be empty anyway, but it might not be in the case of
- 	 * elog(FATAL) for example.)
- 	 */
-    //error_context_stack = NULL;
 
     elog(DEBUG3, "proc_exit(%d): %d callbacks to make",
          code, gtm_on_proc_exit_index);
@@ -142,69 +127,51 @@ gtm_proc_exit_prepare(int code)
  	 * previously-completed callbacks).  So, an infinite loop should not be
  	 * possible.
  	 */
-    while (--gtm_on_proc_exit_index >= 0)
-        (*gtm_on_proc_exit_list[gtm_on_proc_exit_index].function) (code,
-                                  gtm_on_proc_exit_list[gtm_on_proc_exit_index].arg);
+	while (--gtm_on_proc_exit_index >= 0)
+		(*gtm_on_proc_exit_list[gtm_on_proc_exit_index].function) (code,
+								gtm_on_proc_exit_list[gtm_on_proc_exit_index].arg);
 
-    gtm_on_proc_exit_index = 0;
+	gtm_on_proc_exit_index = 0;
 }
 
 /* ----------------------------------------------------------------
- *      borrow from atexit_callback
+ *		borrow from atexit_callback
  *
- *      Backstop to ensure that direct calls of exit() don't mess us up.
- *
- * Somebody who was being really uncooperative could call _exit(),
- * but for that case we have a "dead man switch" that will make the
- * postmaster treat it as a crash --- see pmsignal.c.
+ *		Backstop to ensure that direct calls of exit() don't mess us up.
  * ----------------------------------------------------------------
  */
 static void
 gtm_atexit_callback(void)
 {
-    /* Clean up everything that must be cleaned up */
-    /* ... too bad we don't know the real exit code ... */
-    gtm_proc_exit_prepare(-1);
+	/* Clean up everything that must be cleaned up */
+	/* ... too bad we don't know the real exit code ... */
+	gtm_proc_exit_prepare(-1);
 }
 
 /* ----------------------------------------------------------------
- *      borrow from on_proc_exit
+ *		borrow from on_proc_exit
  *
- *      this function adds a callback function to the list of
- *      functions invoked by gtm_proc_exit().
+ *		this function adds a callback function to the list of
+ *		functions invoked by gtm_proc_exit().
  * ----------------------------------------------------------------
  */
 void
 gtm_on_proc_exit(gtm_pg_on_exit_callback function, uintptr_t arg)
 {
-    if (gtm_on_proc_exit_index >= MAX_ON_EXITS)
-        ereport(FATAL,
-                (EINVAL,
-                 errmsg_internal("out of on_proc_exit slots")));
+	if (gtm_on_proc_exit_index >= MAX_ON_EXITS)
+		ereport(FATAL,
+				(EINVAL,
+				errmsg_internal("out of on_proc_exit slots")));
 
-    gtm_on_proc_exit_list[gtm_on_proc_exit_index].function = function;
-    gtm_on_proc_exit_list[gtm_on_proc_exit_index].arg = arg;
+	gtm_on_proc_exit_list[gtm_on_proc_exit_index].function = function;
+	gtm_on_proc_exit_list[gtm_on_proc_exit_index].arg = arg;
 
-    ++gtm_on_proc_exit_index;
+	++gtm_on_proc_exit_index;
 
-    if (!gtm_atexit_callback_setup)
-    {
-        atexit(gtm_atexit_callback);
-        gtm_atexit_callback_setup = true;
-    }
+	if (!gtm_atexit_callback_setup)
+	{
+		atexit(gtm_atexit_callback);
+		gtm_atexit_callback_setup = true;
+	}
 }
 
-/* ----------------------------------------------------------------
- *      borrow from on_exit_reset
- *
- *      this function clears all gtm_on_proc_exit() 
- *      registered functions.  This is used just after forking a backend,
- *      so that the backend doesn't believe it should call the postmaster's
- *      on-exit routines when it exits...
- * ----------------------------------------------------------------
- */
-void
-gtm_on_exit_reset(void)
-{
-    gtm_on_proc_exit_index = 0;
-}

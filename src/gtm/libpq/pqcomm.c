@@ -98,12 +98,13 @@
 
 /* Where the Unix socket file is */
 static char gtm_sock_path[MAXGTMPATH];
-int         Unix_socket_permissions ;
-char       *Unix_socket_group ;
+int			Unix_socket_permissions;
+char		*Unix_socket_group;
 
 extern int         tcp_keepalives_idle;
 extern int         tcp_keepalives_interval;
 extern int         tcp_keepalives_count;
+
 
 /*
  * Buffers for low-level I/O
@@ -116,7 +117,7 @@ static int	internal_flush(Port *myport);
 #ifdef HAVE_UNIX_SOCKETS
 static int	Lock_AF_UNIX(const char *unixSocketDir, const char *unixSocketPath);
 static int	Setup_AF_UNIX(char *sock_path);
-#endif   /* HAVE_UNIX_SOCKETS */
+#endif	/* HAVE_UNIX_SOCKETS */
 
 
 
@@ -137,7 +138,7 @@ StreamDoUnlink(int code, uintptr_t arg)
 {
 	unlink(gtm_sock_path);
 }
-#endif   /* HAVE_UNIX_SOCKETS */
+#endif	/* HAVE_UNIX_SOCKETS */
 
 
 
@@ -426,7 +427,7 @@ Lock_AF_UNIX(const char *unixSocketDir, const char *unixSocketPath)
 	 */
 	gtm_on_proc_exit(StreamDoUnlink, 0);
 
-    strcpy(gtm_sock_path, unixSocketPath);
+	strcpy(gtm_sock_path, unixSocketPath);
 
 	return STATUS_OK;
 }
@@ -489,7 +490,7 @@ Setup_AF_UNIX(char *sock_path)
 	}
 	return STATUS_OK;
 }
-#endif   /* HAVE_UNIX_SOCKETS */
+#endif	/* HAVE_UNIX_SOCKETS */
 
 /*
  * StreamConnection -- create a new connection with client using
@@ -599,7 +600,8 @@ StreamClose(int sock)
 }
 
 /*
- * TouchSocketFile -- mark socket file as recently accessgtm_miscinit*
+ * TouchSocketFile -- mark socket file as recently access
+ *
  * This routine should be called every so often to ensure that the socket
  * file has a recent mod date (ordinary operations on sockets usually won't
  * change the mod date).  That saves it from being removed by
