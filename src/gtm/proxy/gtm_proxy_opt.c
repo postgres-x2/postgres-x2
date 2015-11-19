@@ -317,7 +317,7 @@ struct config_string ConfigureNamesString[] =
 		},
 		&Unix_socket_directory,
 #ifdef HAVE_UNIX_SOCKETS
-		DEFAULT_GTMSOCKET_DIR,
+		DEFAULT_PGSOCKET_DIR,
 #else
 		"",
 #endif
