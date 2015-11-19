@@ -114,7 +114,7 @@ static int	internal_putbytes(Port *myport, const char *s, size_t len);
 static int	internal_flush(Port *myport);
 
 #ifdef HAVE_UNIX_SOCKETS
-static int	Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath);
+static int	Lock_AF_UNIX(const char *unixSocketDir, const char *unixSocketPath);
 static int	Setup_AF_UNIX(char *sock_path);
 #endif   /* HAVE_UNIX_SOCKETS */
 
@@ -400,7 +400,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
  * Lock_AF_UNIX -- configure unix socket file path
  */
 static int
-Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
+Lock_AF_UNIX(const char *unixSocketDir, const char *unixSocketPath)
 {
 	/*
 	 * Grab an interlock file associated with the socket file.
@@ -426,7 +426,7 @@ Lock_AF_UNIX(char *unixSocketDir, char *unixSocketPath)
 	 */
 	gtm_on_proc_exit(StreamDoUnlink, 0);
 
-    strcpy(unixSocketPath, gtm_sock_path);
+    strcpy(gtm_sock_path, unixSocketPath);
 
 	return STATUS_OK;
 }

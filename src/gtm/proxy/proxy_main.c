@@ -594,12 +594,12 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			help(argv[0]);
-		    gtm_proc_exit(0);
+		    exit(0);
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
 			puts("gtm_proxy (Postgres-XC) " PGXC_VERSION);
-			gtm_proc_exit(0);
+			exit(0);
 		}
 	}
 
@@ -688,7 +688,7 @@ main(int argc, char *argv[])
 	 * Setup configuration file
 	 */
 	if (!SelectConfigFiles(data_dir, progname))
-		gtm_proc_exit(1);
+		exit(1);
 
 	/*
 	 * Parse config file
@@ -750,28 +750,28 @@ main(int argc, char *argv[])
 		write_stderr("GTM Proxy data directory must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 	}
 	if (GTMProxyNodeName == NULL)
 	{
 		write_stderr("GTM Proxy Node name must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 	}
 	if (ListenAddresses == NULL || *ListenAddresses == '\0')
 	{
 		write_stderr("GTM Proxy listen addresses must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 	}
 	if (GTMProxyPortNumber == 0)
 	{
 		write_stderr("GTM Proxy port number must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 
 	}
 	if (GTMServerHost == NULL || *GTMServerHost == '\0')
@@ -779,7 +779,7 @@ main(int argc, char *argv[])
 		write_stderr("GTM server listen address must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 
 	}
 	if (GTMServerPortNumber == 0)
@@ -787,7 +787,7 @@ main(int argc, char *argv[])
 		write_stderr("GTM server port number must be specified\n");
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 
 	}
 
@@ -800,7 +800,7 @@ main(int argc, char *argv[])
 					 progname, argv[optind]);
 		write_stderr("Try \"%s --help\" for more information.\n",
 					 progname);
-		gtm_proc_exit(1);
+		exit(1);
 	}
 
 	/*

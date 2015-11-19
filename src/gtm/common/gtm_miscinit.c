@@ -224,8 +224,8 @@ CreateDataDirLockFile(const char *pidfile, const char *dataDir)
 }
 
 /*
- *  * Create a lockfile for the specified Unix socket file.
- *   */
+ * Create a lockfile for the specified Unix socket file.
+ */
 void
 CreateSocketLockFile(const char *socketfile, const char *socketDir)
 {

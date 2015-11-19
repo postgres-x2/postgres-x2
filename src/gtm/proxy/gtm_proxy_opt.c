@@ -346,7 +346,7 @@ struct config_string ConfigureNamesString[] =
 			0
 		},
 		&GTMServerHost,
-		NULL,
+		"localhost",
 		NULL, NULL
 	},
 
