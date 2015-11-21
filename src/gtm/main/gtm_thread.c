@@ -148,7 +148,7 @@ GTM_ThreadCreate(GTM_ConnectionInfo *conninfo,
 				  void *(* startroutine)(void *))
 {
 	GTM_ThreadInfo *thrinfo;
-	int err;
+	int err, i;
 
 	/*
 	 * We are still running in the context of the main thread. So the
@@ -165,6 +165,10 @@ GTM_ThreadCreate(GTM_ConnectionInfo *conninfo,
 	 * the thread itself when it actually starts executing
 	 */
 	thrinfo->thr_status = GTM_THREAD_STARTING;
+    thrinfo->thr_tmp_open_transactions = gtm_NIL
+    for (i = 0; i < TRANSACTION_ARRAY_SIZE; i++) {
+        thr_backend_open_transactions[i] = gtm_NIL;
+    }
 
 	/*
 	 * Install the ThreadInfo structure in the global array. We do this before

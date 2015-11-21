@@ -28,6 +28,7 @@
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
 #include "gtm/gtm_backup.h"
+#include "gtm/gtm_utils.h"
 
 extern bool Backup_synchronously;
 
@@ -97,7 +98,10 @@ GTM_InitTxnManager(void)
 	/*
 	 * Initialize the list
 	 */
-	GTMTransactions.gt_open_transactions = gtm_NIL;
+    for (ii = 0; ii < GTM_MAX_GLOBAL_TRANSACTIONS; ii++) {
+		GTMTransactions.gt_open_transactions[ii] = gtm_NIL;
+		GTMTransactions.preparedName_2_gxid[ii] = gtm_NIL;
+	}
 	GTMTransactions.gt_lastslot = -1;
 
 	GTMTransactions.gt_gtm_state = GTM_STARTING;
@@ -141,10 +145,12 @@ GTM_GXIDToHandle(GlobalTransactionId gxid)
 {
 	gtm_ListCell *elem = NULL;
    	GTM_TransactionInfo *gtm_txninfo = NULL;
-
+	uint32				hash;
+ 
+	hash = gxid % GTM_MAX_GLOBAL_TRANSACTIONS;
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
 
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions)
+	gtm_foreach(elem, GTMTransactions.gt_open_transactions[hash])
 	{
 		gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
 		if (GlobalTransactionIdEquals(gtm_txninfo->gti_gxid, gxid))
@@ -174,15 +180,21 @@ GTM_GIDToHandle(char *gid)
 {
 	gtm_ListCell *elem = NULL;
 	GTM_TransactionInfo *gtm_txninfo = NULL;
+	unit32				hash;
+	GlobalTransactionId gxid;
+	hash = gtm_util_hash_any(gid, strlen(gid));
+	gxid = InvalidGlobalTransactionId;
 
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
 
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions)
+	gtm_foreach(elem, preparedName_2_gxid[hash])
 	{
 		gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
-		if (gtm_txninfo->gti_gid && strcmp(gid,gtm_txninfo->gti_gid) == 0)
+		if (gtm_txninfo->gti_gid && strcmp(gid, gtm_txninfo->gti_gid) == 0){
 			break;
+		}
 		gtm_txninfo = NULL;
+
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
@@ -241,6 +253,7 @@ static void
 GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 {
 	int ii;
+	unit32	hash;
 
 	/*
 	 * Remove the transaction structure from the global list of open
@@ -252,8 +265,22 @@ GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 	{
 		if (gtm_txninfo[ii] == NULL)
 			continue;
+		hash = (gtm_txninfo[ii].gti_gxid) % GTM_MAX_GLOBAL_TRANSACTIONS;
+		GTMTransactions.gt_open_transactions[hash] =
+				gtm_list_delete(GTMTransactions.gt_open_transactions[hash], gtm_txninfo[ii]);
 
-		GTMTransactions.gt_open_transactions = gtm_list_delete(GTMTransactions.gt_open_transactions, gtm_txninfo[ii]);
+		hash = gtm_txninfo->gti_backend_id % TRANSACTION_ARRAY_SIZE;
+		GetMyThreadInfo->thr_backend_open_transactions[hash] =
+								gtm_list_delete(GetMyThreadInfo->thr_backend_open_transactions[hash],
+												gtm_txninfo);
+
+		if (gtm_txninfo->gti_gid != NULL) {
+			hash = gtm_util_hash_any(gtm_txninfo->gti_gid, strlen(gtm_txninfo->gti_gid)) %
+							TRANSACTION_ARRAY_SIZE;
+			GTMTransactions.preparedName_2_gxid[hash] =
+									gtm_list_delete(GetMyThreadInfo->preparedName_2_gxid[hash],
+												gtm_txninfo);
+		}
 
 		if (GlobalTransactionIdIsNormal(gtm_txninfo[ii]->gti_gxid) &&
 			GlobalTransactionIdFollowsOrEquals(gtm_txninfo[ii]->gti_gxid,
@@ -283,8 +310,39 @@ void
 GTM_RemoveAllTransInfos(int backend_id)
 {
 	gtm_ListCell *cell, *prev;
+	gtm_List	 *target_List;
 	GTM_ThreadID thread_id;
+	uint32		 ii, hash;
 
+	if (backend_id >= 0) {
+		hash = backend_id % GTM_MAX_GLOBAL_TRANSACTIONS;
+		cell = gtm_list_head(GTMTransactions.backendID_2_gid[hash]);
+		while (cell != NULL)
+		{
+			GTM_TransactionInfo *gtm_txninfo = gtm_lfirst(cell);
+			if (gtm_txninfo->gti_backend_id == backend_id) {
+				GTMTransactions.backendID_2_gid[hash] =
+										gtm_list_delete_cell(
+													GTMTransactions.backendID_2_gid[hash],
+													cell,
+													prev);
+				target_List = gtm_lappend(target_List, gtm_txninfo);
+				if (prev)
+					cell = gtm_lnext(prev);
+				else
+					cell = gtm_list_head(GTMTransactions.gt_open_transactions);
+			} else {
+				prev = cell;
+				cell = gtm_lnext(cell);
+			}
+		}
+	} else {
+		for( ii = 0; ii <TRANSACTION_ARRAY_SIZE; ii++) {
+			target_List = gtm_list_concat(target_List,
+							GTMTransactions.backendID_2_gid[hash]);
+			GTMTransactions.backendID_2_gid[ii] = gtm_NIL;
+		}
+	}
 	thread_id = pthread_self();
 
 	/*
@@ -292,7 +350,7 @@ GTM_RemoveAllTransInfos(int backend_id)
 	 */
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
 	prev = NULL;
-	cell = gtm_list_head(GTMTransactions.gt_open_transactions);
+	cell = gtm_list_head(target_List);
 	while (cell != NULL)
 	{
 		GTM_TransactionInfo *gtm_txninfo = gtm_lfirst(cell);
@@ -308,7 +366,11 @@ GTM_RemoveAllTransInfos(int backend_id)
 			((gtm_txninfo->gti_backend_id == backend_id) || (backend_id == -1)))
 		{
 			/* remove the entry */
-			GTMTransactions.gt_open_transactions = gtm_list_delete_cell(GTMTransactions.gt_open_transactions, cell, prev);
+			hash = (gtm_txninfo->gti_gxid) % GTM_MAX_GLOBAL_TRANSACTIONS;
+
+			GTMTransactions.gt_open_transactions[hash] =
+										gtm_list_delete(GTMTransactions.gt_open_transactions[hash],
+														cell);
 
 			/* update the latestCompletedXid */
 			if (GlobalTransactionIdIsNormal(gtm_txninfo->gti_gxid) &&
@@ -323,20 +385,10 @@ GTM_RemoveAllTransInfos(int backend_id)
 			 */
 			clean_GTM_TransactionInfo(gtm_txninfo);
 
-			/* move to next cell in the list */
-			if (prev)
-				cell = gtm_lnext(prev);
-			else
-				cell = gtm_list_head(GTMTransactions.gt_open_transactions);
-		}
-		else
-		{
-			prev = cell;
-			cell = gtm_lnext(cell);
 		}
 	}
-
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
+	gtm_list_free(target_List);
 	return;
 }
 /*
@@ -484,6 +536,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	GlobalTransactionId xid, start_xid = InvalidGlobalTransactionId;
 	GTM_TransactionInfo *gtm_txninfo = NULL;
 	int ii;
+	uint32	hash;
 
 	if (Recovery_IsStandby())
 	{
@@ -560,6 +613,24 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 
 		elog(DEBUG1, "Assigning new transaction ID = %d", xid);
 		gtm_txninfo->gti_gxid = xid;
+		GetMyThreadInfo->thr_tmp_open_transactions =
+								gtm_list_delete(GetMyThreadInfo->thr_tmp_open_transactions,
+												gtm_txninfo);
+		hash = xid % GTM_MAX_GLOBAL_TRANSACTIONS;
+		GTMTransactions.gt_open_transactions[hash] =
+								gtm_lappend(GTMTransactions.gt_open_transactions[hash],
+											gtm_txninfo); 
+
+		hash = gtm_txninfo->gti_backend_id % TRANSACTION_ARRAY_SIZE;
+		GetMyThreadInfo->thr_backend_open_transactions[hash] =
+								gtm_lappend(GetMyThreadInfo->thr_backend_open_transactions[hash],
+												gtm_txninfo);
+		if (gtm_txninfo->gti_gid != NULL) {
+			hash = string_hash(gtm_txninfo->gti_gid) % TRANSACTION_ARRAY_SIZE;
+			GTMTransactions.preparedName_2_gxid[hash] =
+									gtm_lappend(GetMyThreadInfo->preparedName_2_gxid[hash],
+												gtm_txninfo);
+		}
 	}
 
 	if (GTM_NeedXidRestoreUpdate())
@@ -689,7 +760,9 @@ GTM_BeginTransactionMulti(char *coord_name,
 		 * because the list is global and any memory allocation must outlive the
 		 * thread context
 		 */
-		GTMTransactions.gt_open_transactions = gtm_lappend(GTMTransactions.gt_open_transactions, gtm_txninfo[kk]);
+		GTMTransactions.gt_tmp_open_transactions =
+								gtm_lappend(GTMTransactions.gt_tmp_open_transactions,
+											gtm_txninfo[kk]);
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
@@ -779,6 +852,7 @@ GTM_BkupBeginTransactionMulti(char *coord_name,
 	GTM_TransactionInfo *gtm_txninfo;
 	MemoryContext oldContext;
 	int kk;
+	unit32 hash;
 
 	gtm_txninfo = NULL;
 
@@ -797,7 +871,8 @@ GTM_BkupBeginTransactionMulti(char *coord_name,
 		}
 		init_GTM_TransactionInfo(gtm_txninfo, coord_name, txn[kk], isolevel[kk], connid[kk], readonly[kk]);
 		GTMTransactions.gt_lastslot = txn[kk];
-		GTMTransactions.gt_open_transactions = gtm_lappend(GTMTransactions.gt_open_transactions, gtm_txninfo);
+		GTMTransactions.gt_tmp_open_transactions =
+			gtm_lappend(GTMTransactions.gt_tmp_open_transactions, gtm_txninfo);
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
@@ -1269,7 +1344,25 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 			GTMTransactions.gt_nextXid = gxid[ii] + 1;
 		if (!GlobalTransactionIdIsValid(GTMTransactions.gt_nextXid))	/* Handle wrap around too */
 			GTMTransactions.gt_nextXid = FirstNormalGlobalTransactionId;
-		GTMTransactions.gt_open_transactions = gtm_lappend(GTMTransactions.gt_open_transactions, gtm_txninfo);
+
+		GTMTransactions.gt_open_transactions[hash] =
+											gtm_lappend(GTMTransactions.gt_open_transactions[hash],
+														gtm_txninfo);
+		GetMyThreadInfo->thr_tmp_open_transactions =
+											gtm_list_delete(GetMyThreadInfo->thr_tmp_open_transactions,
+																	gtm_txninfo);
+		hash = gtm_txninfo->gti_backend_id % TRANSACTION_ARRAY_SIZE;
+		GetMyThreadInfo->thr_backend_open_transactions[hash] =
+									gtm_lappend(GetMyThreadInfo->thr_backend_open_transactions[hash],
+												gtm_txninfo);
+
+		if (gtm_txninfo->gti_gid != NULL) {
+			hash = string_hash(gtm_txninfo->gti_gid) % TRANSACTION_ARRAY_SIZE;
+			GTMTransactions.preparedName_2_gxid[hash] =
+									gtm_lappend(GetMyThreadInfo->preparedName_2_gxid[hash],
+												gtm_txninfo);
+		}
+
 	}
 
 
