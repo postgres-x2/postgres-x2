@@ -20,6 +20,6 @@
 void gtm_util_init_nametabs(void);
 char *gtm_util_message_name(GTM_MessageType type);
 char *gtm_util_result_name(GTM_ResultType type);
-uint32 gtm_util_hash_any(register const unsigned char *k, register int keylen)
+uint32 gtm_util_hash_any(const unsigned char *k, register int keylen);
 
 #endif /* GTM_UTILS_H */

@@ -220,7 +220,7 @@ char *gtm_util_result_name(GTM_ResultType type)
 }
 
 uint32
-gtm_util_hash_any(register const unsigned char *k, register int keylen)
+gtm_util_hash_any(const unsigned char *k, register int keylen)
 {
     register uint32 a,
                 b,
@@ -414,6 +414,6 @@ gtm_util_hash_any(register const unsigned char *k, register int keylen)
     final(a, b, c);
 
     /* report the result */
-    return uint32(c);
+    return (uint32)c;
 }
 

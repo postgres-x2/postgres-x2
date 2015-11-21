@@ -170,7 +170,6 @@ typedef struct GTM_Transactions
 	gtm_List			*gt_open_transactions[GTM_MAX_GLOBAL_TRANSACTIONS];
     gtm_List			*gt_tmp_open_transactions;
     gtm_List			*preparedName_2_gxid[GTM_MAX_GLOBAL_TRANSACTIONS];
-    gtm_List			*backendID_2_gxid[GTM_MAX_GLOBAL_TRANSACTIONS];
 
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;
