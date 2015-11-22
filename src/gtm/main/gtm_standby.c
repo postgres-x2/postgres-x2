@@ -27,6 +27,7 @@
 #include "gtm/register.h"
 #include "gtm/standby_utils.h"
 #include "gtm/stringinfo.h"
+#include "gtm/gtm_utils.h"
 
 GTM_Conn *GTM_ActiveConn = NULL;
 static char standbyHostName[NI_MAXHOST];
@@ -115,6 +116,7 @@ gtm_standby_restore_gxid(void)
 	int num_txn;
 	GTM_Transactions txn;
 	int i;
+    uint32 hash;
 
 	/*
 	 * Restore gxid data.
@@ -183,9 +185,33 @@ gtm_standby_restore_gxid(void)
 		 */
 		if (GTMTransactions.gt_transactions_array[i].gti_state != GTM_TXN_ABORTED)
 		{
-			GTMTransactions.gt_open_transactions =
-					gtm_lappend(GTMTransactions.gt_open_transactions,
-							&GTMTransactions.gt_transactions_array[i]);
+			if (GTMTransactions.gt_transactions_array[i].gti_gxid != InvalidGlobalTransactionId) {
+				hash =
+						GTMTransactions.gt_transactions_array[i].gti_gxid %
+													GTM_MAX_GLOBAL_TRANSACTIONS;
+				GTMTransactions.gt_open_transactions[hash] =
+						gtm_lappend(GTMTransactions.gt_open_transactions[hash],
+									&GTMTransactions.gt_transactions_array[i]);
+			} else {
+				// TBD
+				GetMyThreadInfo->thr_tmp_open_transactions = gtm_lappend(
+										GetMyThreadInfo->thr_tmp_open_transactions,
+										&GTMTransactions.gt_transactions_array[i]);
+				continue;
+			}
+
+			if (GTMTransactions.gt_transactions_array[i].gti_gid != NULL) {
+				hash =
+						gtm_util_hash_any(
+							GTMTransactions.gt_transactions_array[i].gti_gid,
+							strlen(GTMTransactions.gt_transactions_array[i].gti_gid))
+						% GTM_MAX_GLOBAL_TRANSACTIONS;
+
+				GTMTransactions.preparedName_2_gxid[hash] =
+					             gtm_lappend(GTMTransactions.preparedName_2_gxid[hash],
+							                 &GTMTransactions.gt_transactions_array[i]);
+
+            }
 		}
 	}
 
