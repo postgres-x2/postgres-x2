@@ -14,6 +14,7 @@
 #ifndef _GTM_TXN_H
 #define _GTM_TXN_H
 
+#include "gtm/gtm.h"
 #include "gtm/libpq-be.h"
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_lock.h"
@@ -167,8 +168,8 @@ typedef struct GTM_Transactions
 
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
-	gtm_List			*gt_open_transactions[GTM_MAX_GLOBAL_TRANSACTIONS];
-	gtm_List			*preparedName_2_gxid[GTM_MAX_GLOBAL_TRANSACTIONS];
+	gtm_List			*gt_open_transactions[TRANSACTION_ARRAY_SIZE];
+	gtm_List			*preparedName_2_gxid[TRANSACTION_ARRAY_SIZE];
 
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;

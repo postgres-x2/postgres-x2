@@ -119,6 +119,10 @@ pqinitmask(void)
 	sigdelset(&BlockSig, SIGCONT);
 	sigdelset(&AuthBlockSig, SIGCONT);
 #endif
+#ifdef SIGPROF
+        sigdelset(&BlockSig, SIGPROF);
+        sigdelset(&AuthBlockSig, SIGPROF);
+#endif
 
 /* Signals unique to Auth */
 #ifdef SIGQUIT

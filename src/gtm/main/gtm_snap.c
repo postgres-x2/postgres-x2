@@ -124,7 +124,10 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	 * Spin over transaction list checking xid, xmin, and subxids.  The goal is to
 	 * gather all active xids and find the lowest xmin
 	 */
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions)
+    for ( ii =0; ii < GTM_MAX_GLOBAL_TRANSACTIONS; ii++) {
+        if (GTMTransactions.gt_open_transactions[ii] == gtm_NIL)
+            continue;
+	gtm_foreach(elem, GTMTransactions.gt_open_transactions[ii])
 	{
 		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
 		GlobalTransactionId xid;
@@ -170,7 +173,7 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			snapshot->sn_xip[count++] = xid;
 		}
 	}
-
+    }
 	/*
 	 * Update globalxmin to include actual process xids.  This is a slightly
 	 * different way of computing it than GetOldestXmin uses, but should give
