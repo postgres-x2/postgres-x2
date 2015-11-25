@@ -1605,14 +1605,14 @@ show_configuration(char *line)
 			if (!isVarYes(VAR_datanodeSlave))
 				elog(ERROR, "ERROR: Datanode slave is not configured.\n");
 			else if (GetToken() == NULL)
-				show_config_datanodeMasterMulti(aval(VAR_datanodeNames));
+				show_config_datanodeSlaveMulti(aval(VAR_datanodeNames));
 			else
 			{
 				char **nodeList = Malloc0(sizeof(char *));
 				do
 					AddMember(nodeList, token);
 				while(GetToken());
-				show_config_datanodeMasterMulti(nodeList);
+				show_config_datanodeSlaveMulti(nodeList);
 				clean_array(nodeList);
 			}
 		}
