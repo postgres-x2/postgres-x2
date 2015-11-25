@@ -138,6 +138,7 @@ typedef struct GTM_TransactionInfo
 #define GTM_MAX_NODESTRING_LEN			1024
 #define GTM_CheckTransactionHandle(x)	((x) >= 0 && (x) < GTM_MAX_GLOBAL_TRANSACTIONS)
 #define GTM_IsTransSerializable(x)		((x)->gti_isolevel == GTM_ISOLATION_SERIALIZABLE)
+#define ARRAY_SIZE                      64
 
 typedef struct GTM_Transactions
 {
@@ -168,8 +169,8 @@ typedef struct GTM_Transactions
 
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
-	gtm_List			*gt_open_transactions[TRANSACTION_ARRAY_SIZE];
-	gtm_List			*preparedName_2_gxid[TRANSACTION_ARRAY_SIZE];
+	gtm_List			*gt_open_transactions[ARRAY_SIZE];
+	gtm_List			*preparedName_2_gxid[ARRAY_SIZE];
 
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;

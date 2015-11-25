@@ -554,7 +554,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		return InvalidGlobalTransactionId;
 	}
 
-    oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+    oldContext = MemoryContextSwitchTo(TopMemoryContext);
 
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 
@@ -628,12 +628,6 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		thrinfo->thr_tmp_open_transactions =
 								gtm_list_delete(thrinfo->thr_tmp_open_transactions,
 												gtm_txninfo);
-		hash = xid % TRANSACTION_ARRAY_SIZE;
-		GTMTransactions.gt_open_transactions[hash] =
-								gtm_lappend(GTMTransactions.gt_open_transactions[hash],
-											gtm_txninfo);
-
-        MemoryContextSwitchTo(TopMemoryContext);
 
         hash = gtm_txninfo->gti_backend_id; 
 		hash = hash > 0 ? hash : -(hash);
@@ -641,7 +635,25 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		thrinfo->thr_backend_open_transactions[hash] =
 								gtm_lappend(thrinfo->thr_backend_open_transactions[hash],
 												gtm_txninfo);
-        MemoryContextSwitchTo(TopMostMemoryContext);
+		
+	}
+
+	if (GTM_NeedXidRestoreUpdate())
+		GTM_SetNeedBackup();
+
+	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
+
+    GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
+    MemoryContextSwitchTo(TopMostMemoryContext);
+	for (ii = 0; ii < txn_count; ii++)
+	{
+		gtm_txninfo = GTM_HandleToTransactionInfo(handle[ii]);
+		xid = gtm_txninfo->gti_gxid ;
+		hash = xid % TRANSACTION_ARRAY_SIZE;
+		GTMTransactions.gt_open_transactions[hash] =
+								gtm_lappend(GTMTransactions.gt_open_transactions[hash],
+											gtm_txninfo);
+
 
 		if (gtm_txninfo->gti_gid != NULL) {
 			hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo->gti_gid, strlen(gtm_txninfo->gti_gid)) %
@@ -652,9 +664,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		}
 	}
 
-	if (GTM_NeedXidRestoreUpdate())
-		GTM_SetNeedBackup();
-	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
+    GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
     MemoryContextSwitchTo(oldContext);
 	return start_xid;
 }
