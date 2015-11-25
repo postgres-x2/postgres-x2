@@ -27,8 +27,7 @@ include $(top_srcdir)/src/backend/common.mk
 OBJS = $(SUBDIROBJS) \
 	$(top_builddir)/src/port/libpgport_srv.a \
 	main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o gtm_time.o \
-	gtm_standby.o gtm_opt.o register_gtm.o replication.o gtm_backup.o\
-	gtm_avl.o
+	gtm_standby.o gtm_opt.o register_gtm.o replication.o gtm_backup.o
 
 LIBS += $(PTHREAD_LIBS)
 

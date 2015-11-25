@@ -1,18 +1,21 @@
 #include "gtm/gtm_avl.h"
 
-static	void	travel(AVL_tree root, gtm_AVL_tree_stat gtm_tree_stat);
-static	int		depth(AVL_tree root);
-static	void	update_root_depth(AVL_tree root); 
-static	AVL_tree	rebalance_avl(AVL_tree root, AVL_tree root);
-static 	uint32		depth_diff(AVL_tree root); 
-static	AVL_tree_node	insert_leaf(AVL_tree root, uint32 value);
-static 	void			insert_node_to_nonempty_tree(AVL_tree root, AVL_tree_node tree_node);
-static 	AVL_tree		left_single_rotate(AVL_tree root);
-static 	AVL_tree		left_double_rotate(AVL_tree root);
-static 	AVL_tree		right_single_rotate(AVL_tree root);
-static	AVL_tree		right_double_rotate(AVL_tree root);
-static 	AVL_tree_node	find_node_from_nonempty_tree(AVL_tree root, uint32 value);
-static 	AVL_tree_node	delete_leaf(AVL_tree root, gtm_AVL_tree_stat gtm_tree_stat, uint32 value);
+static	void	travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat);
+static	uint32	depth(AVL_tree_node root);
+static 	int		depth_diff(AVL_tree_node root); 
+static	void	update_root_depth(AVL_tree_node root); 
+static 	void	insert_node_to_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, AVL_tree_node np);
+static	AVL_tree_node	rebalance_avl(AVL_tree_node root, AVL_tree_node np);
+static	AVL_tree_node	insert_leaf(gtm_AVL_tree_stat root, void* value);
+static	AVL_tree_node	insert_leaf_int(gtm_AVL_tree_stat root, int value);
+static 	AVL_tree_node	left_single_rotate(AVL_tree_node root);
+static 	AVL_tree_node	left_double_rotate(AVL_tree_node root);
+static 	AVL_tree_node	right_single_rotate(AVL_tree_node root);
+static	AVL_tree_node	right_double_rotate(AVL_tree_node root);
+static 	AVL_tree_node	find_node_from_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, uint32 value);
+static 	AVL_tree_node	delete_leaf(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat, uint32 value);
+static gtm_List* find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value);
+static gtm_List* find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value);
 
 /*
  * insert value
@@ -20,9 +23,8 @@ static 	AVL_tree_node	delete_leaf(AVL_tree root, gtm_AVL_tree_stat gtm_tree_stat
  */
 void
 avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
-//AVL_tree insert_value(AVL_tree tr, uint32 value) 
 {
-	AVL_tree *leaf;
+	AVL_tree_node leaf;
 
 	/* insert a value to a binary search tree */
 	leaf = insert_leaf(gtm_tree, data);
@@ -35,116 +37,173 @@ avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
 }
 
 /*
+ * insert value
+ *
+ */
+void
+avl_insert_value_int(gtm_AVL_tree_stat gtm_tree, int data)
+{
+	AVL_tree_node leaf;
+
+	/* insert a value to a binary search tree */
+	leaf = insert_leaf_int(gtm_tree, data);
+	update_root_depth(leaf);
+	if (gtm_tree->root == NULL) {
+    	gtm_tree->root = leaf;
+	} else {
+		gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+	}
+}
+/*
  * delete value
  *
  */
 void 
 avl_delete_value(gtm_AVL_tree_stat gtm_tree, void *data)
 {
-	AVL_tree *leaf;
+	AVL_tree_node leaf;
     uint32 value;
 
-	if (gtm_tree->ext_data != NULL) {
-		value = gtm_tree->ext_data(data);
-	} else {
-		value = (uint32) data;
-	}
+	Assert(gtm_tree->ext_data != NULL); 
+	value = gtm_tree->ext_data(data);
 	/* insert a value to a binary search tree */
-	leaf = delete_leaf(gtm_tree->root, value);
+	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
     if (leaf != NULL) {
 	    update_root_depth(leaf);
 	    gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
     }
 }
 
-void* 
-find_min_value(gtm_AVL_tree_stat gtm_tree)
+/*
+ * delete value
+ *
+ */
+void 
+avl_delete_value_int(gtm_AVL_tree_stat gtm_tree, int value)
 {
-    //assert(tr != NULL);
-	AVL_tree *child = gtm_tree->root;
+	AVL_tree_node leaf;
+
+	/* insert a value to a binary search tree */
+	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
+    if (leaf != NULL) {
+	    update_root_depth(leaf);
+	    gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+    }
+
+}
+
+void* 
+avl_find_min_value(gtm_AVL_tree_stat gtm_tree)
+{
+	AVL_tree_node child = gtm_tree->root;
 	while(child->lchild != NULL)
 		child = child->lchild;
 
-	if (gtm_tree->enc_data != NULL) {
-		return avl_tree_data_pnt(child);
-	} else {
-		return (void*) avl_tree_data_int(child);
-	}
+	Assert(gtm_tree->ext_data != NULL);
+	return avl_tree_data_pnt(child);
+}
+
+int 
+avl_find_min_value_int(gtm_AVL_tree_stat gtm_tree)
+{
+	AVL_tree_node child = gtm_tree->root;
+	while(child->lchild != NULL)
+		child = child->lchild;
+
+	return avl_tree_data_int(child);
+
 }
 
 void* 
-find_max_value(gtm_AVL_tree_stat gtm_tree)
+avl_find_max_value(gtm_AVL_tree_stat gtm_tree)
 {
 	//assert(tr != NULL);
-	AVL_tree *child = gtm_tree->root;
+	AVL_tree_node child = gtm_tree->root;
 	while(child->rchild != NULL)
 		child = child->rchild;
 
-	if (gtm_tree->enc_data != NULL) {
-		return avl_tree_data_pnt(child);
-	} else {
-		return (void*) avl_tree_data_int(child);
-	}
+	Assert(gtm_tree->ext_data != NULL);
+	return avl_tree_data_pnt(child);
 }
 
-gtm_List* 
-find_value_above(gtm_AVL_tree_stat gtm_tree, void* data)
+int 
+avl_find_max_value_int(gtm_AVL_tree_stat gtm_tree)
 {
-	uint32 value, tmp;
+	//assert(tr != NULL);
+	AVL_tree_node child = gtm_tree->root;
+	while(child->rchild != NULL)
+		child = child->rchild;
+
+	return avl_tree_data_int(child);
+}
+
+
+static gtm_List* 
+find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value)
+{
+	int  tmp;
 	MemoryContext oldContext;
+    AVL_tree_node child = gtm_tree->root;
 
 	if (gtm_tree->root == NULL) {
 		return gtm_NIL;
 	}
-	if (gtm_tree->ext_data != NULL) {
-		value = gtm_tree->ext_data(data);
-	} else {
-		value = (uint32) data;
-	}
 
-	AVL_tree *child = gtm_tree->root;
 	do {
 		if (gtm_tree->ext_data != NULL) {
 			tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
 		} else {
-			tmp = (uint32) avl_tree_data_int(child);
+			tmp =  avl_tree_data_int(child);
 		}
 		if (tmp > value) {
 			child = child->lchild;
 		} else {
 			break;
 		}
-	} while(child->lchild != NULL) 
+	} while(child->lchild != NULL);
 
 	if (tmp <= value) {
-        gtm_tree_stat->scan_result =  gtm_NIL; 
+        gtm_tree->scan_result =  gtm_NIL; 
 		oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
-		travel(child);
+		travel(child, gtm_tree);
 		MemoryContextSwitchTo(oldContext);
-        return gtm_tree_stat->scan_result;
+        return gtm_tree->scan_result;
 	} else {
         return gtm_NIL;
     }
 }
 
-gtm_List*
-find_value_bellow(gtm_AVL_tree_stat gtm_tree, void* data)
+gtm_List* 
+avl_find_value_above(gtm_AVL_tree_stat gtm_tree, void*data) 
 {
-	MemoryContext oldContext;
-	AVL_tree *child = gtm_tree->root;
-	uint32 value, tmp;
-	MemoryContext oldContext;
+	int value;
 
 	if (gtm_tree->root == NULL) {
 		return gtm_NIL;
 	}
-	if (gtm_tree->ext_data != NULL) {
-		value = gtm_tree->ext_data(data);
-	} else {
-		value = (uint32) data;
+	Assert (gtm_tree->ext_data != NULL);
+	value = gtm_tree->ext_data(data);
+	
+    return find_value_above_intel(gtm_tree, value);
+}
+
+gtm_List* 
+avl_find_value_int_above(gtm_AVL_tree_stat gtm_tree, int value) 
+{
+    return find_value_above_intel(gtm_tree, value);
+}
+
+static gtm_List*
+find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value)
+{
+	MemoryContext oldContext;
+	AVL_tree_node child = gtm_tree->root;
+	int tmp;
+
+	if (gtm_tree->root == NULL) {
+		return gtm_NIL;
 	}
 
-	AVL_tree *child = gtm_tree->root;
 	do {
 		if (gtm_tree->ext_data != NULL) {
 			tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
@@ -156,52 +215,64 @@ find_value_bellow(gtm_AVL_tree_stat gtm_tree, void* data)
 		} else {
 			break;
 		}
-	} while(child->lchild != NULL) 
+	} while(child->lchild != NULL) ;
 
 	if (tmp >= value) {
-        gtm_tree_stat->scan_result =  gtm_NIL; 
+        gtm_tree->scan_result =  gtm_NIL; 
 		oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
-		travel(child);
+		travel(child, gtm_tree);
 		MemoryContextSwitchTo(oldContext);
-        return gtm_tree_stat->scan_result;
+        return gtm_tree->scan_result;
 	} else {
         return gtm_NIL;
     }
 }
 
-void*
-find_value_equal(gtm_AVL_tree_stat gtm_tree, void* data)
+gtm_List* 
+avl_find_value_bellow(gtm_AVL_tree_stat gtm_tree, void*data) 
 {
-	AVL_tree *child = gtm_tree->root;
+	int value;
+
+	if (gtm_tree->root == NULL) {
+		return gtm_NIL;
+	}
+	Assert (gtm_tree->ext_data != NULL);
+	value = gtm_tree->ext_data(data);
+	
+    return find_value_bellow_intel(gtm_tree, value);
+}
+
+gtm_List* 
+avl_find_value_int_bellow(gtm_AVL_tree_stat gtm_tree, int value) 
+{
+    return find_value_bellow_intel(gtm_tree, value);
+}
+
+void*
+avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, void* data)
+{
+	AVL_tree_node child = gtm_tree->root;
  	uint32 value, tmp;
 
 	if (gtm_tree->root == NULL) {
 		return gtm_NIL;
 	}
-	if (gtm_tree->ext_data != NULL) {
-		value = gtm_tree->ext_data(data);
-	} else {
-		value = (uint32) data;
-	}
+	Assert(gtm_tree->ext_data != NULL);
+	value = gtm_tree->ext_data(data);
 
-	AVL_tree *child = gtm_tree->root;
 	do {
-		if (gtm_tree->ext_data != NULL) {
-			tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
-		} else {
-			tmp = (uint32) avl_tree_data_int(child);
-		}
+		tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
 		if (tmp > value) {
 			child = child->lchild;
 		} else {
 			child = child->rchild;
 		}
-	} while(child != NULL) 
+	} while(child != NULL) ;
 
 	if (child == NULL) {
 		return NULL;
 	} else {
-		return child->data;
+		return avl_tree_data_pnt(child);
 	}
 }
 
@@ -209,20 +280,20 @@ void
 avl_reset_scan_result(gtm_AVL_tree_stat gtm_tree)
 {
 	gtm_list_free(gtm_tree->scan_result);
-	gtm_tree_stat->scan_result =  gtm_NIL; 
+	gtm_tree->scan_result =  gtm_NIL; 
 }
 
 static void
-travel(AVL_tree root, gtm_AVL_tree_stat gtm_tree_stat)
+travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat)
 {
 //assert(tr!= NULL);
     if (root == NULL)
         return;
-	if (gtm_tree->ext_data != NULL) {
+	if (gtm_tree_stat->ext_data != NULL) {
 		gtm_tree_stat->scan_result = gtm_lappend(gtm_tree_stat->scan_result,
 												avl_tree_data_pnt(root));
 	} else {
-		gtm_tree_stat->scan_result = gtm_lappend(gtm_tree_stat->scan_result,
+		gtm_tree_stat->scan_result = gtm_lappend_int(gtm_tree_stat->scan_result,
 												avl_tree_data_int(root));
 	}
 
@@ -240,8 +311,8 @@ travel(AVL_tree root, gtm_AVL_tree_stat gtm_tree_stat)
  *  * get the depth of the tree
  *   * use this function to access depth
  *    */
-static int
-depth(AVL_tree root)
+static uint32
+depth(AVL_tree_node root)
 {
 	if (root == NULL) {
 		return 0;
@@ -254,8 +325,8 @@ depth(AVL_tree root)
  *  * traverse the path from new node to root node
  *   * make one rotation, rebalance AVL and stop
  *    */
-static AVL_tree
-rebalance_avl(AVL_tree tr, AVL_tree np) 
+static AVL_tree_node
+rebalance_avl(AVL_tree_node tr, AVL_tree_node np) 
 {
 	int myDiff;
 	while (np != NULL) {
@@ -296,7 +367,7 @@ rebalance_avl(AVL_tree tr, AVL_tree np)
  * difference of rchild->depth and lchild->depth
  */
 static int
-depth_diff(AVL_tree tr) 
+depth_diff(AVL_tree_node tr) 
 {
 	if (tr == NULL) {
 		return 0;
@@ -310,10 +381,10 @@ depth_diff(AVL_tree tr)
  * left single rotation 
  * return the new root
  */
-static AVL_tree
-left_single_rotate(AVL_tree tr) 
+static AVL_tree_node
+left_single_rotate(AVL_tree_node tr) 
 {
-	AVL_tree newRoot, parent;
+	AVL_tree_node newRoot, parent;
 	parent  = tr->parent;
 	newRoot = tr->rchild;
 	/* detach & attach */ 
@@ -343,10 +414,10 @@ left_single_rotate(AVL_tree tr)
  * right single rotation 
  * return the new root
  */
-static AVL_tree
-right_single_rotate(AVL_tree tr) 
+static AVL_tree_node
+right_single_rotate(AVL_tree_node tr) 
 {
-	AVL_tree newRoot, parent;
+	AVL_tree_node newRoot, parent;
 	parent  = tr->parent;
 	newRoot = tr->lchild;
 
@@ -377,8 +448,8 @@ right_single_rotate(AVL_tree tr)
  * left double rotation
  * return
  */
-static AVL_tree
-left_double_rotate(AVL_tree tr) 
+static AVL_tree_node
+left_double_rotate(AVL_tree_node tr) 
 {
 	right_single_rotate(tr->rchild);
 	return left_single_rotate(tr);
@@ -388,8 +459,8 @@ left_double_rotate(AVL_tree tr)
  * right double rotation
  * return
  */
-static AVL_tree
-right_double_rotate(AVL_tree tr) 
+static AVL_tree_node
+right_double_rotate(AVL_tree_node tr) 
 {
 	left_single_rotate(tr->lchild);
 	return right_single_rotate(tr);
@@ -400,7 +471,7 @@ right_double_rotate(AVL_tree tr)
  * assume lchild->depth and rchild->depth are correct
  */
 static void
-update_root_depth(AVL_tree tr) 
+update_root_depth(AVL_tree_node tr) 
 {
 	int maxChildDepth; 
 	int depLChild, depRChild;
@@ -419,37 +490,58 @@ update_root_depth(AVL_tree tr)
  * return address of the new node
  */
 static AVL_tree_node
-insert_leaf(gtm_AVL_tree_stat gtm_tree, void *data) 
+insert_leaf(gtm_AVL_tree_stat gtm_tree, void* data) 
 {
 	AVL_tree_node np;
 	uint32 value;
 
-	if (gtm_tree->ext_data != NULL) {
-		value = gtm_tree->ext_data(data);
-	} else {
-		value = (uint32)(data);
-	}
+	Assert(gtm_tree->ext_data != NULL);
+	value = gtm_tree->ext_data(data);
 
 	/* prepare the node */
-    np = find_node_from_nonempty_tree(tr, gtm_tree, value);
+    np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
+
     if (np != NULL) {
         np->count++;
         return np;
     }
 
-	np = (AVL_tree) palloc(sizeof(struct node));
-	if (gtm_tree->ext_data != NULL) {
-		avl_tree_data_pnt(np) = data;
-	} else {
-		avl_tree_data_int(np) = value;
-	}
+	np = (AVL_tree_node) palloc(sizeof(struct gtm_avl_node));
+	avl_tree_data_pnt(np) = data;
     np->count = 1;
 	np->parent  = NULL;
 	np->lchild  = NULL;
 	np->rchild  = NULL;
  
-	if (tr != NULL) {
-		insert_node_to_nonempty_tree(tr, np);
+	if (gtm_tree->root != NULL) {
+		insert_node_to_nonempty_tree(gtm_tree->root, gtm_tree, np);
+	}
+
+    return np;
+}
+
+static AVL_tree_node
+insert_leaf_int(gtm_AVL_tree_stat gtm_tree, int value) 
+{
+	AVL_tree_node np;
+
+	/* prepare the node */
+    np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
+
+    if (np != NULL) {
+        np->count++;
+        return np;
+    }
+
+	np = (AVL_tree_node) palloc(sizeof(struct gtm_avl_node));
+	avl_tree_data_int(np) = value;
+    np->count = 1;
+	np->parent  = NULL;
+	np->lchild  = NULL;
+	np->rchild  = NULL;
+ 
+	if (gtm_tree->root != NULL) {
+		insert_node_to_nonempty_tree(gtm_tree->root, gtm_tree, np);
 	}
 
     return np;
@@ -460,13 +552,13 @@ insert_leaf(gtm_AVL_tree_stat gtm_tree, void *data)
  * return address of the node
  */
 static AVL_tree_node
-delete_leaf(AVL_tree tr,gtm_AVL_tree_stat gtm_tree, uint32 value) 
+delete_leaf(AVL_tree_node tr,gtm_AVL_tree_stat gtm_tree, uint32 value) 
 {
     // From where to adjust the tree 
 	AVL_tree_node np = NULL;
 	/* prepare the node */
 	AVL_tree_node newChild = NULL;
-	AVL_tree tp = NULL;
+	AVL_tree_node tp = NULL;
 
 	if (tr != NULL) {
     	tp = find_node_from_nonempty_tree(tr, gtm_tree, value);
@@ -531,7 +623,7 @@ delete_leaf(AVL_tree tr,gtm_AVL_tree_stat gtm_tree, uint32 value)
  * called by insert_value()
  */
 static void
-insert_node_to_nonempty_tree(AVL_tree tr, gtm_AVL_tree_stat gtm_tree, AVL_tree_node np)
+insert_node_to_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, AVL_tree_node np)
 {
 	uint32 value_tr, value_np;
 
@@ -571,7 +663,7 @@ insert_node_to_nonempty_tree(AVL_tree tr, gtm_AVL_tree_stat gtm_tree, AVL_tree_n
  * called by delete_value()
  */
 static AVL_tree_node
-find_node_from_nonempty_tree(AVL_tree tr, gtm_AVL_tree_stat gtm_tree, uint32 value)
+find_node_from_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, uint32 value)
 {
 	/* find the node */
 	uint32 data;

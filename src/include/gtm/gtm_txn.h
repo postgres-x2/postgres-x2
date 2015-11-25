@@ -14,7 +14,6 @@
 #ifndef _GTM_TXN_H
 #define _GTM_TXN_H
 
-#include "gtm/gtm.h"
 #include "gtm/libpq-be.h"
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_lock.h"
