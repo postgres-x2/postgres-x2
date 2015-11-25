@@ -1568,14 +1568,14 @@ show_configuration(char *line)
 			if (!isVarYes(VAR_coordSlave))
 				elog(ERROR, "ERROR: Coordinator slave is not configured.\n");
 			else if (GetToken() == NULL)
-				show_config_coordMasterMulti(aval(VAR_coordNames));
+				show_config_coordSlaveMulti(aval(VAR_coordNames));
 			else
 			{
 				char **nodeList = Malloc0(sizeof(char *));
 				do
 					AddMember(nodeList, token);
 				while(GetToken());
-				show_config_coordMasterMulti(nodeList);
+				show_config_coordSlaveMulti(nodeList);
 				clean_array(nodeList);
 			}
 		}
