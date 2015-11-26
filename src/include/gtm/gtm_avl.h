@@ -12,9 +12,11 @@
 #ifndef _GTM_AVL_H
 #define _GTM_AVL_H
 
-#include "gtm/gtm.h"
+//#include "gtm/gtm.h"
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_list.h"
+#include "gtm/palloc.h"
+
 
 typedef int (*extract_data_func) (void *arg);
 
@@ -36,7 +38,7 @@ struct gtm_avl_node {
 
 typedef struct gtm_tree_stat *gtm_AVL_tree_stat;
 
-typedef struct gtm_tree_stat
+struct gtm_tree_stat
 {
     AVL_tree_node		root;
 	MemoryContext 		avl_Context;
@@ -58,7 +60,7 @@ int		avl_find_max_value_int(gtm_AVL_tree_stat gtm_tree);
 
 gtm_List*	avl_find_value_above(gtm_AVL_tree_stat gtm_tree, void *data);
 gtm_List*	avl_find_value_bellow(gtm_AVL_tree_stat gtm_tree, void *data);
-void*		avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, void *data);
+void*		avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int key);
 
 gtm_List*	avl_find_value_int_above(gtm_AVL_tree_stat gtm_tree, int data);
 gtm_List*	avl_find_value_int_bellow(gtm_AVL_tree_stat gtm_tree, int data);

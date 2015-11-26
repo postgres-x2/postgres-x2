@@ -186,12 +186,14 @@ gtm_standby_restore_gxid(void)
 		if (GTMTransactions.gt_transactions_array[i].gti_state != GTM_TXN_ABORTED)
 		{
 			if (GTMTransactions.gt_transactions_array[i].gti_gxid != InvalidGlobalTransactionId) {
-				hash =
+				/*hash =
 						GTMTransactions.gt_transactions_array[i].gti_gxid %
 													GTM_MAX_GLOBAL_TRANSACTIONS;
 				GTMTransactions.gt_open_transactions[hash] =
 						gtm_lappend(GTMTransactions.gt_open_transactions[hash],
-									&GTMTransactions.gt_transactions_array[i]);
+									&GTMTransactions.gt_transactions_array[i]);*/
+                avl_insert_value(GTMTransactions.gt_gxid_avl_tree_stat,
+                                &GTMTransactions.gt_transactions_array[i]);
 			} else {
 				// TBD
 				GetMyThreadInfo->thr_tmp_open_transactions = gtm_lappend(

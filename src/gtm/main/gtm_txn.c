@@ -29,6 +29,7 @@
 #include "gtm/pqformat.h"
 #include "gtm/gtm_backup.h"
 #include "gtm/gtm_utils.h"
+#include "gtm/memutils.h"
 
 extern bool Backup_synchronously;
 
@@ -42,6 +43,8 @@ static void init_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo,
 									 GTMProxy_ConnID connid,
 									 bool readonly);
 static void clean_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo);
+static int get_gxid_TransactionInfo(void *gtm_txninfo);
+
 GTM_Transactions GTMTransactions;
 
 void
@@ -95,11 +98,37 @@ GTM_InitTxnManager(void)
 	GTM_RWLockInit(&GTMTransactions.gt_XidGenLock);
 	GTM_RWLockInit(&GTMTransactions.gt_TransArrayLock);
 
+    GTMTransactions.gt_xmin_avl_tree_stat = (gtm_AVL_tree_stat) palloc(sizeof(struct gtm_tree_stat));
+    Assert(GTMTransactions.gt_xmin_avl_tree_stat != NULL);
+    GTMTransactions.gt_xmin_avl_tree_stat->root = NULL;
+    GTMTransactions.gt_xmin_avl_tree_stat->ext_data = NULL;
+    GTMTransactions.gt_xmin_avl_tree_stat->scan_result = NULL;
+    GTMTransactions.gt_xmin_avl_tree_stat->avl_Context = AllocSetContextCreate(TopMostMemoryContext,
+														"XMIN_AVL_TreeContext",
+														ALLOCSET_DEFAULT_MINSIZE,
+														ALLOCSET_DEFAULT_INITSIZE,
+														ALLOCSET_DEFAULT_INITSIZE,
+														true);
+    Assert(GTMTransactions.gt_xmin_avl_tree_stat->avl_Context != NULL);
+
+    GTMTransactions.gt_gxid_avl_tree_stat = (gtm_AVL_tree_stat) palloc(sizeof(struct gtm_tree_stat));
+    Assert(GTMTransactions.gt_gxid_avl_tree_stat != NULL);
+    GTMTransactions.gt_gxid_avl_tree_stat->root = NULL;
+    GTMTransactions.gt_gxid_avl_tree_stat->ext_data = get_gxid_TransactionInfo;
+    GTMTransactions.gt_gxid_avl_tree_stat->scan_result = NULL;
+	GTMTransactions.gt_gxid_avl_tree_stat->avl_Context = AllocSetContextCreate(TopMostMemoryContext,
+														"GXID_AVL_TreeContext",
+														ALLOCSET_DEFAULT_MINSIZE,
+														ALLOCSET_DEFAULT_INITSIZE,
+														ALLOCSET_DEFAULT_MAXSIZE,
+														true);
+    Assert(GTMTransactions.gt_gxid_avl_tree_stat->avl_Context != NULL);
+
 	/*
 	 * Initialize the list
 	 */
     for (ii = 0; ii < TRANSACTION_ARRAY_SIZE; ii++) {
-		GTMTransactions.gt_open_transactions[ii] = gtm_NIL;
+		//GTMTransactions.gt_open_transactions[ii] = gtm_NIL;
 		GTMTransactions.preparedName_2_gxid[ii] = gtm_NIL;
 	}
 	GTMTransactions.gt_lastslot = -1;
@@ -145,18 +174,23 @@ GTM_GXIDToHandle(GlobalTransactionId gxid)
 {
 	gtm_ListCell *elem = NULL;
    	GTM_TransactionInfo *gtm_txninfo = NULL;
-	uint32				hash;
+	//uint32				hash;
  
-	hash = gxid % TRANSACTION_ARRAY_SIZE;
+	//hash = gxid % TRANSACTION_ARRAY_SIZE;
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
 
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions[hash])
+	/*gtm_foreach(elem, GTMTransactions.gt_open_transactions[hash])
 	{
 		gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
 		if (GlobalTransactionIdEquals(gtm_txninfo->gti_gxid, gxid))
 			break;
 		gtm_txninfo = NULL;
-	}
+	}*/
+    gtm_txninfo = (GTM_TransactionInfo *)avl_find_value_equal(
+                                               GTMTransactions.gt_gxid_avl_tree_stat,
+                                               (int)gxid);
+
+    Assert(gtm_txninfo != NULL);
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
 
@@ -264,10 +298,15 @@ GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 	{
 		if (gtm_txninfo[ii] == NULL)
 			continue;
+        /*
 		hash = (gtm_txninfo[ii]->gti_gxid) % TRANSACTION_ARRAY_SIZE;
 		GTMTransactions.gt_open_transactions[hash] =
 				gtm_list_delete(GTMTransactions.gt_open_transactions[hash], gtm_txninfo[ii]);
-
+        */
+        avl_delete_value(GTMTransactions.gt_gxid_avl_tree_stat, gtm_txninfo[ii]);
+        if (!gtm_txninfo[ii]->gti_vacuum) {
+            avl_delete_value_int(GTMTransactions.gt_xmin_avl_tree_stat, gtm_txninfo[ii]->gti_xmin);
+        }
         hash = gtm_txninfo[ii]->gti_backend_id; 
 		hash = hash > 0 ? hash : -(hash);
         hash = hash % TRANSACTION_ARRAY_SIZE;
@@ -372,11 +411,18 @@ GTM_RemoveAllTransInfos(int backend_id)
 			((gtm_txninfo->gti_backend_id == backend_id) || (backend_id == -1)))
 		{
 			/* remove the entry */
+            /*
 			hash = (gtm_txninfo->gti_gxid) % TRANSACTION_ARRAY_SIZE;
-
+            
 			GTMTransactions.gt_open_transactions[hash] =
 										gtm_list_delete(GTMTransactions.gt_open_transactions[hash],
-														gtm_txninfo);
+														gtm_txninfo);*/
+            avl_delete_value(GTMTransactions.gt_gxid_avl_tree_stat,
+                            (void*)gtm_txninfo);
+            if (!gtm_txninfo->gti_vacuum) {
+                avl_delete_value_int(GTMTransactions.gt_xmin_avl_tree_stat,
+                                gtm_txninfo->gti_xmin);
+            }
 
 			/* update the latestCompletedXid */
 			if (GlobalTransactionIdIsNormal(gtm_txninfo->gti_gxid) &&
@@ -648,12 +694,12 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	for (ii = 0; ii < txn_count; ii++)
 	{
 		gtm_txninfo = GTM_HandleToTransactionInfo(handle[ii]);
-		xid = gtm_txninfo->gti_gxid ;
+		/*xid = gtm_txninfo->gti_gxid ;
 		hash = xid % TRANSACTION_ARRAY_SIZE;
 		GTMTransactions.gt_open_transactions[hash] =
 								gtm_lappend(GTMTransactions.gt_open_transactions[hash],
-											gtm_txninfo);
-
+											gtm_txninfo);*/
+        avl_insert_value(GTMTransactions.gt_gxid_avl_tree_stat, (void*)gtm_txninfo);
 
 		if (gtm_txninfo->gti_gid != NULL) {
 			hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo->gti_gid, strlen(gtm_txninfo->gti_gid)) %
@@ -867,7 +913,11 @@ clean_GTM_TransactionInfo(GTM_TransactionInfo *gtm_txninfo)
 		gtm_txninfo->nodestring = NULL;
 	}
 }
-
+static int
+get_gxid_TransactionInfo(void *gtm_txninfo)
+{
+    return ((GTM_TransactionInfo*)gtm_txninfo)->gti_gxid;
+}
 
 void
 GTM_BkupBeginTransactionMulti(char *coord_name,
@@ -1376,9 +1426,11 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 		if (!GlobalTransactionIdIsValid(GTMTransactions.gt_nextXid))	/* Handle wrap around too */
 			GTMTransactions.gt_nextXid = FirstNormalGlobalTransactionId;
 
+        avl_insert_value(GTMTransactions.gt_gxid_avl_tree_stat, (void*)gtm_txninfo);
+        /*
 		GTMTransactions.gt_open_transactions[hash] =
 											gtm_lappend(GTMTransactions.gt_open_transactions[hash],
-														gtm_txninfo);
+														gtm_txninfo);*/
 		thrinfo->thr_tmp_open_transactions =
 											gtm_list_delete(thrinfo->thr_tmp_open_transactions,
 																	gtm_txninfo);

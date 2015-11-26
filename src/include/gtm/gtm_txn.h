@@ -19,6 +19,8 @@
 #include "gtm/gtm_lock.h"
 #include "gtm/gtm_list.h"
 #include "gtm/stringinfo.h"
+#include "gtm/gtm_avl.h"
+
 
 /* ----------------
  *		Special transaction ID values
@@ -168,8 +170,11 @@ typedef struct GTM_Transactions
 
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
-	gtm_List			*gt_open_transactions[ARRAY_SIZE];
+
+	//gtm_List			*gt_open_transactions[ARRAY_SIZE];
 	gtm_List			*preparedName_2_gxid[ARRAY_SIZE];
+    gtm_AVL_tree_stat	gt_xmin_avl_tree_stat;
+	gtm_AVL_tree_stat	gt_gxid_avl_tree_stat;
 
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;
