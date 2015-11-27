@@ -9,7 +9,7 @@ static	void	update_root_depth(AVL_tree_node root);
 static 	void	insert_node_to_nonempty_tree(AVL_tree_node tr,
 											gtm_AVL_tree_stat gtm_tree,
 											AVL_tree_node np);
-static	AVL_tree_node	rebalance_avl(AVL_tree_node root, AVL_tree_node np);
+static	AVL_tree_node	rebalance_avl(AVL_tree_node np);
 static	AVL_tree_node	insert_leaf(gtm_AVL_tree_stat root, void* value);
 static	AVL_tree_node	insert_leaf_int(gtm_AVL_tree_stat root, int value);
 static 	AVL_tree_node	left_single_rotate(AVL_tree_node root);
@@ -35,6 +35,7 @@ void
 avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
 {
 	AVL_tree_node leaf;
+    AVL_tree_node new_root;
 
 	/* insert a value to a binary search tree */
 	leaf = insert_leaf(gtm_tree, data);
@@ -42,7 +43,9 @@ avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
 	if (gtm_tree->root == NULL) {
     	gtm_tree->root = leaf;
 	} else {
-		gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+        new_root = rebalance_avl(leaf);
+        if (new_root != NULL)
+		    gtm_tree->root = new_root;
 	}
 }
 
@@ -54,6 +57,7 @@ void
 avl_insert_value_int(gtm_AVL_tree_stat gtm_tree, int data)
 {
 	AVL_tree_node leaf;
+    AVL_tree_node new_root;
 
 	/* insert a value to a binary search tree */
 	leaf = insert_leaf_int(gtm_tree, data);
@@ -61,7 +65,9 @@ avl_insert_value_int(gtm_AVL_tree_stat gtm_tree, int data)
 	if (gtm_tree->root == NULL) {
     	gtm_tree->root = leaf;
 	} else {
-		gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+        new_root = rebalance_avl(leaf);
+        if (new_root != NULL)
+		    gtm_tree->root = new_root;
 	}
 }
 /*
@@ -73,6 +79,7 @@ avl_delete_value(gtm_AVL_tree_stat gtm_tree, void *data)
 {
 	AVL_tree_node leaf;
     uint32 value;
+    AVL_tree_node new_root;
 
 	Assert(gtm_tree->ext_data != NULL); 
 	value = gtm_tree->ext_data(data);
@@ -80,7 +87,9 @@ avl_delete_value(gtm_AVL_tree_stat gtm_tree, void *data)
 	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
     if (leaf != NULL) {
 	    update_root_depth(leaf);
-	    gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+        new_root = rebalance_avl(leaf);
+        if (new_root != NULL)
+		    gtm_tree->root = new_root;
     }
 }
 
@@ -92,14 +101,16 @@ void
 avl_delete_value_int(gtm_AVL_tree_stat gtm_tree, int value)
 {
 	AVL_tree_node leaf;
+    AVL_tree_node new_root;
 
 	/* insert a value to a binary search tree */
 	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
     if (leaf != NULL) {
 	    update_root_depth(leaf);
-	    gtm_tree->root = rebalance_avl(gtm_tree->root, leaf);
+        new_root = rebalance_avl(leaf);
+        if (new_root != NULL)
+		    gtm_tree->root = new_root;
     }
-
 }
 
 void* 
@@ -318,7 +329,7 @@ travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat)
 		travel(root->lchild, gtm_tree_stat);
 	}
 
-	if (root->lchild != NULL) {
+	if (root->rchild != NULL) {
 		travel(root->rchild, gtm_tree_stat);
 	}
 }
@@ -342,9 +353,10 @@ depth(AVL_tree_node root)
  *   * make one rotation, rebalance AVL and stop
  *    */
 static AVL_tree_node
-rebalance_avl(AVL_tree_node tr, AVL_tree_node np) 
+rebalance_avl( AVL_tree_node np) 
 {
 	int myDiff;
+    AVL_tree_node tr = NULL;
 	while (np != NULL) {
 		update_root_depth(np);
 		myDiff = depth_diff(np);
@@ -597,18 +609,20 @@ delete_leaf(AVL_tree_node tr,gtm_AVL_tree_stat gtm_tree, uint32 value)
 			newChild = tp->rchild;
 			while (newChild->lchild != NULL)
 				newChild = newChild->lchild;
+
             if (newChild != tp->rchild) {
                 newChild->parent->lchild = newChild->rchild;
+				if (newChild->rchild != NULL) {
+               		newChild->rchild->parent = newChild->parent; 
+            	}
+
                 np = newChild->parent;
             } else {
                 np = newChild;
             } 
-            if (newChild->rchild != NULL) {
-               newChild->rchild->parent = newChild->parent; 
-            }
 
+			newChild->lchild = tp->lchild;
             if (tp->lchild != NULL) {
-                newChild->lchild = tp->lchild;
                 tp->lchild->parent = newChild;
             }
 
@@ -623,6 +637,9 @@ delete_leaf(AVL_tree_node tr,gtm_AVL_tree_stat gtm_tree, uint32 value)
        	} else {
 			newChild = NULL;
 			np = tp->parent;
+            /*if (tp == gtm_tree->root) {
+                gtm_tree->root = NULL;
+            }*/
 		}
 
         if (tp->parent != NULL) { 
@@ -633,8 +650,9 @@ delete_leaf(AVL_tree_node tr,gtm_AVL_tree_stat gtm_tree, uint32 value)
 		    }
         } else {
             // delete the root of tree
-            gtm_tree->root = NULL;
-            Assert(np == NULL);
+            if (tp == gtm_tree->root) {
+                gtm_tree->root = newChild;
+            }
         }
 
 		if (newChild != NULL) {
