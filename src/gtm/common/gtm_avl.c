@@ -23,9 +23,9 @@ static 	AVL_tree_node	find_node_from_nonempty_tree(AVL_tree_node tr,
 static 	AVL_tree_node	delete_leaf(AVL_tree_node root,
 									gtm_AVL_tree_stat gtm_tree_stat, uint32 value);
 
-static gtm_List* find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value);
+static int find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value);
 
-static gtm_List* find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value);
+static int find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value);
 
 /*
  * insert value
@@ -82,7 +82,8 @@ avl_delete_value(gtm_AVL_tree_stat gtm_tree, void *data)
     AVL_tree_node new_root;
 
 	Assert(gtm_tree->ext_data != NULL); 
-	value = gtm_tree->ext_data(data);
+	//value = gtm_tree->ext_data(data);
+	value = get_gxid(data);
 	/* insert a value to a binary search tree */
 	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
     if (leaf != NULL) {
@@ -159,31 +160,31 @@ avl_find_max_value_int(gtm_AVL_tree_stat gtm_tree)
 }
 
 
-static gtm_List* 
+static int 
 find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value)
 {
 	int  tmp;
-	MemoryContext oldContext;
-    AVL_tree_node child = gtm_tree->root;
-
+	AVL_tree_node child = gtm_tree->root;
 	if (gtm_tree->root == NULL) {
-		return gtm_NIL;
+		return 0;
 	}
 
 	avl_reset_scan_result(gtm_tree);
 
-	oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
-
 	do {
 		if (gtm_tree->ext_data != NULL) {
-			tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
+            tmp = get_gxid(avl_tree_data_pnt(child));
+			//tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
 		} else {
 			tmp =  avl_tree_data_int(child);
 		}
 
 		if (tmp > value) {
-			gtm_tree->scan_result = gtm_lappend_int(gtm_tree->scan_result,
-													tmp);
+			/*gtm_tree->scan_result = gtm_lappend_int(gtm_tree->scan_result,
+													tmp);*/
+			gtm_tree->scan_result[gtm_tree->scan_result_NO] = child->data;
+			gtm_tree->scan_result_NO++;
+
 			travel(child->rchild, gtm_tree);
 			child = child->lchild;
 		} else {
@@ -192,46 +193,45 @@ find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value)
 
 	} while(child != NULL);
 
-	MemoryContextSwitchTo(oldContext);
-	return gtm_tree->scan_result;
+	return gtm_tree->scan_result_NO;
 }
 
-gtm_List* 
+int 
 avl_find_value_above(gtm_AVL_tree_stat gtm_tree, void*data) 
 {
 	int value;
 
 	if (gtm_tree->root == NULL) {
-		return gtm_NIL;
+		return 0;
 	}
 	Assert (gtm_tree->ext_data != NULL);
-	value = gtm_tree->ext_data(data);
-	
+	//value = gtm_tree->ext_data(data);
+	value = get_gxid(data);
+
     return find_value_above_intel(gtm_tree, value);
 }
 
-gtm_List* 
+int 
 avl_find_value_int_above(gtm_AVL_tree_stat gtm_tree, int value) 
 {
     return find_value_above_intel(gtm_tree, value);
 }
 
-static gtm_List*
+static int
 find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value)
 {
-	MemoryContext oldContext;
 	AVL_tree_node child = gtm_tree->root;
 	int tmp;
 	if (gtm_tree->root == NULL) {
-		return gtm_NIL;
+		return 0;
 	}
 
 	avl_reset_scan_result(gtm_tree);
 
-	oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
 	do {
 		if (gtm_tree->ext_data != NULL) {
-			tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
+            tmp = get_gxid(avl_tree_data_pnt(child));
+			//tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
 		} else {
 			tmp = avl_tree_data_int(child);
 		}
@@ -240,33 +240,35 @@ find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value)
 		} else {
 			// so tmp < value, the subtree of lchild will be less than value,
 			// But not sure about rchild, so check rchild after travel rchild
-			gtm_tree->scan_result = gtm_lappend(gtm_tree->scan_result,
-													avl_tree_data_pnt(child));
+			/*gtm_tree->scan_result = gtm_lappend(gtm_tree->scan_result,
+													avl_tree_data_pnt(child));*/
+			gtm_tree->scan_result[gtm_tree->scan_result_NO] = child->data;
+			gtm_tree->scan_result_NO++;
 
 			travel(child->lchild, gtm_tree);
 			child = child->rchild;
 		}
 	} while(child != NULL) ;
 
-	MemoryContextSwitchTo(oldContext);
-    return gtm_tree->scan_result;
+    return gtm_tree->scan_result_NO;
 }
 
-gtm_List* 
+int 
 avl_find_value_bellow(gtm_AVL_tree_stat gtm_tree, void*data) 
 {
 	int value;
 
 	if (gtm_tree->root == NULL) {
-		return gtm_NIL;
+		return 0;
 	}
 	Assert (gtm_tree->ext_data != NULL);
-	value = gtm_tree->ext_data(data);
-	
+	//value = gtm_tree->ext_data(data);
+	value = get_gxid(data);
+
     return find_value_bellow_intel(gtm_tree, value);
 }
 
-gtm_List* 
+int
 avl_find_value_int_bellow(gtm_AVL_tree_stat gtm_tree, int value) 
 {
     return find_value_bellow_intel(gtm_tree, value);
@@ -284,7 +286,9 @@ avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int value)
 	Assert(gtm_tree->ext_data != NULL);
 
 	do {
-		tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
+        tmp = get_gxid(avl_tree_data_pnt(child));
+
+		//tmp = gtm_tree->ext_data(avl_tree_data_pnt(child));
 		if (tmp > value) {
 			child = child->lchild;
 		} else if (tmp < value){
@@ -305,10 +309,7 @@ avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int value)
 void
 avl_reset_scan_result(gtm_AVL_tree_stat gtm_tree)
 {
-    if (gtm_tree->scan_result != gtm_NIL) {
-		gtm_list_free(gtm_tree->scan_result);
-		gtm_tree->scan_result =  gtm_NIL; 
-    }
+	gtm_tree->scan_result_NO = 0; 
 }
 
 static void
@@ -316,14 +317,15 @@ travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat)
 {
     if (root == NULL)
         return;
-
-	if (gtm_tree_stat->ext_data != NULL) {
+    gtm_tree_stat->scan_result[gtm_tree_stat->scan_result_NO] = root->data;
+    gtm_tree_stat->scan_result_NO++;
+	/*if (gtm_tree_stat->ext_data != NULL) {
 		gtm_tree_stat->scan_result = gtm_lappend(gtm_tree_stat->scan_result,
 												avl_tree_data_pnt(root));
 	} else {
 		gtm_tree_stat->scan_result = gtm_lappend_int(gtm_tree_stat->scan_result,
 												avl_tree_data_int(root));
-	}
+	}*/
 
 	if (root->lchild != NULL) {
 		travel(root->lchild, gtm_tree_stat);
@@ -525,7 +527,8 @@ insert_leaf(gtm_AVL_tree_stat gtm_tree, void* data)
     MemoryContext oldContext;
 
 	Assert(gtm_tree->ext_data != NULL);
-	value = gtm_tree->ext_data(data);
+	//value = gtm_tree->ext_data(data);
+    value = get_gxid(data);
 
 	/* prepare the node */
     np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
@@ -674,8 +677,11 @@ insert_node_to_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, AVL_t
 	uint32 value_tr, value_np;
 
 	if (gtm_tree->ext_data != NULL) {
-		value_tr = gtm_tree->ext_data(avl_tree_data_pnt(tr));
-		value_np = gtm_tree->ext_data(avl_tree_data_pnt(np));
+		value_tr = get_gxid(avl_tree_data_pnt(tr));
+		value_np = get_gxid(avl_tree_data_pnt(np));
+
+		//value_tr = gtm_tree->ext_data(avl_tree_data_pnt(tr));
+		//value_np = gtm_tree->ext_data(avl_tree_data_pnt(np));
 	} else {
 		value_tr = avl_tree_data_int(tr);
 		value_np = avl_tree_data_int(np);
@@ -718,7 +724,8 @@ find_node_from_nonempty_tree(AVL_tree_node tr, gtm_AVL_tree_stat gtm_tree, uint3
 	}
 
 	if (gtm_tree->ext_data != NULL) {
-		data = gtm_tree->ext_data(avl_tree_data_pnt(tr));
+        data = get_gxid(avl_tree_data_pnt(tr));
+		//data = gtm_tree->ext_data(avl_tree_data_pnt(tr));
 	} else {
 		data = avl_tree_data_int(tr);
 	}

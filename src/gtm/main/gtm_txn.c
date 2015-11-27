@@ -98,11 +98,8 @@ GTM_InitTxnManager(void)
 	GTM_RWLockInit(&GTMTransactions.gt_XidGenLock);
 	GTM_RWLockInit(&GTMTransactions.gt_TransArrayLock);
 
-    GTMTransactions.gt_xmin_avl_tree_stat = (gtm_AVL_tree_stat) palloc(sizeof(struct gtm_tree_stat));
+    GTMTransactions.gt_xmin_avl_tree_stat = (gtm_AVL_tree_stat) palloc0(sizeof(struct gtm_tree_stat));
     Assert(GTMTransactions.gt_xmin_avl_tree_stat != NULL);
-    GTMTransactions.gt_xmin_avl_tree_stat->root = NULL;
-    GTMTransactions.gt_xmin_avl_tree_stat->ext_data = NULL;
-    GTMTransactions.gt_xmin_avl_tree_stat->scan_result = NULL;
     GTMTransactions.gt_xmin_avl_tree_stat->avl_Context = AllocSetContextCreate(TopMostMemoryContext,
 														"XMIN_AVL_TreeContext",
 														ALLOCSET_DEFAULT_MINSIZE,
@@ -111,11 +108,9 @@ GTM_InitTxnManager(void)
 														true);
     Assert(GTMTransactions.gt_xmin_avl_tree_stat->avl_Context != NULL);
 
-    GTMTransactions.gt_gxid_avl_tree_stat = (gtm_AVL_tree_stat) palloc(sizeof(struct gtm_tree_stat));
+    GTMTransactions.gt_gxid_avl_tree_stat = (gtm_AVL_tree_stat) palloc0(sizeof(struct gtm_tree_stat));
     Assert(GTMTransactions.gt_gxid_avl_tree_stat != NULL);
-    GTMTransactions.gt_gxid_avl_tree_stat->root = NULL;
     GTMTransactions.gt_gxid_avl_tree_stat->ext_data = get_gxid_TransactionInfo;
-    GTMTransactions.gt_gxid_avl_tree_stat->scan_result = NULL;
 	GTMTransactions.gt_gxid_avl_tree_stat->avl_Context = AllocSetContextCreate(TopMostMemoryContext,
 														"GXID_AVL_TreeContext",
 														ALLOCSET_DEFAULT_MINSIZE,

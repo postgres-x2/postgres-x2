@@ -59,7 +59,6 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	int			count = 0;
 	gtm_ListCell *elem = NULL;
 	int ii;
-	gtm_List	*bellow_list = gtm_NIL;
 	/*
 	 * Instead of allocating memory for a snapshot, we use the snapshot of the
 	 * first transaction in the given array. The same snapshot will later be
@@ -128,14 +127,17 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
     if (GTMTransactions.gt_xmin_avl_tree_stat->root != NULL){
 		xmin = avl_find_min_value_int(GTMTransactions.gt_xmin_avl_tree_stat);
 	}
-	bellow_list = avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax);
+	Assert (avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax) > 0);
+    
     /*for ( ii =0; ii < GTM_MAX_GLOBAL_TRANSACTIONS; ii++) {
         if (GTMTransactions.gt_open_transactions[ii] == gtm_NIL)
             continue;
 	gtm_foreach(elem, GTMTransactions.gt_open_transactions[ii])*/
-	gtm_foreach(elem, bellow_list)
+	//gtm_foreach(elem, bellow_list)
+	for ( ii =0; ii < GTMTransactions.gt_gxid_avl_tree_stat->scan_result_NO; ii++)
 	{
-		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
+		volatile GTM_TransactionInfo *gtm_txninfo =
+                    (GTM_TransactionInfo *)avl_node_data_pnt(GTMTransactions.gt_gxid_avl_tree_stat->scan_result[ii]);
 		GlobalTransactionId xid;
 
 		/* Don't take into account LAZY VACUUMs */
