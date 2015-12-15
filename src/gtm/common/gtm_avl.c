@@ -35,7 +35,7 @@ void
 gtm_avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
 {
 	AVL_tree_node leaf;
-    AVL_tree_node new_root;
+	AVL_tree_node new_root;
 
 	leaf = insert_leaf(gtm_tree, data);
 	update_root_depth(leaf);
@@ -57,7 +57,7 @@ void
 gtm_avl_insert_value_int(gtm_AVL_tree_stat gtm_tree, int data)
 {
 	AVL_tree_node leaf;
-    AVL_tree_node new_root;
+	AVL_tree_node new_root;
 
 	leaf = insert_leaf_int(gtm_tree, data);
 	update_root_depth(leaf);
@@ -404,7 +404,7 @@ static AVL_tree_node
 rebalance_avl( AVL_tree_node np) 
 {
 	int depth_diff;
-    AVL_tree_node tr = NULL;
+	AVL_tree_node tr = NULL;
 	while (np != NULL) {
 		update_root_depth(np);
 		depth_diff = tree_depth_diff(np);

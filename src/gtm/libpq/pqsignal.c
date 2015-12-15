@@ -120,7 +120,7 @@ pqinitmask(void)
 	sigdelset(&AuthBlockSig, SIGCONT);
 #endif
 #ifdef SIGPROF
-	/* enable profile gtm and gtm_proxy */
+	/* Enable profile gtm and gtm_proxy */
 	sigdelset(&BlockSig, SIGPROF);
 	sigdelset(&AuthBlockSig, SIGPROF);
 #endif
