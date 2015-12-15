@@ -1069,6 +1069,7 @@ GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 							 char *nodestring)
 {
 	GTM_TransactionInfo *gtm_txninfo = GTM_HandleToTransactionInfo(txn);
+    uint32 hash;
 
 	if (gtm_txninfo == NULL)
 		return STATUS_ERROR;
@@ -1100,6 +1101,13 @@ GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 	if (gtm_txninfo->gti_gid == NULL)
 		gtm_txninfo->gti_gid = (char *)MemoryContextAlloc(TopMostMemoryContext, GTM_MAX_GID_LEN);
 	memcpy(gtm_txninfo->gti_gid, gid, strlen(gid) + 1);
+	/* Add the item to the hash table */
+	hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo->gti_gid,
+									strlen(gtm_txninfo->gti_gid));
+	hash %= GTM_MAX_GLOBAL_TRANSACTIONS;
+	GTMTransactions.preparedName_2_gxid[hash] =
+									gtm_lappend(GTMTransactions.preparedName_2_gxid[hash],
+												gtm_txninfo);
 
 	GTM_RWLockRelease(&gtm_txninfo->gti_lock);
 
