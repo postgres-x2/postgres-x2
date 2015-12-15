@@ -125,9 +125,9 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	 * gather all active xids and find the lowest xmin
 	 */
     if (GTMTransactions.gt_xmin_avl_tree_stat->root != NULL){
-		xmin = avl_find_min_value_int(GTMTransactions.gt_xmin_avl_tree_stat);
+		xmin = gtm_avl_find_min_value_int(GTMTransactions.gt_xmin_avl_tree_stat);
 	}
-	Assert (avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax) > 0);
+	Assert (gtm_avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax) > 0);
     
     /*for ( ii =0; ii < GTM_MAX_GLOBAL_TRANSACTIONS; ii++) {
         if (GTMTransactions.gt_open_transactions[ii] == gtm_NIL)
@@ -271,7 +271,7 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			(!GlobalTransactionIdIsValid(mygtm_txninfo->gti_xmin))) {
 			mygtm_txninfo->gti_xmin = xmin;
 		    if (!mygtm_txninfo->gti_vacuum) {
-			    avl_insert_value_int(GTMTransactions.gt_xmin_avl_tree_stat, xmin);
+			    gtm_avl_insert_value_int(GTMTransactions.gt_xmin_avl_tree_stat, xmin);
 		    }
         }
 	}
