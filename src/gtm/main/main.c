@@ -901,7 +901,7 @@ ServerLoop(void)
 
 						if (GTMAddConnection(port, standby) != STATUS_OK)
 						{
-							elog(ERROR, "Too many connections");
+							elog(WARNING, "Too many connections");
 
 							gtm_standby_disconnect_from_standby(standby);
 
@@ -1343,7 +1343,7 @@ GTMAddConnection(Port *port, GTM_Conn *standby)
 	 */
 	if (GTM_ThreadCreate(conninfo, GTM_ThreadMain) == NULL)
 	{
-		elog(ERROR, "failed to create a new thread");
+		elog(WARNING, "failed to create a new thread");
 		return STATUS_ERROR;
 	}
 
