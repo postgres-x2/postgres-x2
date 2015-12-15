@@ -2,30 +2,30 @@
 #include "gtm/gtm.h"
 #include "gtm/gtm_list.h"
 
-static	void	travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat);
-static	void	update_root_depth(AVL_tree_node root); 
-static 	void	insert_node_to_nonempty_tree(AVL_tree_node sub_tree,
+static  void    travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat);
+static  void    update_root_depth(AVL_tree_node root); 
+static  void    insert_node_to_nonempty_tree(AVL_tree_node sub_tree,
 											gtm_AVL_tree_stat gtm_tree,
 											AVL_tree_node new_node);
-static	AVL_tree_node	rebalance_avl(AVL_tree_node new_node);
-static	AVL_tree_node	insert_leaf(gtm_AVL_tree_stat root, void* value);
-static	AVL_tree_node	insert_leaf_int(gtm_AVL_tree_stat root, int value);
-static 	AVL_tree_node	left_single_rotate(AVL_tree_node root);
-static 	AVL_tree_node	left_double_rotate(AVL_tree_node root);
-static 	AVL_tree_node	right_single_rotate(AVL_tree_node root);
-static	AVL_tree_node	right_double_rotate(AVL_tree_node root);
-static 	AVL_tree_node	find_node_from_nonempty_tree(AVL_tree_node sub_tree,
+static  AVL_tree_node   rebalance_avl(AVL_tree_node new_node);
+static  AVL_tree_node	insert_leaf(gtm_AVL_tree_stat root, void* value);
+static  AVL_tree_node	insert_leaf_int(gtm_AVL_tree_stat root, int value);
+static  AVL_tree_node	left_single_rotate(AVL_tree_node root);
+static  AVL_tree_node	left_double_rotate(AVL_tree_node root);
+static  AVL_tree_node	right_single_rotate(AVL_tree_node root);
+static  AVL_tree_node	right_double_rotate(AVL_tree_node root);
+static  AVL_tree_node	find_node_from_nonempty_tree(AVL_tree_node sub_tree,
 													gtm_AVL_tree_stat gtm_tree,
 													int value);
 
-static 	AVL_tree_node	delete_leaf(AVL_tree_node root,
+static  AVL_tree_node	delete_leaf(AVL_tree_node root,
 									gtm_AVL_tree_stat gtm_tree_stat, int value);
 
-static int find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value);
+static  int find_value_bellow_intel(gtm_AVL_tree_stat gtm_tree, int value);
 
-static int find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value);
+static  int find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value);
 
-static int tree_depth_diff(AVL_tree_node root);
+static  int tree_depth_diff(AVL_tree_node root);
 
 /*
   * insertGTM_TransactionInfo* pointer to AVL tree
