@@ -58,6 +58,7 @@ GTM_InitTxnManager(void)
 		GTM_TransactionInfo *gtm_txninfo = &GTMTransactions.gt_transactions_array[ii];
 		gtm_txninfo->gti_in_use = false;
 		GTM_RWLockInit(&gtm_txninfo->gti_lock);
+		GTMTransactions.preparedName_2_gxid[ii] = gtm_NIL;
 	}
 
 	/*
@@ -119,12 +120,6 @@ GTM_InitTxnManager(void)
 														true);
 	Assert(GTMTransactions.gt_gxid_avl_tree_stat->avl_Context != NULL);
 
-	/*
-	 * Initialize the list
-	 */
-    for (ii = 0; ii < TRANSACTION_ARRAY_SIZE; ii++) {
-		GTMTransactions.preparedName_2_gxid[ii] = gtm_NIL;
-	}
 	GTMTransactions.gt_lastslot = -1;
 
 	GTMTransactions.gt_gtm_state = GTM_STARTING;
@@ -202,7 +197,7 @@ GTM_GIDToHandle(char *gid)
 	uint32				hash;
 
 	hash = gtm_util_hash_any((const unsigned char *)gid, strlen(gid));
-
+    hash %= GTM_MAX_GLOBAL_TRANSACTIONS;
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
 
 	gtm_foreach(elem, GTMTransactions.preparedName_2_gxid[hash])
@@ -292,14 +287,14 @@ GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 
 		hash = gtm_txninfo[ii]->gti_backend_id; 
 		hash = hash > 0 ? hash : -(hash);
-		hash = hash % TRANSACTION_ARRAY_SIZE;
+		hash = hash % THREAD_TRANSACTION_ARRAY_SIZE;
 		GetMyThreadInfo->thr_backend_open_transactions[hash] =
 								gtm_list_delete(GetMyThreadInfo->thr_backend_open_transactions[hash],
 												gtm_txninfo[ii]);
 
 		if (gtm_txninfo[ii]->gti_gid != NULL) {
 			hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo[ii]->gti_gid,
-									strlen(gtm_txninfo[ii]->gti_gid)) % TRANSACTION_ARRAY_SIZE;
+									strlen(gtm_txninfo[ii]->gti_gid)) % GTM_MAX_GLOBAL_TRANSACTIONS;
 			GTMTransactions.preparedName_2_gxid[hash] =
 									gtm_list_delete(GTMTransactions.preparedName_2_gxid[hash],
 												gtm_txninfo[ii]);
@@ -342,7 +337,7 @@ GTM_RemoveAllTransInfos(int backend_id)
     target_List = gtm_NIL;
     cell = prev = NULL;
 	if (backend_id >= 0) {
-		hash = backend_id % TRANSACTION_ARRAY_SIZE;
+		hash = backend_id % THREAD_TRANSACTION_ARRAY_SIZE;
 		cell = gtm_list_head(thrinfo->thr_backend_open_transactions[hash]);
 		while (cell != NULL)
 		{
@@ -364,7 +359,7 @@ GTM_RemoveAllTransInfos(int backend_id)
 			}
 		}
 	} else {
-		for( ii = 0; ii <TRANSACTION_ARRAY_SIZE; ii++) {
+		for( ii = 0; ii < THREAD_TRANSACTION_ARRAY_SIZE; ii++) {
 			target_List = gtm_list_concat(target_List,
 							thrinfo->thr_backend_open_transactions[ii]);
 			thrinfo->thr_backend_open_transactions[ii] = gtm_NIL;
@@ -567,7 +562,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	GTM_TransactionInfo *gtm_txninfo = NULL;
 	int ii;
 	uint32	hash;
-    MemoryContext oldContext;
+	MemoryContext oldContext;
 	GTM_ThreadInfo *thrinfo;
 
 	thrinfo = (GTM_ThreadInfo *)GetMyThreadInfo; 
@@ -655,7 +650,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 
         hash = gtm_txninfo->gti_backend_id; 
 		hash = hash > 0 ? hash : -(hash);
-        hash = hash % TRANSACTION_ARRAY_SIZE;
+        hash = hash % THREAD_TRANSACTION_ARRAY_SIZE;
 		thrinfo->thr_backend_open_transactions[hash] =
 								gtm_lappend(thrinfo->thr_backend_open_transactions[hash],
 												gtm_txninfo);
@@ -676,7 +671,8 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 
 		if (gtm_txninfo->gti_gid != NULL) {
 			hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo->gti_gid,
-									strlen(gtm_txninfo->gti_gid)) % TRANSACTION_ARRAY_SIZE;
+									strlen(gtm_txninfo->gti_gid));
+			hash %= GTM_MAX_GLOBAL_TRANSACTIONS;
 			GTMTransactions.preparedName_2_gxid[hash] =
 									gtm_lappend(GTMTransactions.preparedName_2_gxid[hash],
 												gtm_txninfo);
@@ -1400,7 +1396,7 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 																	gtm_txninfo);
 		hash = gtm_txninfo->gti_backend_id; 
 		hash = hash > 0 ? hash : -(hash);
-		hash = hash % TRANSACTION_ARRAY_SIZE;
+		hash = hash % THREAD_TRANSACTION_ARRAY_SIZE;
 
 		MemoryContextSwitchTo(TopMemoryContext);
 		thrinfo->thr_backend_open_transactions[hash] =
@@ -1411,7 +1407,8 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 
 		if (gtm_txninfo->gti_gid != NULL) {
 			hash = gtm_util_hash_any((const unsigned char *)gtm_txninfo->gti_gid,
-									strlen(gtm_txninfo->gti_gid)) % TRANSACTION_ARRAY_SIZE;
+									strlen(gtm_txninfo->gti_gid));
+			hash %= GTM_MAX_GLOBAL_TRANSACTIONS;
 			GTMTransactions.preparedName_2_gxid[hash] =
 									gtm_lappend(GTMTransactions.preparedName_2_gxid[hash],
 												gtm_txninfo);

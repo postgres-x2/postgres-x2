@@ -116,7 +116,7 @@ gtm_standby_restore_gxid(void)
 	int num_txn;
 	GTM_Transactions txn;
 	int i;
-    uint32 hash;
+	uint32 hash;
 
 	/*
 	 * Restore gxid data.
@@ -185,11 +185,13 @@ gtm_standby_restore_gxid(void)
 		 */
 		if (GTMTransactions.gt_transactions_array[i].gti_state != GTM_TXN_ABORTED)
 		{
-			if (GTMTransactions.gt_transactions_array[i].gti_gxid != InvalidGlobalTransactionId) {
+			if (GTMTransactions.gt_transactions_array[i].gti_gxid
+													!= InvalidGlobalTransactionId) {
 				gtm_avl_insert_value(GTMTransactions.gt_gxid_avl_tree_stat,
 									&GTMTransactions.gt_transactions_array[i]);
 			} else {
-				// TBD
+				/* The item is assigned, but has no gxid, drop it or save it?  TBD
+ 				 */
 				GetMyThreadInfo->thr_tmp_open_transactions = gtm_lappend(
 										GetMyThreadInfo->thr_tmp_open_transactions,
 										&GTMTransactions.gt_transactions_array[i]);
@@ -197,11 +199,10 @@ gtm_standby_restore_gxid(void)
 			}
 
 			if (GTMTransactions.gt_transactions_array[i].gti_gid != NULL) {
-				hash =
-						gtm_util_hash_any(
+				hash = gtm_util_hash_any(
 							GTMTransactions.gt_transactions_array[i].gti_gid,
-							strlen(GTMTransactions.gt_transactions_array[i].gti_gid))
-						% GTM_MAX_GLOBAL_TRANSACTIONS;
+							strlen(GTMTransactions.gt_transactions_array[i].gti_gid));
+				hash %= GTM_MAX_GLOBAL_TRANSACTIONS;
 
 				GTMTransactions.preparedName_2_gxid[hash] =
 					             gtm_lappend(GTMTransactions.preparedName_2_gxid[hash],

@@ -129,20 +129,6 @@ gtm_lappend(gtm_List *list, void *datum)
 	return list;
 }
 
-gtm_List *
-gtm_lappend_int(gtm_List *list, int datum)
-{
-    Assert(IsIntegerList(list));
-
-    if (list == gtm_NIL)
-        list = new_list();
-    else
-        new_tail_cell(list);
-
-    gtm_lfirst_int(list->tail) = datum;
-    check_list_invariants(list);
-    return list;
-}
 /*
  * Add a new cell to the list, in the position after 'prev_cell'. The
  * data in the cell is left undefined, and must be filled in by the

@@ -120,8 +120,9 @@ pqinitmask(void)
 	sigdelset(&AuthBlockSig, SIGCONT);
 #endif
 #ifdef SIGPROF
-        sigdelset(&BlockSig, SIGPROF);
-        sigdelset(&AuthBlockSig, SIGPROF);
+	/* enable profile gtm and gtm_proxy */
+	sigdelset(&BlockSig, SIGPROF);
+	sigdelset(&AuthBlockSig, SIGPROF);
 #endif
 
 /* Signals unique to Auth */

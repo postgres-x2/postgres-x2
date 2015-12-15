@@ -166,7 +166,7 @@ GTM_ThreadCreate(GTM_ConnectionInfo *conninfo,
 	 */
 	thrinfo->thr_status = GTM_THREAD_STARTING;
     thrinfo->thr_tmp_open_transactions = gtm_NIL;
-    for (i = 0; i < TRANSACTION_ARRAY_SIZE; i++) {
+	for (i = 0; i < THREAD_TRANSACTION_ARRAY_SIZE; i++) {
 		thrinfo->thr_backend_open_transactions[i] = gtm_NIL;
     }
 

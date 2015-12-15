@@ -107,8 +107,8 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	}
 
 	/*
-	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
-	 * going to set MyProc->xmin.
+	 * We need to get write lock on ProcArrayLock, since we will change the AVL
+	 * tree of GTMTransactions.gt_xmin_avl_tree_stat
 	 */
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
 
@@ -127,13 +127,9 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
     if (GTMTransactions.gt_xmin_avl_tree_stat->root != NULL){
 		xmin = gtm_avl_find_min_value_int(GTMTransactions.gt_xmin_avl_tree_stat);
 	}
-	Assert (gtm_avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax) > 0);
+
+	gtm_avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax);
     
-    /*for ( ii =0; ii < GTM_MAX_GLOBAL_TRANSACTIONS; ii++) {
-        if (GTMTransactions.gt_open_transactions[ii] == gtm_NIL)
-            continue;
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions[ii])*/
-	//gtm_foreach(elem, bellow_list)
 	for ( ii =0; ii < GTMTransactions.gt_gxid_avl_tree_stat->scan_result_NO; ii++)
 	{
 		volatile GTM_TransactionInfo *gtm_txninfo =
@@ -145,11 +141,6 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			continue;
 
 		/* Update globalxmin to be the smallest valid xmin */
-		//xid = gtm_txninfo->gti_xmin;		/* fetch just once */
-		/*if (GlobalTransactionIdIsNormal(xid) &&
-			GlobalTransactionIdPrecedes(xid, globalxmin))
-			globalxmin = xid;*/
-
 		/* Fetch xid just once - see GetNewTransactionId */
 		xid = gtm_txninfo->gti_gxid;
 
@@ -174,8 +165,6 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			 * on the MVCC visibility and check if any changes are related to
 			 * the MVCC checks because of the change
 			 */
-			//if (GlobalTransactionIdFollowsOrEquals(xid, xmax))
-				//continue;
 			if (GlobalTransactionIdPrecedes(xid, xmin))
 				xmin = xid;
 			snapshot->sn_xip[count++] = xid;
@@ -271,6 +260,9 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			(!GlobalTransactionIdIsValid(mygtm_txninfo->gti_xmin))) {
 			mygtm_txninfo->gti_xmin = xmin;
 		    if (!mygtm_txninfo->gti_vacuum) {
+				/* insert the xmin to the avl tree of gt_xmin_avl_tree_stat, so 
+ 				 * gtm can get the smallest very fast when get snapshot next time
+				 */
 			    gtm_avl_insert_value_int(GTMTransactions.gt_xmin_avl_tree_stat, xmin);
 		    }
         }

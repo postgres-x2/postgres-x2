@@ -41,11 +41,11 @@ gtm_avl_insert_value(gtm_AVL_tree_stat gtm_tree, void *data)
 	update_root_depth(leaf);
 
 	if (gtm_tree->root == NULL) {
-    	gtm_tree->root = leaf;
+		gtm_tree->root = leaf;
 	} else {
-        new_root = rebalance_avl(leaf);
-        if (new_root != NULL)
-		    gtm_tree->root = new_root;
+		new_root = rebalance_avl(leaf);
+		if (new_root != NULL)
+			gtm_tree->root = new_root;
 	}
 }
 
@@ -65,9 +65,9 @@ gtm_avl_insert_value_int(gtm_AVL_tree_stat gtm_tree, int data)
 	if (gtm_tree->root == NULL) {
     	gtm_tree->root = leaf;
 	} else {
-        new_root = rebalance_avl(leaf);
-        if (new_root != NULL)
-		    gtm_tree->root = new_root;
+		new_root = rebalance_avl(leaf);
+		if (new_root != NULL)
+			gtm_tree->root = new_root;
 	}
 }
 
@@ -79,21 +79,22 @@ void
 gtm_avl_delete_value(gtm_AVL_tree_stat gtm_tree, void *data)
 {
 	AVL_tree_node leaf;
-    uint32 value;
-    AVL_tree_node new_root;
+	int value;
+	AVL_tree_node new_root;
 
 	Assert(gtm_tree->need_ext_data); 
 	value = get_gxid(data);
 	/* delete node and get the parent of target */
 	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
-    if (leaf != NULL) {
-	    update_root_depth(leaf);
+	if (leaf != NULL) {
+		update_root_depth(leaf);
 		/* rebalance the AVL tree, from the leaf to the root*/
-        new_root = rebalance_avl(leaf);
+		new_root = rebalance_avl(leaf);
 		// root changed, need to update
-        if (new_root != NULL)
-		    gtm_tree->root = new_root;
+		if (new_root != NULL)
+			gtm_tree->root = new_root;
     }
+
 }
 
 /*
@@ -104,18 +105,18 @@ void
 gtm_avl_delete_value_int(gtm_AVL_tree_stat gtm_tree, int value)
 {
 	AVL_tree_node leaf;
-    AVL_tree_node new_root;
+	AVL_tree_node new_root;
 
 	/* delete node and get the parent of target */
 	leaf = delete_leaf(gtm_tree->root, gtm_tree, value);
-    if (leaf != NULL) {
-	    update_root_depth(leaf);
+	if (leaf != NULL) {
+		update_root_depth(leaf);
 		/* rebalance the AVL tree, from the leaf to the root*/
-        new_root = rebalance_avl(leaf);
-        if (new_root != NULL)
+		new_root = rebalance_avl(leaf);
+		if (new_root != NULL)
 			// root changed, need to update
-		    gtm_tree->root = new_root;
-    }
+		gtm_tree->root = new_root;
+	}
 }
 
 /*
@@ -206,7 +207,7 @@ find_value_above_intel(gtm_AVL_tree_stat gtm_tree, int value)
 
 	do {
 		if (gtm_tree->need_ext_data) {
-            tmp = get_gxid(avl_tree_data_pnt(child));
+			tmp = get_gxid(avl_tree_data_pnt(child));
 		} else {
 			tmp =  avl_tree_data_int(child);
 		}
@@ -309,9 +310,9 @@ gtm_avl_find_value_bellow(gtm_AVL_tree_stat gtm_tree, void*data)
 		return 0;
 	}
 
-	Assert (gtm_tree->need_ext_data);
+	Assert(gtm_tree->need_ext_data);
 
-    return find_value_bellow_intel(gtm_tree, get_gxid(data));
+	return find_value_bellow_intel(gtm_tree, get_gxid(data));
 }
 
 /*
@@ -335,7 +336,7 @@ void*
 gtm_avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int value)
 {
 	AVL_tree_node child = gtm_tree->root;
- 	uint32 tmp;
+	int tmp;
 
 	if (gtm_tree->root == NULL) {
 		return NULL;
@@ -344,15 +345,15 @@ gtm_avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int value)
 	Assert(gtm_tree->need_ext_data);
 
 	do {
-        tmp = get_gxid(avl_tree_data_pnt(child));
+		tmp = get_gxid(avl_tree_data_pnt(child));
 		if (tmp > value) {
 			child = child->lchild;
 		} else if (tmp < value){
 			child = child->rchild;
 		} else {
-            /* Found the target, return*/
-            break;
-        }
+            /* Found the target, return */
+			break;
+		}
 
 	} while (child != NULL);
 
@@ -366,11 +367,12 @@ gtm_avl_find_value_equal(gtm_AVL_tree_stat gtm_tree, int value)
 static void
 travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat)
 {
-    if (root == NULL)
-        return;
+	if (root == NULL)
+		return;
+
 	/* collect the data of current root and put it into result slot */
-    gtm_tree_stat->scan_result[gtm_tree_stat->scan_result_NO] = root->data;
-    gtm_tree_stat->scan_result_NO++;
+	gtm_tree_stat->scan_result[gtm_tree_stat->scan_result_NO] = root->data;
+	gtm_tree_stat->scan_result_NO++;
 
 	if (root->lchild != NULL) {
 		travel(root->lchild, gtm_tree_stat);
@@ -387,11 +389,11 @@ travel(AVL_tree_node root, gtm_AVL_tree_stat gtm_tree_stat)
 static int
 tree_depth_diff(AVL_tree_node root)
 {
-        if (root == NULL) {
-                return 0;
-        } else {
-                return tree_depth(root->rchild) - tree_depth(root->lchild);
-        }
+	if (root == NULL) {
+		return 0;
+	} else {
+		return tree_depth(root->rchild) - tree_depth(root->lchild);
+	}
 }
 
 /* 
@@ -553,23 +555,23 @@ insert_leaf(gtm_AVL_tree_stat gtm_tree, void* data)
 {
 	AVL_tree_node np;
 	uint32 value;
-    MemoryContext oldContext;
+	MemoryContext oldContext;
 
 	Assert(gtm_tree->need_ext_data);
-    value = get_gxid(data);
+	value = get_gxid(data);
 
 	/* prepare the node */
-    np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
+	np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
 
-    if (np != NULL) {
-        np->count++;
-        return np;
-    }
+	if (np != NULL) {
+		np->count++;
+		return np;
+	}
 
 	oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
 	np = (AVL_tree_node) palloc(sizeof(struct gtm_avl_node));
 	avl_tree_data_pnt(np) = data;
-    np->count = 1;
+	np->count = 1;
 	np->parent  = NULL;
 	np->lchild  = NULL;
 	np->rchild  = NULL;
@@ -579,7 +581,7 @@ insert_leaf(gtm_AVL_tree_stat gtm_tree, void* data)
 		insert_node_to_nonempty_tree(gtm_tree->root, gtm_tree, np);
 	}
 
-    return np;
+	return np;
 }
 
 /* 
@@ -592,17 +594,17 @@ insert_leaf_int(gtm_AVL_tree_stat gtm_tree, int value)
 	AVL_tree_node np;
     MemoryContext oldContext;
 
-    np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
+	np = find_node_from_nonempty_tree(gtm_tree->root, gtm_tree, value);
 
-    if (np != NULL) {
-    	np->count++;
-    	return np;
-    }
+	if (np != NULL) {
+		np->count++;
+		return np;
+	}
 
-    oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
+	oldContext = MemoryContextSwitchTo(gtm_tree->avl_Context);
 	np = (AVL_tree_node) palloc(sizeof(struct gtm_avl_node));
 	avl_tree_data_int(np) = value;
-    np->count = 1;
+	np->count = 1;
 	np->parent  = NULL;
 	np->lchild  = NULL;
 	np->rchild  = NULL;
@@ -612,7 +614,7 @@ insert_leaf_int(gtm_AVL_tree_stat gtm_tree, int value)
 		insert_node_to_nonempty_tree(gtm_tree->root, gtm_tree, np);
 	}
 
-    return np;
+	return np;
 }
 
 /* 

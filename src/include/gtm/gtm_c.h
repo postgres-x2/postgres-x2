@@ -100,7 +100,6 @@ typedef GTM_SequenceKeyData *GTM_SequenceKey;
 
 #define GTM_MAX_GLOBAL_TRANSACTIONS	4096
 
-
 typedef enum GTM_IsolationLevel
 {
 	GTM_ISOLATION_SERIALIZABLE, /* serializable txn */
