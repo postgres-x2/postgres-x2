@@ -234,6 +234,23 @@ GetLatestSnapshot(void)
 	return SecondarySnapshot;
 }
 
+#ifdef PGXC
+/*
+ * GetLastSnapshot
+ *		Return CurrentSnapshot if not FirstSnapshotSet,
+ *		else call GetTransactionSnapshot() and return.
+ */
+Snapshot
+GetLastSnapshot(void)
+{
+	/* If first call in transaction, go ahead and set the xact snapshot */
+	if (!FirstSnapshotSet)
+		return GetTransactionSnapshot();
+
+	return CurrentSnapshot;
+}
+#endif
+
 /*
  * SnapshotSetCommandId
  *		Propagate CommandCounterIncrement into the static snapshots, if set

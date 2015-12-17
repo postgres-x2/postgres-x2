@@ -1050,7 +1050,13 @@ exec_simple_query(const char *query_string)
 		 */
 		if (analyze_requires_snapshot(parsetree))
 		{
-			PushActiveSnapshot(GetTransactionSnapshot());
+#ifdef PGXC
+			if (save_snapshot && IS_PGXC_COORDINATOR)
+				PushActiveSnapshot(GetLastSnapshot());
+			else
+#endif 
+				PushActiveSnapshot(GetTransactionSnapshot());
+
 			snapshot_set = true;
 		}
 
@@ -1399,7 +1405,13 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		 */
 		if (analyze_requires_snapshot(raw_parse_tree))
 		{
-			PushActiveSnapshot(GetTransactionSnapshot());
+#ifdef PGXC
+			if (save_snapshot && IS_PGXC_COORDINATOR)
+				PushActiveSnapshot(GetLastSnapshot());
+			else
+#endif 
+				PushActiveSnapshot(GetTransactionSnapshot());
+
 			snapshot_set = true;
 		}
 

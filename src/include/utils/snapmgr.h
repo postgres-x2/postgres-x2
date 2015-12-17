@@ -26,6 +26,9 @@ extern TransactionId RecentGlobalXmin;
 
 extern Snapshot GetTransactionSnapshot(void);
 extern Snapshot GetLatestSnapshot(void);
+#ifdef PGXC
+extern Snapshot GetLastSnapshot(void);
+#endif
 extern void SnapshotSetCommandId(CommandId curcid);
 
 extern void PushActiveSnapshot(Snapshot snapshot);
