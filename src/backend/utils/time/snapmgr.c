@@ -70,6 +70,7 @@ static SnapshotData SecondarySnapshotData = {HeapTupleSatisfiesMVCC};
 #ifdef PGXC
 static SnapshotData LastSnapshotData = {HeapTupleSatisfiesMVCC};
 #endif
+
 /* Pointers to valid snapshots */
 static Snapshot CurrentSnapshot = NULL;
 static Snapshot SecondarySnapshot = NULL;
