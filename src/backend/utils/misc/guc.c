@@ -1580,7 +1580,7 @@ static struct config_bool ConfigureNamesBool[] =
 	{
 		{"save_snapshot", PGC_SIGHUP, COORDINATORS,
 		    gettext_noop("Enables coordinator avoid fetching snapshot for parse "
-						"analysis/planning if metadata is sstable"),
+						"analysis/planning if metadata is stable"),
 			NULL
 		},
 		&save_snapshot,

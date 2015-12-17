@@ -67,7 +67,9 @@
  */
 static SnapshotData CurrentSnapshotData = {HeapTupleSatisfiesMVCC};
 static SnapshotData SecondarySnapshotData = {HeapTupleSatisfiesMVCC};
-
+#ifdef PGXC
+static SnapshotData LastSnapshotData = {HeapTupleSatisfiesMVCC};
+#endif
 /* Pointers to valid snapshots */
 static Snapshot CurrentSnapshot = NULL;
 static Snapshot SecondarySnapshot = NULL;
@@ -237,17 +239,12 @@ GetLatestSnapshot(void)
 #ifdef PGXC
 /*
  * GetLastSnapshot
- *		Return CurrentSnapshot if not FirstSnapshotSet,
- *		else call GetTransactionSnapshot() and return.
+ *		Return a simplified snapshot
  */
 Snapshot
 GetLastSnapshot(void)
 {
-	/* If first call in transaction, go ahead and set the xact snapshot */
-	if (!FirstSnapshotSet)
-		return GetTransactionSnapshot();
-
-	return CurrentSnapshot;
+	return GetLastSnapshotData(&LastSnapshotData);
 }
 #endif
 
