@@ -234,7 +234,7 @@ MainThreadInit()
 }
 
 static void
-BaseInit()
+BaseInit1()
 {
 	GTMProxy_ThreadInfo *thrinfo;
 
@@ -244,6 +244,21 @@ BaseInit()
 
 	MemoryContextInit();
 
+	/*
+	 * The memory context is now set up.
+	 * Add the thrinfo structure in the global array
+	 */
+	if (GTMProxy_ThreadAdd(thrinfo) == -1)
+	{
+		fprintf(stderr, "GTMProxy_ThreadAdd for main thread failed: %d", errno);
+		fflush(stdout);
+		fflush(stderr);
+	}
+}
+
+static void
+BaseInit2()
+{
 	checkDataDir();
 	SetDataDir();
 	ChangeToDataDir();
@@ -266,17 +281,6 @@ BaseInit()
 	RegisterProxy(false, false);
 
 	DebugFileOpen();
-
-	/*
-	 * The memory context is now set up.
-	 * Add the thrinfo structure in the global array
-	 */
-	if (GTMProxy_ThreadAdd(thrinfo) == -1)
-	{
-		fprintf(stderr, "GTMProxy_ThreadAdd for main thread failed: %d", errno);
-		fflush(stdout);
-		fflush(stderr);
-	}
 }
 
 static char *
@@ -583,6 +587,8 @@ main(int argc, char *argv[])
 	 */
 	InitializeGTMOptions();
 
+	BaseInit1();
+
 	/*
 	 * Catch standard options before doing much else
 	 */
@@ -804,7 +810,7 @@ main(int argc, char *argv[])
 	 * Some basic initialization must happen before we do anything
 	 * useful
 	 */
-	BaseInit();
+	BaseInit2();
 
 	elog(LOG, "Starting GTM proxy at (%s:%d)", ListenAddresses, GTMProxyPortNumber);
 

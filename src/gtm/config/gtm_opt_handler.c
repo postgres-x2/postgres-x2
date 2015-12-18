@@ -108,6 +108,7 @@ ProcessConfigFile(GtmOptContext context)
 				   *tail;
 	char	   *cvc = NULL;
 	int			i;
+	bool		error = false;
 
 	Assert((context == GTMC_STARTUP || context == GTMC_SIGHUP));
 
@@ -119,8 +120,10 @@ ProcessConfigFile(GtmOptContext context)
 	/* Parse the file into a list of option names and values */
 	head = tail = NULL;
 
-	if (!ParseConfigFile(GTMConfigFileName, NULL, 0, elevel, &head, &tail))
+	if (!ParseConfigFile(GTMConfigFileName, NULL, 0, elevel, &head, &tail)) {
+		error = true;
 		goto cleanup_list;
+	}
 
 #if 0
 	/* No custom_variable_classes now */
@@ -200,8 +203,10 @@ ProcessConfigFile(GtmOptContext context)
 		}
 
 		if (!set_config_option(item->name, item->value, context,
-							   GTMC_S_FILE, false))
+							   GTMC_S_FILE, false)) {
+			error = true;
 			goto cleanup_list;
+		}
 	}
 
 	/*
@@ -323,6 +328,8 @@ ProcessConfigFile(GtmOptContext context)
 					}
 				}
 			}
+		} else {
+			error = true;
 		}
 
 		if (pre_value)
@@ -335,6 +342,21 @@ cleanup_list:
 	FreeConfigVariables(head);
 	if (cvc)
 		free(cvc);
+
+	if (error)
+    {
+        /* During startup, any error is fatal */
+        if (context == GTMC_STARTUP)
+            ereport(ERROR,
+                    (0,
+                     errmsg("configuration file \"%s\" contains errors",
+                            GTMConfigFileName)));
+        else
+            ereport(elevel,
+                    (0,
+                     errmsg("configuration file \"%s\" contains errors; no changes were applied",
+                            GTMConfigFileName)));
+    }
 }
 
 /*
@@ -1383,7 +1405,7 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 		configdir = make_absolute_path(userDoption);
 	else
 		configdir = NULL;
-
+	
 	/*
 	 * Find the configuration file: if config_file was specified on the
 	 * command line, use it, else use configdir/postgresql.conf.  In any case
@@ -2545,7 +2567,7 @@ set_config_option(const char *name, const char *value,
 						}
 
 						if (hintmsg)
-							free(hintmsg);
+							pfree(hintmsg);
 						return false;
 					}
 				}
@@ -2675,7 +2697,7 @@ void
 SetConfigOption(const char *name, const char *value,
 				GtmOptContext context, GtmOptSource source)
 {
-	(void) set_config_option(name, value, context, source,
+	return (void)set_config_option(name, value, context, source,
 							 true);
 }
 

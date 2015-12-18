@@ -292,7 +292,7 @@ start_gtm(void)
 	strncat(gtm_app_path, gtm_app, MAXPGPATH - len - 1);
 
 	if (log_file != NULL)
-		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s -l %s &" SYSTEMQUOTE,
+		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s >> \"%s\"  2>&1 &" SYSTEMQUOTE,
 				 gtm_app_path, gtmdata_opt, gtm_opts, log_file);
 	else
 		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
@@ -304,10 +304,7 @@ start_gtm(void)
 		exit(1);
 	}
 
-	if (log_file)
-		return (RunAsDaemon(cmd));
-	else
-		return system(cmd);
+	return system(cmd);
 }
 
 /*
