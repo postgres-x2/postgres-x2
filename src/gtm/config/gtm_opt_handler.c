@@ -1405,6 +1405,7 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 		configdir = make_absolute_path(userDoption);
 	else
 		configdir = NULL;
+
 	/*
 	 * Find the configuration file: if config_file was specified on the
 	 * command line, use it, else use configdir/postgresql.conf.  In any case

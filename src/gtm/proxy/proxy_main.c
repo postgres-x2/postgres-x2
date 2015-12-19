@@ -583,7 +583,7 @@ main(int argc, char *argv[])
 	isStartUp = true;
 
 	/*
-	 * At first, initialize options, main thread and  TopMostMemoryContext.
+	 * At first, initialize options, main thread and TopMostMemoryContext.
 	 */
 	InitializeGTMOptions();
 	BaseInit1();
