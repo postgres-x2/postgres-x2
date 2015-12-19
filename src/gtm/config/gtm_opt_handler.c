@@ -344,19 +344,19 @@ cleanup_list:
 		free(cvc);
 
 	if (error)
-    {
-        /* During startup, any error is fatal */
-        if (context == GTMC_STARTUP)
-            ereport(ERROR,
-                    (0,
-                     errmsg("configuration file \"%s\" contains errors",
-                            GTMConfigFileName)));
+	{
+		/* During startup, any error is fatal */
+		if (context == GTMC_STARTUP)
+			ereport(ERROR,
+					(0,
+					errmsg("configuration file \"%s\" contains errors",
+							GTMConfigFileName)));
         else
-            ereport(elevel,
-                    (0,
-                     errmsg("configuration file \"%s\" contains errors; no changes were applied",
-                            GTMConfigFileName)));
-    }
+			ereport(elevel,
+					(0,
+					errmsg("configuration file \"%s\" contains errors; no changes were applied",
+							GTMConfigFileName)));
+	}
 }
 
 /*
@@ -1405,7 +1405,6 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 		configdir = make_absolute_path(userDoption);
 	else
 		configdir = NULL;
-	
 	/*
 	 * Find the configuration file: if config_file was specified on the
 	 * command line, use it, else use configdir/postgresql.conf.  In any case
@@ -2697,7 +2696,7 @@ void
 SetConfigOption(const char *name, const char *value,
 				GtmOptContext context, GtmOptSource source)
 {
-	return (void)set_config_option(name, value, context, source,
+	(void)set_config_option(name, value, context, source,
 							 true);
 }
 
