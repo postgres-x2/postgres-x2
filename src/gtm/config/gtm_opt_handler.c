@@ -2696,7 +2696,7 @@ void
 SetConfigOption(const char *name, const char *value,
 				GtmOptContext context, GtmOptSource source)
 {
-	(void)set_config_option(name, value, context, source,
+	(void) set_config_option(name, value, context, source,
 							 true);
 }
 
