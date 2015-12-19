@@ -351,7 +351,7 @@ cleanup_list:
 					(0,
 					errmsg("configuration file \"%s\" contains errors",
 							GTMConfigFileName)));
-        else
+		else
 			ereport(elevel,
 					(0,
 					errmsg("configuration file \"%s\" contains errors; no changes were applied",
