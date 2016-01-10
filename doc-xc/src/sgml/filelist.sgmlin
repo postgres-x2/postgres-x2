@@ -58,6 +58,8 @@
 <!ENTITY config        SYSTEM "config.sgml">
 <!ENTITY user-manag    SYSTEM "user-manag.sgml">
 <!ENTITY wal           SYSTEM "wal.sgml">
+<!ENTITY add-node      SYSTEM "add-node.sgml">
+<!ENTITY remove-node   SYSTEM "remove-node.sgml">
 
 <!-- programmer's guide -->
 <!ENTITY bgworker   SYSTEM "bgworker.sgml">
