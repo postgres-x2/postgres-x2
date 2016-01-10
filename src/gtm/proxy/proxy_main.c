@@ -1046,9 +1046,9 @@ ServerLoop(void)
 					{
 						if (GTMProxyAddConnection(port) != STATUS_OK)
 						{
-							elog(ERROR, "Too many connections");
 							StreamClose(port->sock);
 							ConnFree(port);
+							elog(WARNING, "Too many connections");
 						}
 					}
 				}
@@ -1552,8 +1552,10 @@ GTMProxyAddConnection(Port *port)
 	/*
 	 * Add the conninfo struct to the next worker thread in round-robin manner
 	 */
-	GTMProxy_ThreadAddConnection(conninfo);
-
+	if (GTMProxy_ThreadAddConnection(conninfo) != STATUS_OK) {
+		pfree(conninfo);
+		return STATUS_ERROR;
+    }
 	return STATUS_OK;
 }
 

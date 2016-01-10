@@ -5,11 +5,22 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
+ * Portions Copyright (c) 2010-2015 Postgres-XC Development Group
  *
  * $PostgreSQL$
  *
  *-------------------------------------------------------------------------
+ */
+/*
+ * In this file, we define Trap and TrapMacro macros, which are duplicate
+ * to corresponding PostgreSQL's ones defined in "c.h".
+ * We need separate definition due to the difference in process/thread
+ * model of postgres and gtm/gtm_proxy.
+ * In previous PG version, these macros were defined in separate assert.h
+ * file.  Because they have been moved to c.h, we need to redifine them
+ * here.
+ *
+ * Programmers of XC core must be careful about this duplicate.
  */
 #ifndef GTM_ASSERT_H
 #define GTM_ASSERT_H
@@ -29,6 +40,13 @@ extern bool assert_enabled;
  * Trap
  *		Generates an exception if the given condition is true.
  */
+/*
+ * Macro Trap is originally defined in "c.h".   We need to redefine
+ * this to use in GTM/GTM_Proxy.
+ */
+#ifdef Trap
+#undef Trap
+#endif
 #define Trap(condition, errorType) \
 	do { \
 		if ((assert_enabled) && (condition)) \
@@ -43,6 +61,13 @@ extern bool assert_enabled;
  *
  *	Isn't CPP fun?
  */
+/*
+ * Macro TrapMacro is originally defined in "c.h".   We need to redefine
+ * this to use in GTM/GTM_Proxy.
+ */
+#ifdef TrapMacro
+#undef TrapMacro
+#endif
 #define TrapMacro(condition, errorType) \
 	((bool) ((! assert_enabled) || ! (condition) || \
 			 (ExceptionalCondition(CppAsString(condition), (errorType), \
