@@ -69,11 +69,6 @@
 #define GetLSNIndex(slotno, xid)	((slotno) * CLOG_LSNS_PER_PAGE + \
 	((xid) % (TransactionId) CLOG_XACTS_PER_PAGE) / CLOG_XACTS_PER_LSN_GROUP)
 
-#ifdef PGXC 
-/* Check if there is about a 1 billion XID difference for XID wraparound */
-#define CLOG_WRAP_CHECK_DELTA (2^30 / CLOG_XACTS_PER_PAGE)
-#endif
-
 
 /*
  * Link to shared-memory data structures for CLOG control
@@ -619,7 +614,7 @@ void
 ExtendCLOG(TransactionId newestXact)
 {
 	int			pageno;
-
+    TransactionId latestXid;
 	/*
 	 * No work except at first XID of a page.  But beware: just after
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
@@ -630,21 +625,26 @@ ExtendCLOG(TransactionId newestXact)
 	 * and therefore will be skipped, so we need to detect this by using
 	 * the latest_page_number instead of the pg index.
 	 *
-	 * Also, there is a special case of when transactions wrap-around that
-	 * we need to detect.
+	 * latest_page_number always points to the last page of CLOG. We don't need
+     * to do anything for an XID that maps to a page that precedes or equals
+     * the latest_page_number. To handle wrap-around correctly, we just compute
+     * the last XID mapped to latest_page_number and compare that against the
+     * passed in XID.
 	 */
 	pageno = TransactionIdToPage(newestXact);
 
 	/* 
-	 * The first condition makes sure we did not wrap around 
-	 * The second checks if we are still using the same page
 	 * Note that this value can change and we are not holding a lock, 
 	 * so we repeat the check below. We do it this way instead of 
 	 * grabbing the lock to avoid lock contention.
 	 */
-	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA 
-			&& pageno <= ClogCtl->shared->latest_page_number)
+	
+
+	latestXid = (ClogCtl->shared->latest_page_number * CLOG_XACTS_PER_PAGE)
+                                       + CLOG_XACTS_PER_PAGE - 1;
+    if (TransactionIdPrecedesOrEquals(newestXact, latestXid))
 		return;
+
 #else
 	if (TransactionIdToPgIndex(newestXact) != 0 &&
 		!TransactionIdEquals(newestXact, FirstNormalTransactionId))
@@ -661,17 +661,31 @@ ExtendCLOG(TransactionId newestXact)
 	 * out the page already and advanced the latest_page_number
 	 * while we were waiting for the lock.
 	 */
-	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA 
-			&& pageno <= ClogCtl->shared->latest_page_number)
+	latestXid = (ClogCtl->shared->latest_page_number * CLOG_XACTS_PER_PAGE)
+                                       + CLOG_XACTS_PER_PAGE - 1;
+    if (TransactionIdPrecedesOrEquals(newestXact, latestXid))
 	{
 		LWLockRelease(CLogControlLock);
 		return;
 	}
-#endif
 
-	/* Zero the page and make an XLOG entry about it */
+       /*
+        * We must initialise all pages between latest_page_number and pageno,
+        * taking into consideration XID wraparound
+        */
+       for (;;)
+       {
+               /* Zero the page and make an XLOG entry about it */
+               int target_pageno = ClogCtl->shared->latest_page_number + 1;
+               if (target_pageno > TransactionIdToPage(MaxTransactionId))
+                       target_pageno = 0;
+               ZeroCLOGPage(target_pageno, true);
+               if (target_pageno == pageno)
+                       break;
+       }
+#else
 	ZeroCLOGPage(pageno, true);
-
+#endif
 	LWLockRelease(CLogControlLock);
 }
 

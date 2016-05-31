@@ -35,10 +35,6 @@
 #include "pg_trace.h"
 #include "utils/snapmgr.h"
 
-#ifdef PGXC 
-/* Check if there is about a 1 billion XID difference for XID wraparound */
-#define SUBTRANS_WRAP_CHECK_DELTA (2^30 / SUBTRANS_XACTS_PER_PAGE)
-#endif
 
 /*
  * Defines for SubTrans page sizes.  A page is the same BLCKSZ as is used
@@ -311,6 +307,8 @@ void
 ExtendSUBTRANS(TransactionId newestXact)
 {
 	int			pageno;
+    TransactionId latestSubXid;
+
 
 	/*
 	 * No work except at first XID of a page.  But beware: just after
@@ -322,8 +320,11 @@ ExtendSUBTRANS(TransactionId newestXact)
 	 * and therefore will be skipped, so we need to detect this by using
 	 * the latest_page_number instead of the pg index.
 	 *
-	 * Also, there is a special case of when transactions wrap-around that
-	 * we need to detect.
+     * latest_page_number always points to the last page of SubtransLog. We
+     * don't need to do anything for an XID that maps to a page that precedes
+     * or equals the latest_page_number. To handle wrap-around correctly, we
+     * just compute the last XID mapped to latest_page_number and compare that
+     * against the passed in XID.
 	 */
 	pageno = TransactionIdToPage(newestXact);
 
@@ -334,8 +335,9 @@ ExtendSUBTRANS(TransactionId newestXact)
 	 * so we repeat the check below. We do it this way instead of 
 	 * grabbing the lock to avoid lock contention.
 	 */
-	if (SubTransCtl->shared->latest_page_number - pageno <= SUBTRANS_WRAP_CHECK_DELTA 
-			&& pageno <= SubTransCtl->shared->latest_page_number)
+	 latestSubXid = (SubTransCtl->shared->latest_page_number *
+                       SUBTRANS_XACTS_PER_PAGE) + SUBTRANS_XACTS_PER_PAGE - 1;
+     if (TransactionIdPrecedesOrEquals(newestXact, latestSubXid))
 		return;
 #else
 	if (TransactionIdToEntry(newestXact) != 0 &&
@@ -353,17 +355,32 @@ ExtendSUBTRANS(TransactionId newestXact)
 	 * out the page already and advanced the latest_page_number
 	 * while we were waiting for the lock.
 	 */
-	if (SubTransCtl->shared->latest_page_number - pageno <= SUBTRANS_WRAP_CHECK_DELTA 
-			&& pageno <= SubTransCtl->shared->latest_page_number)
+	 latestSubXid = (SubTransCtl->shared->latest_page_number *
+                      SUBTRANS_XACTS_PER_PAGE) + SUBTRANS_XACTS_PER_PAGE - 1;
+      if (TransactionIdPrecedesOrEquals(newestXact, latestSubXid))
 	{
 		LWLockRelease(SubtransControlLock);
 		return;
 	}
-#endif
+      /*
+       * We must initialise all pages between latest_page_number and pageno,
+       * taking into consideration XID wraparound
+       */
+      for (;;)
+      {
+              /* Zero the page and make an XLOG entry about it */
+              int target_pageno = SubTransCtl->shared->latest_page_number + 1;
+              if (target_pageno > TransactionIdToPage(MaxTransactionId))
+                      target_pageno = 0;
+              ZeroSUBTRANSPage(target_pageno);
+              if (target_pageno == pageno)
+                      break;
+      }
+#else
 
 	/* Zero the page */
 	ZeroSUBTRANSPage(pageno);
-
+#endif
 	LWLockRelease(SubtransControlLock);
 }
 
