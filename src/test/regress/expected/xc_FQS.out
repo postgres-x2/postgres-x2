@@ -176,12 +176,14 @@ select val, val2 from tab1_rr where val2 = 8 group by val, val2;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val2 = 8 group by val, val2;
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ HashAggregate
    Output: tab1_rr.val, tab1_rr.val2
-   Remote query: SELECT val, val2 FROM public.tab1_rr WHERE (val2 = 8) GROUP BY val, val2
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         Output: tab1_rr.val, tab1_rr.val2
+         Remote query: SELECT val, val2 FROM ONLY public.tab1_rr WHERE (val2 = 8) GROUP BY 1, 2
+(5 rows)
 
 -- should not get FQSed because of presence of aggregates and HAVING clause,
 select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
