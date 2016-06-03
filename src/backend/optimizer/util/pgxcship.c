@@ -995,6 +995,12 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				!pgxc_query_has_distcolgrouping(query, sc_context->sc_exec_nodes))
 				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
 
+                         /* Grouping by non distribution column can not be FQS*/
+                         if (query->groupClause != NULL &&  
+                               sc_context->sc_exec_nodes &&
+                               !pgxc_query_has_distcolgrouping(query, sc_context->sc_exec_nodes))
+                               pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
 			/*
 			 * If distribution column of any relation is present in the distinct
 			 * clause, values for that column across nodes will differ, thus two
