@@ -2620,6 +2620,7 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	result->rtable = query->rtable;
 	result->relationOids = glob->relationOids;
 	result->invalItems = glob->invalItems;
+	result->queryId=query->queryId;            /*support for pg_stat_statement  */
 
 	/*
 	 * If query is DECLARE CURSOR fetch CTIDs and node names from the remote node
