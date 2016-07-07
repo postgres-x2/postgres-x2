@@ -296,6 +296,7 @@ transformStmt(ParseState *pstate, Node *parseTree)
 		case T_ExecDirectStmt:
 			result = transformExecDirectStmt(pstate,
 											 (ExecDirectStmt *) parseTree);
+			result->queryId=0;                                       /*resolving assertion error for pg_stat_statement */
 			break;
 #endif
 
