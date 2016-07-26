@@ -1477,8 +1477,6 @@ show_configuration(char *line)
 	GetToken();
 	if (line == NULL)
 		elog(ERROR, "ERROR: No configuration option is specified. Retruning.\n");
-	else if (TestToken("basic"))
-		show_basicConfig();
 	else if (TestToken("all"))
 	{
 		show_basicConfig();
