@@ -842,7 +842,10 @@ GetCurrentStatementStartTimestamp(void)
 	 * clock. This permits to follow the GTM timeline in the cluster.
 	 */
 #ifdef PGXC
-	return stmtStartTimestamp + GTMdeltaTimestamp;
+	if (IS_PGXC_DATANODE && IsConnFromCoord())
+	return stmtStartTimestamp;
+	else
+	return stmtStartTimestamp + GTMdeltaTimestamp
 #else
 	return stmtStartTimestamp;
 #endif
