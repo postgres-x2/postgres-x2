@@ -140,7 +140,7 @@ static GTMProxy_ConnectionInfo *GTMProxy_GetConnInfo(GTMProxy_ThreadInfo *thrinf
 													 GTMProxy_ConnID con_id);
 static int GTMProxy_GetConnInfoIndex(GTMProxy_ThreadInfo *thrinfo, GTMProxy_ConnID con_id);
 static int ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf);
-static void GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo);
+static void GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo,GTM_MutexLock *lock);
 static void GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn);
 
 static void GTMProxy_ProxyCommand(GTMProxy_ConnectionInfo *conninfo,
@@ -1295,7 +1295,7 @@ GTMProxy_ThreadMain(void *argp)
 					 * If this is a newly added connection, complete the handshake
 					 */
 					if (!conninfo->con_authenticated)
-						GTMProxy_HandshakeConnection(conninfo);
+						GTMProxy_HandshakeConnection(conninfo,&thrinfo->thr_lock);
 
 					thrinfo->thr_poll_fds[ii].fd = conninfo->con_port->sock;
 					thrinfo->thr_poll_fds[ii].events = POLLIN;
@@ -2543,7 +2543,7 @@ GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
 }
 
 static void
-GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
+GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo,GTM_MutexLock *lock)
 {
 	/*
 	 * We expect a startup message at the very start. The message type is
@@ -2557,11 +2557,20 @@ GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 	startup_type = pq_getbyte(conninfo->con_port);
 
 	if (startup_type != 'A')
+        { 
+		GTM_MutexLockRelease(lock); 
+		if (conninfo->con_port->sock >= 0)
+                {
+                close(conninfo->con_port->sock);
+                conninfo->con_port->sock = -1;
+                 }
+                conninfo->con_disconnected=true;
+		elog(WARNING, "Expecting a startup message, but received %c.\n", startup_type);
 		ereport(ERROR,
 				(EPROTO,
 				 errmsg("Expecting a startup message, but received %c",
 					 startup_type)));
-
+        } 
 	initStringInfo(&inBuf);
 
 	/*
@@ -2569,11 +2578,23 @@ GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 	 * after the type code; we can read the message contents independently of
 	 * the type.
 	 */
+        Disable_Longjmp();
 	if (pq_getmessage(conninfo->con_port, &inBuf, 0))
+        {
+	        Enable_Longjmp();
+                GTM_MutexLockRelease(lock); 
+		if (conninfo->con_port->sock >= 0)
+                {
+                close(conninfo->con_port->sock);
+                conninfo->con_port->sock = -1;
+                }
+                conninfo->con_disconnected=true; 	
+		elog(WARNING, "Expecting PGXC Node ID, but received EOF.\n");
 		ereport(ERROR,
 				(EPROTO,
 				 errmsg("Expecting PGXC Node ID, but received EOF")));
-
+        } 
+	Enable_Longjmp();
 	memcpy(&sp,
 		   pq_getmsgbytes(&inBuf, sizeof (GTM_StartupPacket)),
 		   sizeof (GTM_StartupPacket));
