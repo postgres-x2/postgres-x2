@@ -2086,6 +2086,8 @@ remove_database_pool(const char *database, const char *user_name)
 /*
  * Acquire connection
  */
+
+#define POOLER_RETRY_MAX 3
 static PGXCNodePoolSlot *
 acquire_connection(DatabasePool *dbPool, Oid node)
 {
@@ -2111,9 +2113,10 @@ acquire_connection(DatabasePool *dbPool, Oid node)
 	while (nodePool && nodePool->freeSize > 0)
 	{
 		int			poll_result;
-
+		int			count = 0;
 		slot = nodePool->slot[--(nodePool->freeSize)];
 retry:
+
 		if (PQsocket((PGconn *) slot->conn) > 0)
 		{
 			/*
@@ -2126,9 +2129,10 @@ retry:
 				break; 		/* ok, no data */
 			else if (poll_result < 0)
 			{
-				if (errno == EAGAIN || errno == EINTR)
+				if ((errno == EAGAIN || errno == EINTR) &&(count<POOLER_RETRY_MAX))
             	{
 				    errno = 0;
+				    count=count+1;
 				    goto retry;
 			     }
 
