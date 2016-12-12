@@ -93,7 +93,7 @@ trim_trailing_slash(char *path)
 	{
 		if (*last == '/')
 		{
-			last = 0;
+			*last = 0;
 			last--;
 			continue;
 		}
