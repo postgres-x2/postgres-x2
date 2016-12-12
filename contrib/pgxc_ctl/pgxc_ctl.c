@@ -285,7 +285,7 @@ prepare_pgxc_ctl_bash(char *path)
 	rc = stat(path, &buf);
 	if (S_ISREG(buf.st_mode))
 		return;
-	fprintf(stderr, "Error: caould not install bash script %s\n", path);
+	fprintf(stderr, "Error: could not install bash script %s\n", path);
 	exit(1);
 }
 
