@@ -2477,6 +2477,7 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			result->planTree = set_plan_references(root, result->planTree);
 			result->relationOids = glob->relationOids;
 			result->invalItems = glob->invalItems;
+			result->queryId = query->queryId;
 		}
 	}
 
@@ -2620,6 +2621,7 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	result->rtable = query->rtable;
 	result->relationOids = glob->relationOids;
 	result->invalItems = glob->invalItems;
+	result->queryId = query->queryId;
 
 	/*
 	 * If query is DECLARE CURSOR fetch CTIDs and node names from the remote node
