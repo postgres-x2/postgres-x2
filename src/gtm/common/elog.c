@@ -28,6 +28,7 @@
 #include "gtm/gtm_ext.h"
 #include "gtm/libpq.h"
 #include "gtm/pqformat.h"
+#include "gtm/gtm_ipc.h"
 
 #undef _
 #define _(x)	x
@@ -207,7 +208,7 @@ errstart(int elevel, const char *filename, int lineno,
 		 */
 		if (elevel == ERROR)
 		{
-			if (PG_exception_stack == NULL)
+			if (PG_exception_stack == NULL || gtm_proc_exit_inprogress)
 				elevel = FATAL;
 		}
 

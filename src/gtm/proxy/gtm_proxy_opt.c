@@ -55,8 +55,9 @@ extern int GTMProxyWorkerThreads;
 extern char *GTMProxyDataDir;
 extern char *GTMProxyConfigFileName;
 extern char *GTMConfigFileName;
-
-
+extern char *Unix_socket_directory;
+extern char *Unix_socket_group;
+extern int Unix_socket_permissions;
 /*
  * Macros for values
  *
@@ -161,6 +162,19 @@ struct config_int ConfigureNamesInt[] =
 		6666, 0, INT_MAX,
 		0, NULL
 	},
+
+	{
+		{
+			GTM_OPTNAME_UNIX_SOCKET_PERMISSOINS, GTMC_STARTUP,
+			gettext_noop("Sets the access permissions of the Unix-domain socket."),
+			NULL,
+			0
+		},
+		&Unix_socket_permissions,
+		0777, 0000, 0777,
+		0, NULL
+	},
+
 	{
 		{
 			GTM_OPTNAME_GTM_PORT, GTMC_SIGHUP,
@@ -296,13 +310,43 @@ struct config_string ConfigureNamesString[] =
 
 	{
 		{
+			GTM_OPTNAME_UNIX_SOCKET_DIRECTORY, GTMC_STARTUP,
+		 	gettext_noop("Sets the directory where Unix-domain socket will be created."),
+		 	NULL,
+		 	0
+		},
+		&Unix_socket_directory,
+#ifdef HAVE_UNIX_SOCKETS
+		DEFAULT_PGSOCKET_DIR,
+#else
+		"",
+#endif
+		NULL,
+		NULL
+	},
+
+	{
+		{
+			GTM_OPTNAME_UNIX_SOCKET_GROUP, GTMC_STARTUP,
+		 	gettext_noop("Sets the owning group of the Unix-domain socket."),
+		 	NULL,
+		 	0
+		},
+		&Unix_socket_group,
+		"",
+		NULL,
+		NULL
+	},
+
+	{
+		{
 			GTM_OPTNAME_GTM_HOST, GTMC_SIGHUP,
 			gettext_noop("Address of target GTM ACT."),
 			NULL,
 			0
 		},
 		&GTMServerHost,
-		NULL,
+		"localhost",
 		NULL, NULL
 	},
 
@@ -341,6 +385,7 @@ struct config_string ConfigureNamesString[] =
 		NULL,
 		NULL, NULL
 	},
+
 
 	/* End-of-list marker */
 	{
