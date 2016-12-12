@@ -180,13 +180,17 @@ deploy_xc(char **hostlist)
 		/* Extract Tarball and remove it */
 		appendCmdEl(cmd, (cmdTarExtract = initCmd(hostlist[ii])));
 		snprintf(newCommand(cmdTarExtract), MAXLINE,
-				 "tar xzCf %s %s/%s; rm %s/%s",
+				 "tar xzCf %s %s/%s;",
 				  sval(VAR_pgxcInstallDir), 
-				  sval(VAR_tmpDir), tarFile,
 				  sval(VAR_tmpDir), tarFile);
 	}
 	doCmdList(cmdList);
 	cleanCmdList(cmdList);
+	for (ii = 0; hostlist[ii]; ii++)
+	{
+		doImmediate(NULL, NULL, "rm -f %s/%s",
+					hostlist[ii], tarFile);
+	}
 	doImmediate(NULL, NULL, "rm -f %s/%s",
 				sval(VAR_tmpDir), tarFile);
 	elog(NOTICE, "Deployment done.\n");
@@ -1564,14 +1568,14 @@ show_configuration(char *line)
 			if (!isVarYes(VAR_coordSlave))
 				elog(ERROR, "ERROR: Coordinator slave is not configured.\n");
 			else if (GetToken() == NULL)
-				show_config_coordMasterMulti(aval(VAR_coordNames));
+				show_config_coordSlaveMulti(aval(VAR_coordNames));
 			else
 			{
 				char **nodeList = Malloc0(sizeof(char *));
 				do
 					AddMember(nodeList, token);
 				while(GetToken());
-				show_config_coordMasterMulti(nodeList);
+				show_config_coordSlaveMulti(nodeList);
 				clean_array(nodeList);
 			}
 		}
@@ -1601,14 +1605,14 @@ show_configuration(char *line)
 			if (!isVarYes(VAR_datanodeSlave))
 				elog(ERROR, "ERROR: Datanode slave is not configured.\n");
 			else if (GetToken() == NULL)
-				show_config_datanodeMasterMulti(aval(VAR_datanodeNames));
+				show_config_datanodeSlaveMulti(aval(VAR_datanodeNames));
 			else
 			{
 				char **nodeList = Malloc0(sizeof(char *));
 				do
 					AddMember(nodeList, token);
 				while(GetToken());
-				show_config_datanodeMasterMulti(nodeList);
+				show_config_datanodeSlaveMulti(nodeList);
 				clean_array(nodeList);
 			}
 		}
