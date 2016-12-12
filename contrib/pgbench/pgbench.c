@@ -371,13 +371,13 @@ usage(void)
 		   "\nInitialization options:\n"
 		   "  -i, --initialize         invokes initialization mode\n"
 		   "  -F, --fillfactor=NUM     set fill factor\n"
-#ifdef PGXC
+/*#ifdef PGXC
 		   "  -k           distribute each table by primary key\n"
-#endif
+#endif*/
 		   "  -n, --no-vacuum          do not run VACUUM after initialization\n"
 		   "  -q, --quiet              quiet logging (one message each 5 seconds)\n"
 		   "  -s, --scale=NUM          scaling factor\n"
-		   "  --foreign-keys           create foreign key constraints between tables\n"
+/*		   "  --foreign-keys           create foreign key constraints between tables\n"*/
 		   "  --index-tablespace=TABLESPACE\n"
 		   "                           create indexes in the specified tablespace\n"
 		   "  --tablespace=TABLESPACE  create tables in the specified tablespace\n"
@@ -388,9 +388,9 @@ usage(void)
 		   "  -D, --define=VARNAME=VALUE\n"
 		   "                           define variable for use by custom script\n"
 		   "  -f, --file=FILENAME      read transaction script from FILENAME\n"
-#ifdef PGXC
+/*#ifdef PGXC
 		   "  -k           query with primary key that is used for distribution\n"
-#endif
+#endif*/
 		   "  -j, --jobs=NUM           number of threads (default: 1)\n"
 		   "  -l, --log                write transaction times to log file\n"
 		   "  -M, --protocol=simple|extended|prepared\n"
@@ -2233,7 +2233,7 @@ main(int argc, char **argv)
 		{"username", required_argument, NULL, 'U'},
 		{"vacuum-all", no_argument, NULL, 'v'},
 		/* long-named only options */
-		{"foreign-keys", no_argument, &foreign_keys, 1},
+/*		{"foreign-keys", no_argument, &foreign_keys, 1},*/
 		{"index-tablespace", required_argument, NULL, 3},
 		{"tablespace", required_argument, NULL, 2},
 		{"unlogged-tables", no_argument, &unlogged_tables, 1},
@@ -2318,7 +2318,7 @@ main(int argc, char **argv)
 				break;
 #ifdef PGXC
 			case 'k':
-				use_branch = true;
+/*				use_branch = true;*/
 				break;
 #endif
 			case 'h':
