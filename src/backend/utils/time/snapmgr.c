@@ -67,6 +67,9 @@
  */
 static SnapshotData CurrentSnapshotData = {HeapTupleSatisfiesMVCC};
 static SnapshotData SecondarySnapshotData = {HeapTupleSatisfiesMVCC};
+#ifdef PGXC
+static SnapshotData LastSnapshotData = {HeapTupleSatisfiesMVCC};
+#endif
 
 /* Pointers to valid snapshots */
 static Snapshot CurrentSnapshot = NULL;
@@ -233,6 +236,18 @@ GetLatestSnapshot(void)
 
 	return SecondarySnapshot;
 }
+
+#ifdef PGXC
+/*
+ * GetLastSnapshot
+ *		Return a simplified snapshot
+ */
+Snapshot
+GetLastSnapshot(void)
+{
+	return GetLastSnapshotData(&LastSnapshotData);
+}
+#endif
 
 /*
  * SnapshotSetCommandId

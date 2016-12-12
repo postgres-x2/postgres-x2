@@ -1357,6 +1357,27 @@ GetMaxSnapshotSubxidCount(void)
 	return TOTAL_MAX_CACHED_SUBXIDS;
 }
 
+#ifdef PGXC
+
+Snapshot
+GetLastSnapshotData(Snapshot snapshot)
+{
+
+	snapshot->xmin = RecentXmin;
+	snapshot->xmax = ShmemVariableCache->latestCompletedXid;;
+	snapshot->xcnt = 0;
+	snapshot->subxcnt = 0;
+	snapshot->suboverflowed = false;
+	snapshot->curcid = GetCurrentCommandId(false);
+	snapshot->active_count = 0;
+	snapshot->regd_count = 0;
+	snapshot->copied = false;
+
+	return snapshot;
+
+}
+#endif
+
 /*
  * GetSnapshotData -- returns information about running transactions.
  *

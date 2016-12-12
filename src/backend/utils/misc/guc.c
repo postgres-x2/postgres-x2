@@ -448,6 +448,10 @@ bool		SQL_inheritance = true;
 
 bool		Password_encryption = true;
 
+#ifdef PGXC
+bool		save_snapshot = false;
+#endif
+
 int			log_min_error_statement = ERROR;
 int			log_min_messages = WARNING;
 int			client_min_messages = NOTICE;
@@ -1572,6 +1576,16 @@ static struct config_bool ConfigureNamesBool[] =
 		&xc_maintenance_mode,
 		false,
 		check_pgxc_maintenance_mode, NULL, NULL
+	},
+	{
+		{"save_snapshot", PGC_SIGHUP, COORDINATORS,
+		    gettext_noop("Enables coordinator avoid fetching snapshot for parse "
+						"analysis/planning if metadata is stable"),
+			NULL
+		},
+		&save_snapshot,
+		false,
+		NULL, NULL, NULL
 	},
 #endif
 

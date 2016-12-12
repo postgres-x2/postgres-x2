@@ -610,6 +610,9 @@
 					# are pending.
 					# Usage of commit instead of two-phase commit may break
 					# data consistency so use at your own risk.
+					
+#save_snapshot = off	# Enable coordinator avoid fetching snapshot for parse 
+					# analysis/planning if metadata is sstable 
 
 # - Postgres-XC specific Planner Method Configuration
 
