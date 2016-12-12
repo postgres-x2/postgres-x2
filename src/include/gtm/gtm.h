@@ -38,6 +38,7 @@ typedef enum GTM_ThreadStatus
 struct GTM_ConnectionInfo;
 
 #define ERRORDATA_STACK_SIZE  20
+#define THREAD_TRANSACTION_ARRAY_SIZE 64
 
 typedef struct GTM_ThreadInfo
 {
@@ -66,6 +67,8 @@ typedef struct GTM_ThreadInfo
 	GTM_ConnectionInfo	*thr_conn;
 
 	GTM_RWLock			thr_lock;
+	gtm_List			*thr_tmp_open_transactions;
+	gtm_List			*thr_backend_open_transactions[THREAD_TRANSACTION_ARRAY_SIZE];
 	gtm_List				*thr_cached_txninfo;
 } GTM_ThreadInfo;
 

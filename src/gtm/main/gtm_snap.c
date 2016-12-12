@@ -22,6 +22,7 @@
 #include "gtm/libpq.h"
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
+#include "gtm/gtm_avl.h"
 
 /*
  * Get snapshot for the given transactions. If this is the first call in the
@@ -58,7 +59,6 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	int			count = 0;
 	gtm_ListCell *elem = NULL;
 	int ii;
-
 	/*
 	 * Instead of allocating memory for a snapshot, we use the snapshot of the
 	 * first transaction in the given array. The same snapshot will later be
@@ -107,10 +107,10 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	}
 
 	/*
-	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
-	 * going to set MyProc->xmin.
+	 * We need to get write lock on ProcArrayLock, since we will change the AVL
+	 * tree of GTMTransactions.gt_xmin_avl_tree_stat
 	 */
-	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
+	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
 
 	/* xmax is always latestCompletedXid + 1 */
 	xmax = GTMTransactions.gt_latestCompletedXid;
@@ -124,9 +124,16 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	 * Spin over transaction list checking xid, xmin, and subxids.  The goal is to
 	 * gather all active xids and find the lowest xmin
 	 */
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions)
+    if (GTMTransactions.gt_xmin_avl_tree_stat->root != NULL){
+		xmin = gtm_avl_find_min_value_int(GTMTransactions.gt_xmin_avl_tree_stat);
+	}
+
+	gtm_avl_find_value_int_bellow(GTMTransactions.gt_gxid_avl_tree_stat, xmax);
+    
+	for ( ii =0; ii < GTMTransactions.gt_gxid_avl_tree_stat->scan_result_NO; ii++)
 	{
-		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
+		volatile GTM_TransactionInfo *gtm_txninfo =
+                    (GTM_TransactionInfo *)avl_node_data_pnt(GTMTransactions.gt_gxid_avl_tree_stat->scan_result[ii]);
 		GlobalTransactionId xid;
 
 		/* Don't take into account LAZY VACUUMs */
@@ -134,11 +141,6 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			continue;
 
 		/* Update globalxmin to be the smallest valid xmin */
-		xid = gtm_txninfo->gti_xmin;		/* fetch just once */
-		if (GlobalTransactionIdIsNormal(xid) &&
-			GlobalTransactionIdPrecedes(xid, globalxmin))
-			globalxmin = xid;
-
 		/* Fetch xid just once - see GetNewTransactionId */
 		xid = gtm_txninfo->gti_gxid;
 
@@ -163,14 +165,11 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 			 * on the MVCC visibility and check if any changes are related to
 			 * the MVCC checks because of the change
 			 */
-			if (GlobalTransactionIdFollowsOrEquals(xid, xmax))
-				continue;
 			if (GlobalTransactionIdPrecedes(xid, xmin))
 				xmin = xid;
 			snapshot->sn_xip[count++] = xid;
 		}
 	}
-
 	/*
 	 * Update globalxmin to include actual process xids.  This is a slightly
 	 * different way of computing it than GetOldestXmin uses, but should give
@@ -258,8 +257,15 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 		}
 
 		if ((mygtm_txninfo != NULL) &&
-			(!GlobalTransactionIdIsValid(mygtm_txninfo->gti_xmin)))
+			(!GlobalTransactionIdIsValid(mygtm_txninfo->gti_xmin))) {
 			mygtm_txninfo->gti_xmin = xmin;
+		    if (!mygtm_txninfo->gti_vacuum) {
+				/* insert the xmin to the avl tree of gt_xmin_avl_tree_stat, so 
+ 				 * gtm can get the smallest very fast when get snapshot next time
+				 */
+			    gtm_avl_insert_value_int(GTMTransactions.gt_xmin_avl_tree_stat, xmin);
+		    }
+        }
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
