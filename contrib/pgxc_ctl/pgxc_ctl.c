@@ -78,6 +78,8 @@ static void startLog(char *path, char *logFileNam);
 static void print_version(void);
 static void print_help(void);
 
+static int isInstalled = 0;
+
 static void
 trim_trailing_slash(char *path)
 {
@@ -245,7 +247,8 @@ read_configuration(void)
 	FILE *conf;
 	char cmd[MAXPATH+1];
 
-	install_pgxc_ctl_bash(pgxc_ctl_bash_path);
+	if(!isInstalled)
+		install_pgxc_ctl_bash(pgxc_ctl_bash_path);
 	if (pgxc_ctl_config_path[0])
 		snprintf(cmd, MAXPATH, "%s --home %s --configuration %s", 
 				 pgxc_ctl_bash_path, pgxc_ctl_home, pgxc_ctl_config_path);
@@ -272,7 +275,10 @@ prepare_pgxc_ctl_bash(char *path)
 
 	rc = stat(path, &buf);
 	if (rc)
+	{
 		install_pgxc_ctl_bash(path);
+		isInstalled = 1;
+	}
 	else
 		if (S_ISREG(buf.st_mode))
 			return;
