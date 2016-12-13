@@ -2040,12 +2040,6 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 	List	   *rewritten = NIL;
 	ListCell   *lc1;
 
-#ifdef PGXC
-	List	*parsetree_list = NIL;
-	List *qual_product_list = NIL;
-	ListCell *pt_cell = NULL;
-#endif
-
 	/*
 	 * First, recursively process any insert/update/delete statements in WITH
 	 * clauses.  (We have to do this first because the WITH clauses may get
@@ -2187,10 +2181,6 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		else
 			elog(ERROR, "unrecognized commandType: %d", (int) event);
 
-#ifdef PGXC
-		if (parsetree_list == NIL)
-		{
-#endif
 		/*
 		 * Collect and apply the appropriate rules.
 		 */
@@ -2199,12 +2189,11 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 
 		if (locks != NIL)
 		{
-#ifdef PGXC
-			List	   *product_queries = NIL;
-
-			if (IS_PGXC_COORDINATOR)
-#else
 			List	   *product_queries;
+
+#ifdef PGXC
+			product_queries = NIL;
+			if (IS_PGXC_COORDINATOR)
 #endif
 			product_queries = fireRules(parsetree,
 										result_relation,
@@ -2294,124 +2283,8 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		}
 
 		heap_close(rt_entry_relation, NoLock);
-#ifdef PGXC
-		}
-		else
-		{
-			foreach(pt_cell, parsetree_list)
-			{
-				Query  *query;
-
-				query = (Query *)lfirst(pt_cell);
-
-				/*
-				 * Collect and apply the appropriate rules.
-				 */
-				locks = matchLocks(event, rt_entry_relation->rd_rules,
-							   result_relation, query);
-
-				if (locks != NIL)
-				{
-					List	   *product_queries = NIL;
-
-					if (IS_PGXC_COORDINATOR)
-						product_queries = fireRules(query,
-										result_relation,
-										event,
-										locks,
-										&instead,
-										&returning,
-										&qual_product);
-
-					qual_product_list = lappend(qual_product_list,  qual_product);
-
-					/*
-					 * If we got any product queries, recursively rewrite them --- but
-					 * first check for recursion!
-					 */
-					if (product_queries != NIL)
-					{
-						ListCell   *n;
-						rewrite_event *rev;
-
-						foreach(n, rewrite_events)
-						{
-							rev = (rewrite_event *) lfirst(n);
-							if (rev->relation == RelationGetRelid(rt_entry_relation) &&
-								rev->event == event)
-								ereport(ERROR,
-										(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-										 errmsg("infinite recursion detected in rules for relation \"%s\"",
-									   RelationGetRelationName(rt_entry_relation))));
-						}
-
-						rev = (rewrite_event *) palloc(sizeof(rewrite_event));
-						rev->relation = RelationGetRelid(rt_entry_relation);
-						rev->event = event;
-						rewrite_events = lcons(rev, rewrite_events);
-
-						foreach(n, product_queries)
-						{
-							Query	   *pt = (Query *) lfirst(n);
-							List	   *newstuff;
-
-							newstuff = RewriteQuery(pt, rewrite_events);
-							rewritten = list_concat(rewritten, newstuff);
-						}
-
-						rewrite_events = list_delete_first(rewrite_events);
-					}
-				}
-
-				/*
-				 * If there is an INSTEAD, and the original query has a RETURNING, we
-				 * have to have found a RETURNING in the rule(s), else fail. (Because
-				 * DefineQueryRewrite only allows RETURNING in unconditional INSTEAD
-				 * rules, there's no need to worry whether the substituted RETURNING
-				 * will actually be executed --- it must be.)
-				 */
-				if ((instead || qual_product != NULL) &&
-					query->returningList &&
-					!returning)
-				{
-					switch (event)
-					{
-						case CMD_INSERT:
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("cannot perform INSERT RETURNING on relation \"%s\"",
-										 RelationGetRelationName(rt_entry_relation)),
-									 errhint("You need an unconditional ON INSERT DO INSTEAD rule with a RETURNING clause.")));
-							break;
-						case CMD_UPDATE:
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("cannot perform UPDATE RETURNING on relation \"%s\"",
-										 RelationGetRelationName(rt_entry_relation)),
-									 errhint("You need an unconditional ON UPDATE DO INSTEAD rule with a RETURNING clause.")));
-							break;
-						case CMD_DELETE:
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("cannot perform DELETE RETURNING on relation \"%s\"",
-										 RelationGetRelationName(rt_entry_relation)),
-									 errhint("You need an unconditional ON DELETE DO INSTEAD rule with a RETURNING clause.")));
-							break;
-						default:
-							elog(ERROR, "unrecognized commandType: %d",
-								 (int) event);
-							break;
-					}
-				}
-			}
-
-			heap_close(rt_entry_relation, NoLock);
-		}
 	}
 
-	if (parsetree_list == NIL)
-	{
-#endif
 	/*
 	 * For INSERTs, the original query is done first; for UPDATE/DELETE, it is
 	 * done last.  This is needed because update and delete rule actions might
@@ -2441,44 +2314,6 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewritten = lappend(rewritten, parsetree);
 		}
 	}
-#ifdef PGXC
-	}
-	else
-	{
-		int query_no = 0;
-
-		foreach(pt_cell, parsetree_list)
-		{
-
-			Query	*query = NULL;
-			Query	*qual = NULL;
-
-			query = (Query *)lfirst(pt_cell);
-			if (!instead)
-			{
- 				if (qual_product_list)
-					qual = (Query *)list_nth(qual_product_list,
-										 query_no);
-
-				if (query->commandType == CMD_INSERT)
-				{
-					if (qual != NULL)
-						rewritten = lcons(qual, rewritten);
-					else
-						rewritten = lcons(query, rewritten);
-				}
-				else
-				{
-					if (qual != NULL)
-						rewritten = lappend(rewritten, qual);
-					else
-						rewritten = lappend(rewritten, query);
-				}
-			}
-			query_no++;
-		}
-	}
-#endif
 
 	/*
 	 * If the original query has a CTE list, and we generated more than one
