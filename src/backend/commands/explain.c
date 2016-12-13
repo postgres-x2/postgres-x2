@@ -915,7 +915,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 #ifdef PGXC
 		case T_RemoteQuery:
-			pname = sname = "Data Node Scan";
+			pname = "Data Node Scan";
 			break;
 #endif
 		case T_ForeignScan:
